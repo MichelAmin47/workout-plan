@@ -460,8 +460,16 @@ const phaseColors = {
   "Nieuwe Prikkel": { bg: "#ede9fe", text: "#6d28d9", dot: "#8b5cf6" },
 };
 
+function getCurrentWeekIndex() {
+  const now = new Date();
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+  const dayOfYear = Math.floor((now - startOfYear) / 86400000);
+  const isoWeek = Math.ceil((dayOfYear + startOfYear.getDay() + 1) / 7);
+  return Math.min(Math.max(isoWeek - 23, 0), 4);
+}
+
 export default function FitnessSchema() {
-  const [selectedWeek, setSelectedWeek] = useState(0);
+  const [selectedWeek, setSelectedWeek] = useState(getCurrentWeekIndex);
   const [selectedDay, setSelectedDay] = useState(0);
   const [expandedSections, setExpandedSections] = useState({ spiergroep: true, barbell: true, kettlebell: true, core: true });
 
