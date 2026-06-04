@@ -20,6 +20,7 @@ const schema = {
             { name: "Leg Press", sets: "4x10", note: "" },
             { name: "Lunges (dumbbells)", sets: "3x12", note: "" },
             { name: "Leg Curl Machine", sets: "3x12", note: "" },
+            { name: "Leg Extension Machine", sets: "3x12", note: "" },
           ],
           barbell: { name: "Barbell Back Squat", sets: "4x8", note: "Focusgwicht" },
           kettlebell: [
@@ -39,6 +40,7 @@ const schema = {
             { name: "Incline Dumbbell Press", sets: "4x10", note: "" },
             { name: "Cable Fly", sets: "3x12", note: "" },
             { name: "Tricep Pushdown", sets: "3x12", note: "" },
+            { name: "Skull Crusher", sets: "3x12", note: "" },
           ],
           barbell: { name: "Barbell Bench Press", sets: "4x8", note: "Focusgewicht" },
           kettlebell: [
@@ -58,6 +60,7 @@ const schema = {
             { name: "Seated Cable Row", sets: "4x10", note: "" },
             { name: "Lat Pulldown", sets: "3x12", note: "" },
             { name: "Dumbbell Curl", sets: "3x12", note: "" },
+            { name: "Concentration Curl", sets: "3x12", note: "" },
           ],
           barbell: { name: "Barbell Deadlift", sets: "4x6", note: "Focusgewicht" },
           kettlebell: [
@@ -77,6 +80,7 @@ const schema = {
             { name: "Dumbbell Lateral Raise", sets: "4x12", note: "" },
             { name: "Face Pull (cable)", sets: "3x15", note: "" },
             { name: "Arnold Press", sets: "3x10", note: "" },
+            { name: "Cable Shrug", sets: "3x15", note: "" },
           ],
           barbell: { name: "Barbell Overhead Press", sets: "4x8", note: "Focusgewicht" },
           kettlebell: [
@@ -103,6 +107,7 @@ const schema = {
             { name: "Leg Press", sets: "4x10", note: "+gewicht" },
             { name: "Lunges (dumbbells)", sets: "4x12", note: "+gewicht" },
             { name: "Leg Curl Machine", sets: "4x12", note: "+gewicht" },
+            { name: "Leg Extension Machine", sets: "4x12", note: "+gewicht" },
           ],
           barbell: { name: "Barbell Back Squat", sets: "4x8", note: "+5kg" },
           kettlebell: [
@@ -122,6 +127,7 @@ const schema = {
             { name: "Incline Dumbbell Press", sets: "4x10", note: "+gewicht" },
             { name: "Cable Fly", sets: "4x12", note: "+gewicht" },
             { name: "Tricep Pushdown", sets: "4x12", note: "+gewicht" },
+            { name: "Skull Crusher", sets: "4x12", note: "+gewicht" },
           ],
           barbell: { name: "Barbell Bench Press", sets: "4x8", note: "+5kg" },
           kettlebell: [
@@ -141,6 +147,7 @@ const schema = {
             { name: "Seated Cable Row", sets: "4x10", note: "+gewicht" },
             { name: "Lat Pulldown", sets: "4x12", note: "+gewicht" },
             { name: "Dumbbell Curl", sets: "4x12", note: "+gewicht" },
+            { name: "Concentration Curl", sets: "4x12", note: "+gewicht" },
           ],
           barbell: { name: "Barbell Deadlift", sets: "4x6", note: "+5kg" },
           kettlebell: [
@@ -160,6 +167,7 @@ const schema = {
             { name: "Dumbbell Lateral Raise", sets: "4x12", note: "+gewicht" },
             { name: "Face Pull (cable)", sets: "4x15", note: "+gewicht" },
             { name: "Arnold Press", sets: "4x10", note: "+gewicht" },
+            { name: "Cable Shrug", sets: "4x15", note: "+gewicht" },
           ],
           barbell: { name: "Barbell Overhead Press", sets: "4x8", note: "+5kg" },
           kettlebell: [
@@ -186,6 +194,7 @@ const schema = {
             { name: "Leg Press", sets: "5x10", note: "+gewicht" },
             { name: "Lunges (dumbbells)", sets: "4x12", note: "+gewicht" },
             { name: "Leg Curl Machine", sets: "4x12", note: "+gewicht" },
+            { name: "Leg Extension Machine", sets: "4x12", note: "+gewicht" },
           ],
           barbell: { name: "Barbell Back Squat", sets: "5x6", note: "+5kg piek" },
           kettlebell: [
@@ -205,6 +214,7 @@ const schema = {
             { name: "Incline Dumbbell Press", sets: "5x10", note: "+gewicht" },
             { name: "Cable Fly", sets: "4x12", note: "+gewicht" },
             { name: "Tricep Pushdown", sets: "4x12", note: "+gewicht" },
+            { name: "Skull Crusher", sets: "4x12", note: "+gewicht" },
           ],
           barbell: { name: "Barbell Bench Press", sets: "5x6", note: "+5kg piek" },
           kettlebell: [
@@ -224,6 +234,7 @@ const schema = {
             { name: "Seated Cable Row", sets: "5x10", note: "+gewicht" },
             { name: "Lat Pulldown", sets: "4x12", note: "+gewicht" },
             { name: "Dumbbell Curl", sets: "4x12", note: "+gewicht" },
+            { name: "Concentration Curl", sets: "4x12", note: "+gewicht" },
           ],
           barbell: { name: "Barbell Deadlift", sets: "5x5", note: "+5kg piek" },
           kettlebell: [
@@ -243,6 +254,7 @@ const schema = {
             { name: "Dumbbell Lateral Raise", sets: "5x12", note: "+gewicht" },
             { name: "Face Pull (cable)", sets: "4x15", note: "+gewicht" },
             { name: "Arnold Press", sets: "4x10", note: "+gewicht" },
+            { name: "Cable Shrug", sets: "4x15", note: "+gewicht" },
           ],
           barbell: { name: "Barbell Overhead Press", sets: "5x6", note: "+5kg piek" },
           kettlebell: [
@@ -270,6 +282,7 @@ const schema = {
             { name: "Hack Squat Machine", sets: "4x10", note: "Nieuw" },
             { name: "Bulgarian Split Squat", sets: "4x10/been", note: "Nieuw" },
             { name: "Hip Thrust (barbell)", sets: "4x12", note: "Nieuw" },
+            { name: "Leg Extension Machine", sets: "4x12", note: "Nieuw" },
           ],
           barbell: { name: "Barbell Front Squat", sets: "4x8", note: "Nieuw patroon" },
           kettlebell: [
@@ -289,6 +302,7 @@ const schema = {
             { name: "Decline Dumbbell Press", sets: "4x10", note: "Nieuw" },
             { name: "Pec Deck Machine", sets: "4x12", note: "Nieuw" },
             { name: "Overhead Tricep Extension", sets: "4x12", note: "Nieuw" },
+            { name: "Cable Tricep Kickback", sets: "4x12", note: "Nieuw" },
           ],
           barbell: { name: "Barbell Close Grip Bench Press", sets: "4x8", note: "Nieuw patroon" },
           kettlebell: [
@@ -308,6 +322,7 @@ const schema = {
             { name: "T-Bar Row", sets: "4x10", note: "Nieuw" },
             { name: "Wide Grip Pulldown", sets: "4x12", note: "Nieuw" },
             { name: "Hammer Curl", sets: "4x12", note: "Nieuw" },
+            { name: "Spider Curl", sets: "4x12", note: "Nieuw" },
           ],
           barbell: { name: "Barbell Pendlay Row", sets: "4x6", note: "Nieuw patroon" },
           kettlebell: [
@@ -327,6 +342,7 @@ const schema = {
             { name: "Cable Lateral Raise", sets: "4x15", note: "Nieuw" },
             { name: "Reverse Fly (pec deck)", sets: "4x15", note: "Nieuw" },
             { name: "Barbell Upright Row", sets: "4x10", note: "Nieuw" },
+            { name: "Dumbbell Front Raise", sets: "4x12", note: "Nieuw" },
           ],
           barbell: { name: "Barbell Push Press", sets: "4x6", note: "Nieuw explosief" },
           kettlebell: [
@@ -353,6 +369,7 @@ const schema = {
             { name: "Hack Squat Machine", sets: "5x10", note: "+gewicht" },
             { name: "Bulgarian Split Squat", sets: "4x12/been", note: "+gewicht" },
             { name: "Hip Thrust (barbell)", sets: "5x12", note: "+gewicht" },
+            { name: "Leg Extension Machine", sets: "5x12", note: "+gewicht" },
           ],
           barbell: { name: "Barbell Front Squat", sets: "5x6", note: "+gewicht piek" },
           kettlebell: [
@@ -372,6 +389,7 @@ const schema = {
             { name: "Decline Dumbbell Press", sets: "5x10", note: "+gewicht" },
             { name: "Pec Deck Machine", sets: "4x12", note: "+gewicht" },
             { name: "Overhead Tricep Extension", sets: "4x15", note: "+gewicht" },
+            { name: "Cable Tricep Kickback", sets: "4x15", note: "+gewicht" },
           ],
           barbell: { name: "Barbell Close Grip Bench Press", sets: "5x6", note: "+gewicht piek" },
           kettlebell: [
@@ -391,6 +409,7 @@ const schema = {
             { name: "T-Bar Row", sets: "5x10", note: "+gewicht" },
             { name: "Wide Grip Pulldown", sets: "4x12", note: "+gewicht" },
             { name: "Hammer Curl", sets: "4x15", note: "+gewicht" },
+            { name: "Spider Curl", sets: "4x15", note: "+gewicht" },
           ],
           barbell: { name: "Barbell Pendlay Row", sets: "5x5", note: "+gewicht piek" },
           kettlebell: [
@@ -410,6 +429,7 @@ const schema = {
             { name: "Cable Lateral Raise", sets: "5x15", note: "+gewicht" },
             { name: "Reverse Fly (pec deck)", sets: "4x15", note: "+gewicht" },
             { name: "Barbell Upright Row", sets: "4x12", note: "+gewicht" },
+            { name: "Dumbbell Front Raise", sets: "4x12", note: "+gewicht" },
           ],
           barbell: { name: "Barbell Push Press", sets: "5x5", note: "+gewicht piek" },
           kettlebell: [

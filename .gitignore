@@ -26,3 +26,4 @@ dist-ssr
 # Project-specific
 preview-app/
 .playwright-cli/
+.vercel
