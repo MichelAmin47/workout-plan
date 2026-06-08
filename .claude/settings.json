@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"systemMessage\": \"Tip: use /dev to start the Vite dev server at http://localhost:5173\"}'"
+          }
+        ]
+      }
+    ]
+  }
+}
