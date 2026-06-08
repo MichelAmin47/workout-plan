@@ -18,15 +18,15 @@ const schema = {
           dayId: 1,
           spiergroep: [
             { name: "Leg Press", sets: "4x10", note: "" },
-            { name: "Lunges (dumbbells)", sets: "3x12", note: "" },
+            { name: "Barbell Romanian Deadlift", sets: "3x12", note: "" },
             { name: "Leg Curl Machine", sets: "3x12", note: "" },
             { name: "Leg Extension Machine", sets: "3x12", note: "" },
           ],
           barbell: { name: "Barbell Back Squat", sets: "4x8", note: "Focusgwicht" },
           kettlebell: [
             { name: "KB Swing", sets: "3x15", note: "Full body explosief" },
-            { name: "KB Goblet Squat", sets: "3x12", note: "Full body" },
-            { name: "KB Romanian Deadlift", sets: "3x12", note: "Full body" },
+            { name: "KB Lateral Lunge", sets: "3x12", note: "Full body" },
+            { name: "KB Sumo Deadlift", sets: "3x12", note: "Full body" },
           ],
           core: [
             { name: "Plank", sets: "3x45sec", note: "" },
@@ -45,8 +45,8 @@ const schema = {
           barbell: { name: "Barbell Bench Press", sets: "4x8", note: "Focusgewicht" },
           kettlebell: [
             { name: "KB Clean & Press", sets: "3x10", note: "Full body" },
-            { name: "KB Renegade Row", sets: "3x8/arm", note: "Full body" },
-            { name: "KB Push Press", sets: "3x10", note: "Full body" },
+            { name: "KB Farmer's Carry", sets: "3x20m", note: "Full body" },
+            { name: "KB Swing", sets: "3x10", note: "Full body" },
           ],
           core: [
             { name: "Ab Wheel Rollout", sets: "3x10", note: "" },
@@ -64,9 +64,9 @@ const schema = {
           ],
           barbell: { name: "Barbell Deadlift", sets: "4x6", note: "Focusgewicht" },
           kettlebell: [
-            { name: "KB Single Arm Row", sets: "3x10/arm", note: "Full body" },
+            { name: "KB Wood Chop", sets: "3x10/arm", note: "Full body" },
             { name: "KB Swing", sets: "3x15", note: "Full body" },
-            { name: "KB Turkish Get-Up", sets: "3x5/arm", note: "Full body" },
+            { name: "KB Alternating March", sets: "3x5/arm", note: "Full body" },
           ],
           core: [
             { name: "Hanging Leg Raise", sets: "3x12", note: "" },
@@ -105,15 +105,15 @@ const schema = {
           dayId: 1,
           spiergroep: [
             { name: "Leg Press", sets: "4x10", note: "+gewicht" },
-            { name: "Lunges (dumbbells)", sets: "4x12", note: "+gewicht" },
+            { name: "Barbell Romanian Deadlift", sets: "4x12", note: "+gewicht" },
             { name: "Leg Curl Machine", sets: "4x12", note: "+gewicht" },
             { name: "Leg Extension Machine", sets: "4x12", note: "+gewicht" },
           ],
           barbell: { name: "Barbell Back Squat", sets: "4x8", note: "+5kg" },
           kettlebell: [
             { name: "KB Swing", sets: "4x15", note: "+gewicht" },
-            { name: "KB Goblet Squat", sets: "3x12", note: "+gewicht" },
-            { name: "KB Romanian Deadlift", sets: "3x12", note: "+gewicht" },
+            { name: "KB Lateral Lunge", sets: "3x12", note: "+gewicht" },
+            { name: "KB Sumo Deadlift", sets: "3x12", note: "+gewicht" },
           ],
           core: [
             { name: "Plank", sets: "3x60sec", note: "" },
@@ -132,8 +132,8 @@ const schema = {
           barbell: { name: "Barbell Bench Press", sets: "4x8", note: "+5kg" },
           kettlebell: [
             { name: "KB Clean & Press", sets: "4x10", note: "+gewicht" },
-            { name: "KB Renegade Row", sets: "3x8/arm", note: "+gewicht" },
-            { name: "KB Push Press", sets: "3x10", note: "+gewicht" },
+            { name: "KB Farmer's Carry", sets: "3x20m", note: "+gewicht" },
+            { name: "KB Swing", sets: "3x10", note: "+gewicht" },
           ],
           core: [
             { name: "Ab Wheel Rollout", sets: "3x12", note: "" },
@@ -151,9 +151,9 @@ const schema = {
           ],
           barbell: { name: "Barbell Deadlift", sets: "4x6", note: "+5kg" },
           kettlebell: [
-            { name: "KB Single Arm Row", sets: "4x10/arm", note: "+gewicht" },
+            { name: "KB Wood Chop", sets: "4x10/arm", note: "+gewicht" },
             { name: "KB Swing", sets: "4x15", note: "+gewicht" },
-            { name: "KB Turkish Get-Up", sets: "3x5/arm", note: "+gewicht" },
+            { name: "KB Alternating March", sets: "3x5/arm", note: "+gewicht" },
           ],
           core: [
             { name: "Hanging Leg Raise", sets: "3x15", note: "" },
@@ -192,15 +192,15 @@ const schema = {
           dayId: 1,
           spiergroep: [
             { name: "Leg Press", sets: "5x10", note: "+gewicht" },
-            { name: "Lunges (dumbbells)", sets: "4x12", note: "+gewicht" },
+            { name: "Barbell Romanian Deadlift", sets: "4x12", note: "+gewicht" },
             { name: "Leg Curl Machine", sets: "4x12", note: "+gewicht" },
             { name: "Leg Extension Machine", sets: "4x12", note: "+gewicht" },
           ],
           barbell: { name: "Barbell Back Squat", sets: "5x6", note: "+5kg piek" },
           kettlebell: [
             { name: "KB Swing", sets: "4x20", note: "Max explosief" },
-            { name: "KB Goblet Squat", sets: "4x12", note: "+gewicht" },
-            { name: "KB Romanian Deadlift", sets: "4x12", note: "+gewicht" },
+            { name: "KB Lateral Lunge", sets: "4x12", note: "+gewicht" },
+            { name: "KB Sumo Deadlift", sets: "4x12", note: "+gewicht" },
           ],
           core: [
             { name: "Plank", sets: "3x75sec", note: "" },
@@ -219,8 +219,8 @@ const schema = {
           barbell: { name: "Barbell Bench Press", sets: "5x6", note: "+5kg piek" },
           kettlebell: [
             { name: "KB Clean & Press", sets: "4x10", note: "+gewicht" },
-            { name: "KB Renegade Row", sets: "4x8/arm", note: "+gewicht" },
-            { name: "KB Push Press", sets: "4x10", note: "+gewicht" },
+            { name: "KB Farmer's Carry", sets: "4x20m", note: "+gewicht" },
+            { name: "KB Swing", sets: "4x10", note: "+gewicht" },
           ],
           core: [
             { name: "Ab Wheel Rollout", sets: "4x12", note: "" },
@@ -238,9 +238,9 @@ const schema = {
           ],
           barbell: { name: "Barbell Deadlift", sets: "5x5", note: "+5kg piek" },
           kettlebell: [
-            { name: "KB Single Arm Row", sets: "4x10/arm", note: "+gewicht" },
+            { name: "KB Wood Chop", sets: "4x10/arm", note: "+gewicht" },
             { name: "KB Swing", sets: "4x20", note: "+gewicht" },
-            { name: "KB Turkish Get-Up", sets: "4x5/arm", note: "+gewicht" },
+            { name: "KB Alternating March", sets: "4x5/arm", note: "+gewicht" },
           ],
           core: [
             { name: "Hanging Leg Raise", sets: "4x15", note: "" },
@@ -461,10 +461,12 @@ const phaseColors = {
 };
 
 function getCurrentWeekIndex() {
-  const now = new Date();
-  const startOfYear = new Date(now.getFullYear(), 0, 1);
-  const dayOfYear = Math.floor((now - startOfYear) / 86400000);
-  const isoWeek = Math.ceil((dayOfYear + startOfYear.getDay() + 1) / 7);
+  const d = new Date();
+  // Move to Thursday of current week (ISO week is defined by its Thursday)
+  const dayOfWeek = d.getDay() || 7; // 1=Mon … 7=Sun
+  d.setDate(d.getDate() + 4 - dayOfWeek);
+  const yearStart = new Date(d.getFullYear(), 0, 1);
+  const isoWeek = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
   return Math.min(Math.max(isoWeek - 23, 0), 4);
 }
 
