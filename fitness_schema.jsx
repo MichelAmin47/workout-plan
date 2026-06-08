@@ -19,8 +19,9 @@ const schema = {
           spiergroep: [
             { name: "Dumbbell Lateral Raise", sets: "4x12", note: "" },
             { name: "Face Pull (cable)", sets: "3x15", note: "" },
-            { name: "Arnold Press", sets: "3x10", note: "" },
+            { name: "Dumbbell Front Raise", sets: "3x12", note: "" },
             { name: "Cable Shrug", sets: "3x15", note: "" },
+            { name: "Arnold Press", sets: "3x10", note: "", optional: true },
           ],
           barbell: { name: "Barbell Overhead Press", sets: "4x8", note: "Focusgewicht" },
           kettlebell: [
@@ -41,6 +42,7 @@ const schema = {
             { name: "Cable Fly", sets: "3x12", note: "" },
             { name: "Tricep Pushdown", sets: "3x12", note: "" },
             { name: "Skull Crusher", sets: "3x12", note: "" },
+            { name: "Chest Dip", sets: "3x10", note: "", optional: true },
           ],
           barbell: { name: "Barbell Bench Press", sets: "4x8", note: "Focusgewicht" },
           kettlebell: [
@@ -61,6 +63,7 @@ const schema = {
             { name: "Lat Pulldown", sets: "3x12", note: "" },
             { name: "Dumbbell Curl", sets: "3x12", note: "" },
             { name: "Concentration Curl", sets: "3x12", note: "" },
+            { name: "Straight Arm Pulldown", sets: "3x12", note: "", optional: true },
           ],
           barbell: { name: "Barbell Deadlift", sets: "4x6", note: "Focusgewicht" },
           kettlebell: [
@@ -81,6 +84,7 @@ const schema = {
             { name: "Barbell Romanian Deadlift", sets: "3x12", note: "" },
             { name: "Leg Curl Machine", sets: "3x12", note: "" },
             { name: "Leg Extension Machine", sets: "3x12", note: "" },
+            { name: "Standing Calf Raise", sets: "4x15", note: "", optional: true },
           ],
           barbell: { name: "Barbell Back Squat", sets: "4x8", note: "Focusgwicht" },
           kettlebell: [
@@ -106,8 +110,9 @@ const schema = {
           spiergroep: [
             { name: "Dumbbell Lateral Raise", sets: "4x12", note: "+gewicht" },
             { name: "Face Pull (cable)", sets: "4x15", note: "+gewicht" },
-            { name: "Arnold Press", sets: "4x10", note: "+gewicht" },
+            { name: "Dumbbell Front Raise", sets: "4x12", note: "+gewicht" },
             { name: "Cable Shrug", sets: "4x15", note: "+gewicht" },
+            { name: "Arnold Press", sets: "4x10", note: "+gewicht", optional: true },
           ],
           barbell: { name: "Barbell Overhead Press", sets: "4x8", note: "+5kg" },
           kettlebell: [
@@ -128,6 +133,7 @@ const schema = {
             { name: "Cable Fly", sets: "4x12", note: "+gewicht" },
             { name: "Tricep Pushdown", sets: "4x12", note: "+gewicht" },
             { name: "Skull Crusher", sets: "4x12", note: "+gewicht" },
+            { name: "Chest Dip", sets: "3x10", note: "+gewicht", optional: true },
           ],
           barbell: { name: "Barbell Bench Press", sets: "4x8", note: "+5kg" },
           kettlebell: [
@@ -148,6 +154,7 @@ const schema = {
             { name: "Lat Pulldown", sets: "4x12", note: "+gewicht" },
             { name: "Dumbbell Curl", sets: "4x12", note: "+gewicht" },
             { name: "Concentration Curl", sets: "4x12", note: "+gewicht" },
+            { name: "Straight Arm Pulldown", sets: "3x12", note: "+gewicht", optional: true },
           ],
           barbell: { name: "Barbell Deadlift", sets: "4x6", note: "+5kg" },
           kettlebell: [
@@ -168,6 +175,7 @@ const schema = {
             { name: "Barbell Romanian Deadlift", sets: "4x12", note: "+gewicht" },
             { name: "Leg Curl Machine", sets: "4x12", note: "+gewicht" },
             { name: "Leg Extension Machine", sets: "4x12", note: "+gewicht" },
+            { name: "Standing Calf Raise", sets: "4x15", note: "+gewicht", optional: true },
           ],
           barbell: { name: "Barbell Back Squat", sets: "4x8", note: "+5kg" },
           kettlebell: [
@@ -193,8 +201,9 @@ const schema = {
           spiergroep: [
             { name: "Dumbbell Lateral Raise", sets: "5x12", note: "+gewicht" },
             { name: "Face Pull (cable)", sets: "4x15", note: "+gewicht" },
-            { name: "Arnold Press", sets: "4x10", note: "+gewicht" },
+            { name: "Dumbbell Front Raise", sets: "4x12", note: "+gewicht" },
             { name: "Cable Shrug", sets: "4x15", note: "+gewicht" },
+            { name: "Arnold Press", sets: "4x10", note: "+gewicht", optional: true },
           ],
           barbell: { name: "Barbell Overhead Press", sets: "5x6", note: "+5kg piek" },
           kettlebell: [
@@ -215,6 +224,7 @@ const schema = {
             { name: "Cable Fly", sets: "4x12", note: "+gewicht" },
             { name: "Tricep Pushdown", sets: "4x12", note: "+gewicht" },
             { name: "Skull Crusher", sets: "4x12", note: "+gewicht" },
+            { name: "Chest Dip", sets: "4x10", note: "+gewicht", optional: true },
           ],
           barbell: { name: "Barbell Bench Press", sets: "5x6", note: "+5kg piek" },
           kettlebell: [
@@ -235,6 +245,7 @@ const schema = {
             { name: "Lat Pulldown", sets: "4x12", note: "+gewicht" },
             { name: "Dumbbell Curl", sets: "4x12", note: "+gewicht" },
             { name: "Concentration Curl", sets: "4x12", note: "+gewicht" },
+            { name: "Straight Arm Pulldown", sets: "4x12", note: "+gewicht", optional: true },
           ],
           barbell: { name: "Barbell Deadlift", sets: "5x5", note: "+5kg piek" },
           kettlebell: [
@@ -255,6 +266,7 @@ const schema = {
             { name: "Barbell Romanian Deadlift", sets: "4x12", note: "+gewicht" },
             { name: "Leg Curl Machine", sets: "4x12", note: "+gewicht" },
             { name: "Leg Extension Machine", sets: "4x12", note: "+gewicht" },
+            { name: "Standing Calf Raise", sets: "4x15", note: "+gewicht", optional: true },
           ],
           barbell: { name: "Barbell Back Squat", sets: "5x6", note: "+5kg piek" },
           kettlebell: [
@@ -283,6 +295,7 @@ const schema = {
             { name: "Reverse Fly (pec deck)", sets: "4x15", note: "Nieuw" },
             { name: "Barbell Upright Row", sets: "4x10", note: "Nieuw" },
             { name: "Dumbbell Front Raise", sets: "4x12", note: "Nieuw" },
+            { name: "Arnold Press", sets: "3x10", note: "Nieuw", optional: true },
           ],
           barbell: { name: "Barbell Push Press", sets: "4x6", note: "Nieuw explosief" },
           kettlebell: [
@@ -303,6 +316,7 @@ const schema = {
             { name: "Pec Deck Machine", sets: "4x12", note: "Nieuw" },
             { name: "Overhead Tricep Extension", sets: "4x12", note: "Nieuw" },
             { name: "Cable Tricep Kickback", sets: "4x12", note: "Nieuw" },
+            { name: "Chest Dip", sets: "3x10", note: "Nieuw", optional: true },
           ],
           barbell: { name: "Barbell Close Grip Bench Press", sets: "4x8", note: "Nieuw patroon" },
           kettlebell: [
@@ -323,6 +337,7 @@ const schema = {
             { name: "Wide Grip Pulldown", sets: "4x12", note: "Nieuw" },
             { name: "Hammer Curl", sets: "4x12", note: "Nieuw" },
             { name: "Spider Curl", sets: "4x12", note: "Nieuw" },
+            { name: "Straight Arm Pulldown", sets: "3x12", note: "Nieuw", optional: true },
           ],
           barbell: { name: "Barbell Pendlay Row", sets: "4x6", note: "Nieuw patroon" },
           kettlebell: [
@@ -343,6 +358,7 @@ const schema = {
             { name: "Bulgarian Split Squat", sets: "4x10/been", note: "Nieuw" },
             { name: "Hip Thrust (barbell)", sets: "4x12", note: "Nieuw" },
             { name: "Leg Extension Machine", sets: "4x12", note: "Nieuw" },
+            { name: "Standing Calf Raise", sets: "4x15", note: "Nieuw", optional: true },
           ],
           barbell: { name: "Barbell Front Squat", sets: "4x8", note: "Nieuw patroon" },
           kettlebell: [
@@ -370,6 +386,7 @@ const schema = {
             { name: "Reverse Fly (pec deck)", sets: "4x15", note: "+gewicht" },
             { name: "Barbell Upright Row", sets: "4x12", note: "+gewicht" },
             { name: "Dumbbell Front Raise", sets: "4x12", note: "+gewicht" },
+            { name: "Arnold Press", sets: "4x10", note: "+gewicht", optional: true },
           ],
           barbell: { name: "Barbell Push Press", sets: "5x5", note: "+gewicht piek" },
           kettlebell: [
@@ -390,6 +407,7 @@ const schema = {
             { name: "Pec Deck Machine", sets: "4x12", note: "+gewicht" },
             { name: "Overhead Tricep Extension", sets: "4x15", note: "+gewicht" },
             { name: "Cable Tricep Kickback", sets: "4x15", note: "+gewicht" },
+            { name: "Chest Dip", sets: "4x10", note: "+gewicht", optional: true },
           ],
           barbell: { name: "Barbell Close Grip Bench Press", sets: "5x6", note: "+gewicht piek" },
           kettlebell: [
@@ -410,6 +428,7 @@ const schema = {
             { name: "Wide Grip Pulldown", sets: "4x12", note: "+gewicht" },
             { name: "Hammer Curl", sets: "4x15", note: "+gewicht" },
             { name: "Spider Curl", sets: "4x15", note: "+gewicht" },
+            { name: "Straight Arm Pulldown", sets: "4x12", note: "+gewicht", optional: true },
           ],
           barbell: { name: "Barbell Pendlay Row", sets: "5x5", note: "+gewicht piek" },
           kettlebell: [
@@ -430,6 +449,7 @@ const schema = {
             { name: "Bulgarian Split Squat", sets: "4x12/been", note: "+gewicht" },
             { name: "Hip Thrust (barbell)", sets: "5x12", note: "+gewicht" },
             { name: "Leg Extension Machine", sets: "5x12", note: "+gewicht" },
+            { name: "Standing Calf Raise", sets: "5x15", note: "+gewicht", optional: true },
           ],
           barbell: { name: "Barbell Front Squat", sets: "5x6", note: "+gewicht piek" },
           kettlebell: [
@@ -583,7 +603,7 @@ export default function FitnessSchema() {
           onToggle={() => toggleSection("spiergroep")}
         >
           {day.spiergroep.map((ex, i) => (
-            <ExRow key={i} num={i + 1} name={ex.name} sets={ex.sets} note={ex.note} accent={colors.accent} light={colors.light} />
+            <ExRow key={i} num={i + 1} name={ex.name} sets={ex.sets} note={ex.note} accent={colors.accent} light={colors.light} optional={ex.optional} />
           ))}
         </Section>
 
@@ -651,17 +671,20 @@ function Section({ title, icon, accent, expanded, onToggle, children }) {
   );
 }
 
-function ExRow({ num, name, sets, note, accent, light }) {
+function ExRow({ num, name, sets, note, accent, light, optional }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, background: light + "55", borderRadius: 8, padding: "10px 12px" }}>
-      <div style={{ width: 26, height: 26, borderRadius: "50%", background: accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", flexShrink: 0 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, background: light + "55", borderRadius: 8, padding: "10px 12px", border: optional ? "1.5px dashed #f37121" : "none" }}>
+      <div style={{ width: 26, height: 26, borderRadius: "50%", background: optional ? "transparent" : accent, color: optional ? "#f37121" : "#fff", border: optional ? "1.5px dashed #f37121" : "none", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", flexShrink: 0 }}>
         {num}
       </div>
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 14, fontWeight: 600 }}>{name}</div>
-        {note && <div style={{ fontSize: 11, color: accent, fontFamily: "sans-serif", marginTop: 1 }}>{note}</div>}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: "#1a1a1a" }}>{name}</span>
+          {optional && <span style={{ fontSize: 10, background: "#fff0e6", color: "#f37121", padding: "2px 7px", borderRadius: 10, fontFamily: "sans-serif", fontWeight: 700, letterSpacing: 0.5, border: "1px solid #f37121" }}>OPTIONEEL</span>}
+        </div>
+        {note && <div style={{ fontSize: 11, color: optional ? "#f37121" : accent, fontFamily: "sans-serif", marginTop: 1 }}>{note}</div>}
       </div>
-      <div style={{ background: accent, color: "#fff", padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap" }}>
+      <div style={{ background: optional ? "#fff0e6" : accent, color: optional ? "#f37121" : "#fff", padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap", border: optional ? "1px solid #f37121" : "none" }}>
         {sets}
       </div>
     </div>
