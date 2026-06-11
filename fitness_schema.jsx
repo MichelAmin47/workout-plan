@@ -583,7 +583,7 @@ export default function FitnessSchema() {
           {schema.weeks.map((w, i) => (
             <button
               key={i}
-              onClick={() => { closeAndSave(); setSelectedWeek(i); setSelectedDay(0); }}
+              onClick={() => { closeAndSave(); setSelectedWeek(i); }}
               style={{
                 padding: "8px 16px",
                 borderRadius: 8,
