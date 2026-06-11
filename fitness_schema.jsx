@@ -772,27 +772,8 @@ export default function FitnessSchema() {
           onToggle={() => toggleSection("core")}
         >
           {day.core.map((ex, i) => {
-            const k = wKey(ex.name, week.week);
-            const w = weights[k] || { M: "", Z: "" };
-            const prevK = week.week > 1 ? wKey(ex.name, week.week - 1) : null;
-            const prevW = prevK ? (weights[prevK] || { M: "", Z: "" }) : { M: null, Z: null };
             return (
-              <ExRow
-                key={i}
-                num={i + 1}
-                name={ex.name}
-                sets={ex.sets}
-                note={ex.note}
-                accent="#7c3aed"
-                light="#ede9fe"
-                expanded={expandedExercise === ex.name}
-                onToggle={() => handleExerciseClick(ex.name)}
-                weightM={w.M}
-                weightZ={w.Z}
-                onWeightChange={(person, value) => handleWeightChange(ex.name, week.week, person, value)}
-                prevWeightM={prevW.M}
-                prevWeightZ={prevW.Z}
-              />
+              <ExRow key={i} num={i + 1} name={ex.name} sets={ex.sets} note={ex.note} accent="#7c3aed" light="#ede9fe" />
             );
           })}
         </Section>
