@@ -646,6 +646,9 @@ export default function FitnessSchema() {
           {(() => {
             const k = wKey(day.barbell.name, week.week);
             const w = weights[k] || { M: "", Z: "" };
+            const prevK = week.week > 1 ? wKey(day.barbell.name, week.week - 1) : null;
+            const prevW = prevK ? (weights[prevK] || { M: "", Z: "" }) : { M: null, Z: null };
+            const hasPrev = prevW.M !== "" && prevW.M != null || prevW.Z !== "" && prevW.Z != null;
             return (
               <div style={{ borderRadius: 10, overflow: "hidden" }}>
                 <div
@@ -662,21 +665,28 @@ export default function FitnessSchema() {
                 </div>
                 {expandedExercise === day.barbell.name && (
                   <div
-                    style={{ background: "#fff8f5", borderTop: "1px solid #f0d0b8", padding: "10px 12px 10px 16px", display: "flex", gap: 20, alignItems: "center" }}
+                    style={{ background: "#fff8f5", borderTop: "1px solid #f0d0b8", padding: "10px 12px 10px 16px", display: "flex", flexDirection: "column", gap: 8 }}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {["M", "Z"].map((person) => (
-                      <div key={person} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <label style={{ fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#888" }}>{person}:</label>
-                        <input
-                          type="number"
-                          value={person === "M" ? w.M : w.Z}
-                          onChange={(e) => handleWeightChange(day.barbell.name, week.week, person, e.target.value)}
-                          placeholder="kg"
-                          style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }}
-                        />
+                    <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
+                      {["M", "Z"].map((person) => (
+                        <div key={person} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <label style={{ fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#888" }}>{person}:</label>
+                          <input
+                            type="number"
+                            value={person === "M" ? w.M : w.Z}
+                            onChange={(e) => handleWeightChange(day.barbell.name, week.week, person, e.target.value)}
+                            placeholder="kg"
+                            style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    {hasPrev && (
+                      <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
+                        Vorige week  M: {prevW.M !== "" && prevW.M != null ? `${prevW.M}kg` : "—"} / Z: {prevW.Z !== "" && prevW.Z != null ? `${prevW.Z}kg` : "—"}
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
               </div>
@@ -695,6 +705,8 @@ export default function FitnessSchema() {
           {day.spiergroep.map((ex, i) => {
             const k = wKey(ex.name, week.week);
             const w = weights[k] || { M: "", Z: "" };
+            const prevK = week.week > 1 ? wKey(ex.name, week.week - 1) : null;
+            const prevW = prevK ? (weights[prevK] || { M: "", Z: "" }) : { M: null, Z: null };
             return (
               <ExRow
                 key={i}
@@ -710,6 +722,8 @@ export default function FitnessSchema() {
                 weightM={w.M}
                 weightZ={w.Z}
                 onWeightChange={(person, value) => handleWeightChange(ex.name, week.week, person, value)}
+                prevWeightM={prevW.M}
+                prevWeightZ={prevW.Z}
               />
             );
           })}
@@ -726,6 +740,8 @@ export default function FitnessSchema() {
           {day.kettlebell.map((ex, i) => {
             const k = wKey(ex.name, week.week);
             const w = weights[k] || { M: "", Z: "" };
+            const prevK = week.week > 1 ? wKey(ex.name, week.week - 1) : null;
+            const prevW = prevK ? (weights[prevK] || { M: "", Z: "" }) : { M: null, Z: null };
             return (
               <ExRow
                 key={i}
@@ -740,6 +756,8 @@ export default function FitnessSchema() {
                 weightM={w.M}
                 weightZ={w.Z}
                 onWeightChange={(person, value) => handleWeightChange(ex.name, week.week, person, value)}
+                prevWeightM={prevW.M}
+                prevWeightZ={prevW.Z}
               />
             );
           })}
@@ -756,6 +774,8 @@ export default function FitnessSchema() {
           {day.core.map((ex, i) => {
             const k = wKey(ex.name, week.week);
             const w = weights[k] || { M: "", Z: "" };
+            const prevK = week.week > 1 ? wKey(ex.name, week.week - 1) : null;
+            const prevW = prevK ? (weights[prevK] || { M: "", Z: "" }) : { M: null, Z: null };
             return (
               <ExRow
                 key={i}
@@ -770,6 +790,8 @@ export default function FitnessSchema() {
                 weightM={w.M}
                 weightZ={w.Z}
                 onWeightChange={(person, value) => handleWeightChange(ex.name, week.week, person, value)}
+                prevWeightM={prevW.M}
+                prevWeightZ={prevW.Z}
               />
             );
           })}
@@ -813,8 +835,9 @@ function Section({ title, icon, accent, expanded, onToggle, children }) {
   );
 }
 
-function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange }) {
+function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange, prevWeightM, prevWeightZ }) {
   const isClickable = !!onToggle;
+  const hasPrev = (prevWeightM !== "" && prevWeightM != null) || (prevWeightZ !== "" && prevWeightZ != null);
   return (
     <div style={{ borderRadius: 8, overflow: "hidden", border: optional ? "1.5px dashed #f37121" : "none" }}>
       <div
@@ -837,21 +860,28 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
       </div>
       {expanded && (
         <div
-          style={{ background: "#fff8f5", borderTop: "1px solid #f0d0b8", padding: "10px 12px 10px 48px", display: "flex", gap: 20, alignItems: "center" }}
+          style={{ background: "#fff8f5", borderTop: "1px solid #f0d0b8", padding: "10px 12px 10px 48px", display: "flex", flexDirection: "column", gap: 8 }}
           onClick={(e) => e.stopPropagation()}
         >
-          {["M", "Z"].map((person) => (
-            <div key={person} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <label style={{ fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#888" }}>{person}:</label>
-              <input
-                type="number"
-                value={person === "M" ? weightM : weightZ}
-                onChange={(e) => onWeightChange(person, e.target.value)}
-                placeholder="kg"
-                style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }}
-              />
+          <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
+            {["M", "Z"].map((person) => (
+              <div key={person} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <label style={{ fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#888" }}>{person}:</label>
+                <input
+                  type="number"
+                  value={person === "M" ? weightM : weightZ}
+                  onChange={(e) => onWeightChange(person, e.target.value)}
+                  placeholder="kg"
+                  style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }}
+                />
+              </div>
+            ))}
+          </div>
+          {hasPrev && (
+            <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
+              Vorige week  M: {prevWeightM !== "" && prevWeightM != null ? `${prevWeightM}kg` : "—"} / Z: {prevWeightZ !== "" && prevWeightZ != null ? `${prevWeightZ}kg` : "—"}
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>
