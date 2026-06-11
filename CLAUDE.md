@@ -24,6 +24,7 @@ index.html                ← single page shell; mounts /src/main.jsx, favicon f
 src/
   main.jsx                ← React root; wraps <App /> in StrictMode, mounts to #root
   App.jsx                 ← one-liner wrapper: `return <FitnessSchema />`
+  supabase.js             ← Supabase client (createClient with env vars)
   index.css               ← minimal reset only (body margin: 0, #root min-height: 100svh)
   App.css                 ← unused (default Vite scaffold leftover, safe to ignore)
   assets/
@@ -32,6 +33,7 @@ src/
 public/
   favicon.svg             ← orange dumbbell icon shown in browser tab
   icons.svg               ← unused
+.env                      ← not committed; holds VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
 vite.config.js            ← minimal: only @vitejs/plugin-react, no aliases or custom config
 eslint.config.js          ← standard Vite scaffold ESLint config (react-hooks, react-refresh)
 package.json              ← scripts: dev / build / preview / lint
@@ -41,18 +43,28 @@ package.json              ← scripts: dev / build / preview / lint
 
 - React 19, react-dom 19
 - Vite 8, @vitejs/plugin-react 6
-- No routing, no state management, no CSS framework — intentionally zero-dependency UI
+- @supabase/supabase-js (latest) — weight persistence
+- No routing, no state management, no CSS framework
+
+## Environment variables
+
+Required in `.env` (not committed):
+```
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
+```
 
 ## Component architecture
 
 Everything lives in `fitness_schema.jsx`:
 
 - **`schema`** — static data object containing the full 5-week program. Two phases: `"Opbouw"` (weeks 1–3, same exercises with progressive overload) and `"Nieuwe Prikkel"` (weeks 4–5, new exercises).
-- **`FitnessSchema`** (default export) — top-level component. Manages three pieces of state: `selectedWeek`, `selectedDay`, and `expandedSections`. Derives all display data from `schema` by indexing with those state values.
+- **`FitnessSchema`** (default export) — top-level component. Manages state: `selectedWeek`, `selectedDay`, `expandedSections`, `weights` (map of fetched weights from Supabase), and `expandedExercise` (name of the currently open weight panel). Derives all display data from `schema` by indexing with those state values.
 - **`Section`** — collapsible card wrapper used for each exercise category.
-- **`ExRow`** — single exercise row (number badge, name, optional note, sets pill). Accepts an `optional` boolean that switches the row to a dashed orange border style and adds an "OPTIONEEL" badge.
+- **`ExRow`** — single exercise row (number badge, name, optional note, sets pill). When `onToggle` is provided (spiergroep, kettlebell, core), the row is clickable and renders a weight input panel below it when `expanded` is true. The panel contains M: and Z: number inputs that save to Supabase on change.
 - **`dayColors` / `phaseColors`** — lookup maps from day ID / phase name to color tokens. These drive all theming; there is no CSS file.
 - **`getCurrentWeekIndex()`** — calculates the current ISO week number, subtracts 23 (first week of the program), and clamps to 0–4. Used as the initial value of `selectedWeek`.
+- **`wKey(exercise, week)`** — builds the in-memory map key `"exercise__week"` used to look up weights from the `weights` state object.
 
 ## Data shape
 
@@ -82,7 +94,22 @@ Optional exercise accent color is always orange `#f37121` (same as the app heade
 
 ## Section render order
 
-Inside the content area, sections are rendered in this fixed order: Barbell → Spiergroep → Kettlebell → Core. The Barbell section uses a solid orange card (not `ExRow`). The progress note below the sections changes based on `selectedWeek`: weeks 0–2 show an "Opbouw" (progressive overload) tip; weeks 3–4 show a "Nieuwe prikkel" tip.
+Inside the content area, sections are rendered in this fixed order: Barbell → Spiergroep → Kettlebell → Core. The Barbell section uses a solid orange card (not `ExRow`) but is also clickable and shows an inline weight panel when expanded. The progress note below the sections changes based on `selectedWeek`: weeks 0–2 show an "Opbouw" (progressive overload) tip; weeks 3–4 show a "Nieuwe prikkel" tip.
+
+## Supabase weight tracking
+
+On load, all rows are fetched from the `weights` table and stored in a `weights` map keyed by `"exerciseName__weekNumber"`. Clicking any exercise row expands a small panel with two number inputs labeled **M:** and **Z:** (for each person). On input change, an upsert fires immediately. When the user opens a different exercise, the current exercise's values are flushed to Supabase before switching (`flushSave`). The same flush runs when switching week or day tabs.
+
+The `weights` Supabase table schema:
+```
+exercise  text
+week      int        (program week number 1–5)
+person    text       ('M' or 'Z')
+weight    numeric
+unique constraint on (exercise, week, person)
+```
+
+Important: Supabase `PostgrestBuilder` is a lazy promise — the HTTP request only fires when `.then()` is called or the result is awaited. Always chain `.then()` on upsert/insert calls, otherwise the request is silently dropped.
 
 ## Progressive overload pattern (weeks 1–3)
 

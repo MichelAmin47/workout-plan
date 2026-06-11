@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { supabase } from "./src/supabase.js";
 
 const schema = {
   days: [
@@ -482,24 +483,83 @@ const phaseColors = {
 
 function getCurrentWeekIndex() {
   const d = new Date();
-  // Move to Thursday of current week (ISO week is defined by its Thursday)
-  const dayOfWeek = d.getDay() || 7; // 1=Mon … 7=Sun
+  const dayOfWeek = d.getDay() || 7;
   d.setDate(d.getDate() + 4 - dayOfWeek);
   const yearStart = new Date(d.getFullYear(), 0, 1);
   const isoWeek = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
   return Math.min(Math.max(isoWeek - 23, 0), 4);
 }
 
+function wKey(exercise, week) {
+  return `${exercise}__${week}`;
+}
+
 export default function FitnessSchema() {
   const [selectedWeek, setSelectedWeek] = useState(getCurrentWeekIndex);
   const [selectedDay, setSelectedDay] = useState(0);
   const [expandedSections, setExpandedSections] = useState({ spiergroep: true, barbell: true, kettlebell: true, core: true });
+  const [weights, setWeights] = useState({});
+  const [expandedExercise, setExpandedExercise] = useState(null);
+
+  useEffect(() => {
+    supabase.from("weights").select("*").then(({ data }) => {
+      if (!data) return;
+      const map = {};
+      for (const row of data) {
+        const k = wKey(row.exercise, row.week);
+        if (!map[k]) map[k] = { M: "", Z: "" };
+        map[k][row.person] = row.weight ?? "";
+      }
+      setWeights(map);
+    });
+  }, []);
 
   const week = schema.weeks[selectedWeek];
   const day = week.days[selectedDay];
   const dayInfo = schema.days[selectedDay];
   const colors = dayColors[dayInfo.id];
   const phase = phaseColors[week.phase];
+
+  const saveWeight = (exercise, weekNum, person, value) => {
+    if (value === "" || value === null || value === undefined) return;
+    supabase.from("weights").upsert(
+      { exercise, week: weekNum, person, weight: Number(value) },
+      { onConflict: "exercise,week,person" }
+    ).then(({ error }) => {
+      if (error) console.error("[saveWeight error]", error);
+    });
+  };
+
+  const flushSave = (exerciseName, weekNum) => {
+    const k = wKey(exerciseName, weekNum);
+    const w = weights[k] || {};
+    if (w.M !== "" && w.M !== undefined) saveWeight(exerciseName, weekNum, "M", w.M);
+    if (w.Z !== "" && w.Z !== undefined) saveWeight(exerciseName, weekNum, "Z", w.Z);
+  };
+
+  const handleExerciseClick = (name) => {
+    const weekNum = week.week;
+    if (expandedExercise && expandedExercise !== name) {
+      flushSave(expandedExercise, weekNum);
+    }
+    setExpandedExercise((prev) => (prev === name ? null : name));
+  };
+
+  const handleWeightChange = (exercise, weekNum, person, value) => {
+    const k = wKey(exercise, weekNum);
+    setWeights((prev) => ({
+      ...prev,
+      [k]: { ...(prev[k] || { M: "", Z: "" }), [person]: value },
+    }));
+    saveWeight(exercise, weekNum, person, value);
+  };
+
+  const closeAndSave = () => {
+    if (expandedExercise) {
+      flushSave(expandedExercise, week.week);
+      setExpandedExercise(null);
+    }
+  };
 
   const toggleSection = (key) =>
     setExpandedSections((s) => ({ ...s, [key]: !s[key] }));
@@ -523,7 +583,7 @@ export default function FitnessSchema() {
           {schema.weeks.map((w, i) => (
             <button
               key={i}
-              onClick={() => { setSelectedWeek(i); setSelectedDay(0); }}
+              onClick={() => { closeAndSave(); setSelectedWeek(i); setSelectedDay(0); }}
               style={{
                 padding: "8px 16px",
                 borderRadius: 8,
@@ -551,7 +611,7 @@ export default function FitnessSchema() {
           return (
             <button
               key={i}
-              onClick={() => setSelectedDay(i)}
+              onClick={() => { closeAndSave(); setSelectedDay(i); }}
               style={{
                 padding: "10px 6px",
                 borderRadius: 10,
@@ -583,15 +643,45 @@ export default function FitnessSchema() {
           expanded={expandedSections.barbell}
           onToggle={() => toggleSection("barbell")}
         >
-          <div style={{ background: "#f37121", borderRadius: 10, padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <div style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>{day.barbell.name}</div>
-              {day.barbell.note && <div style={{ color: "#aaa", fontSize: 12, fontFamily: "sans-serif", marginTop: 2 }}>{day.barbell.note}</div>}
-            </div>
-            <div style={{ background: "#fff", color: "#f37121", padding: "5px 12px", borderRadius: 20, fontSize: 13, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap" }}>
-              {day.barbell.sets}
-            </div>
-          </div>
+          {(() => {
+            const k = wKey(day.barbell.name, week.week);
+            const w = weights[k] || { M: "", Z: "" };
+            return (
+              <div style={{ borderRadius: 10, overflow: "hidden" }}>
+                <div
+                  style={{ background: "#f37121", padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
+                  onClick={() => handleExerciseClick(day.barbell.name)}
+                >
+                  <div>
+                    <div style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>{day.barbell.name}</div>
+                    {day.barbell.note && <div style={{ color: "#ffcfa0", fontSize: 12, fontFamily: "sans-serif", marginTop: 2 }}>{day.barbell.note}</div>}
+                  </div>
+                  <div style={{ background: "#fff", color: "#f37121", padding: "5px 12px", borderRadius: 20, fontSize: 13, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap" }}>
+                    {day.barbell.sets}
+                  </div>
+                </div>
+                {expandedExercise === day.barbell.name && (
+                  <div
+                    style={{ background: "#fff8f5", borderTop: "1px solid #f0d0b8", padding: "10px 12px 10px 16px", display: "flex", gap: 20, alignItems: "center" }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {["M", "Z"].map((person) => (
+                      <div key={person} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <label style={{ fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#888" }}>{person}:</label>
+                        <input
+                          type="number"
+                          value={person === "M" ? w.M : w.Z}
+                          onChange={(e) => handleWeightChange(day.barbell.name, week.week, person, e.target.value)}
+                          placeholder="kg"
+                          style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </Section>
 
         {/* Spiergroep */}
@@ -602,9 +692,27 @@ export default function FitnessSchema() {
           expanded={expandedSections.spiergroep}
           onToggle={() => toggleSection("spiergroep")}
         >
-          {day.spiergroep.map((ex, i) => (
-            <ExRow key={i} num={i + 1} name={ex.name} sets={ex.sets} note={ex.note} accent={colors.accent} light={colors.light} optional={ex.optional} />
-          ))}
+          {day.spiergroep.map((ex, i) => {
+            const k = wKey(ex.name, week.week);
+            const w = weights[k] || { M: "", Z: "" };
+            return (
+              <ExRow
+                key={i}
+                num={i + 1}
+                name={ex.name}
+                sets={ex.sets}
+                note={ex.note}
+                accent={colors.accent}
+                light={colors.light}
+                optional={ex.optional}
+                expanded={expandedExercise === ex.name}
+                onToggle={() => handleExerciseClick(ex.name)}
+                weightM={w.M}
+                weightZ={w.Z}
+                onWeightChange={(person, value) => handleWeightChange(ex.name, week.week, person, value)}
+              />
+            );
+          })}
         </Section>
 
         {/* Kettlebell */}
@@ -615,9 +723,26 @@ export default function FitnessSchema() {
           expanded={expandedSections.kettlebell}
           onToggle={() => toggleSection("kettlebell")}
         >
-          {day.kettlebell.map((ex, i) => (
-            <ExRow key={i} num={i + 1} name={ex.name} sets={ex.sets} note={ex.note} accent="#c05621" light="#fed7aa" />
-          ))}
+          {day.kettlebell.map((ex, i) => {
+            const k = wKey(ex.name, week.week);
+            const w = weights[k] || { M: "", Z: "" };
+            return (
+              <ExRow
+                key={i}
+                num={i + 1}
+                name={ex.name}
+                sets={ex.sets}
+                note={ex.note}
+                accent="#c05621"
+                light="#fed7aa"
+                expanded={expandedExercise === ex.name}
+                onToggle={() => handleExerciseClick(ex.name)}
+                weightM={w.M}
+                weightZ={w.Z}
+                onWeightChange={(person, value) => handleWeightChange(ex.name, week.week, person, value)}
+              />
+            );
+          })}
         </Section>
 
         {/* Core */}
@@ -628,9 +753,26 @@ export default function FitnessSchema() {
           expanded={expandedSections.core}
           onToggle={() => toggleSection("core")}
         >
-          {day.core.map((ex, i) => (
-            <ExRow key={i} num={i + 1} name={ex.name} sets={ex.sets} note={ex.note} accent="#7c3aed" light="#ede9fe" />
-          ))}
+          {day.core.map((ex, i) => {
+            const k = wKey(ex.name, week.week);
+            const w = weights[k] || { M: "", Z: "" };
+            return (
+              <ExRow
+                key={i}
+                num={i + 1}
+                name={ex.name}
+                sets={ex.sets}
+                note={ex.note}
+                accent="#7c3aed"
+                light="#ede9fe"
+                expanded={expandedExercise === ex.name}
+                onToggle={() => handleExerciseClick(ex.name)}
+                weightM={w.M}
+                weightZ={w.Z}
+                onWeightChange={(person, value) => handleWeightChange(ex.name, week.week, person, value)}
+              />
+            );
+          })}
         </Section>
 
         {/* Progress note */}
@@ -671,22 +813,47 @@ function Section({ title, icon, accent, expanded, onToggle, children }) {
   );
 }
 
-function ExRow({ num, name, sets, note, accent, light, optional }) {
+function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange }) {
+  const isClickable = !!onToggle;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, background: light + "55", borderRadius: 8, padding: "10px 12px", border: optional ? "1.5px dashed #f37121" : "none" }}>
-      <div style={{ width: 26, height: 26, borderRadius: "50%", background: optional ? "transparent" : accent, color: optional ? "#f37121" : "#fff", border: optional ? "1.5px dashed #f37121" : "none", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", flexShrink: 0 }}>
-        {num}
-      </div>
-      <div style={{ flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: "#1a1a1a" }}>{name}</span>
-          {optional && <span style={{ fontSize: 10, background: "#fff0e6", color: "#f37121", padding: "2px 7px", borderRadius: 10, fontFamily: "sans-serif", fontWeight: 700, letterSpacing: 0.5, border: "1px solid #f37121" }}>OPTIONEEL</span>}
+    <div style={{ borderRadius: 8, overflow: "hidden", border: optional ? "1.5px dashed #f37121" : "none" }}>
+      <div
+        style={{ display: "flex", alignItems: "center", gap: 10, background: light + "55", padding: "10px 12px", cursor: isClickable ? "pointer" : "default" }}
+        onClick={onToggle}
+      >
+        <div style={{ width: 26, height: 26, borderRadius: "50%", background: optional ? "transparent" : accent, color: optional ? "#f37121" : "#fff", border: optional ? "1.5px dashed #f37121" : "none", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", flexShrink: 0 }}>
+          {num}
         </div>
-        {note && <div style={{ fontSize: 11, color: optional ? "#f37121" : accent, fontFamily: "sans-serif", marginTop: 1 }}>{note}</div>}
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: "#1a1a1a" }}>{name}</span>
+            {optional && <span style={{ fontSize: 10, background: "#fff0e6", color: "#f37121", padding: "2px 7px", borderRadius: 10, fontFamily: "sans-serif", fontWeight: 700, letterSpacing: 0.5, border: "1px solid #f37121" }}>OPTIONEEL</span>}
+          </div>
+          {note && <div style={{ fontSize: 11, color: optional ? "#f37121" : accent, fontFamily: "sans-serif", marginTop: 1 }}>{note}</div>}
+        </div>
+        <div style={{ background: optional ? "#fff0e6" : accent, color: optional ? "#f37121" : "#fff", padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap", border: optional ? "1px solid #f37121" : "none" }}>
+          {sets}
+        </div>
       </div>
-      <div style={{ background: optional ? "#fff0e6" : accent, color: optional ? "#f37121" : "#fff", padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap", border: optional ? "1px solid #f37121" : "none" }}>
-        {sets}
-      </div>
+      {expanded && (
+        <div
+          style={{ background: "#fff8f5", borderTop: "1px solid #f0d0b8", padding: "10px 12px 10px 48px", display: "flex", gap: 20, alignItems: "center" }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {["M", "Z"].map((person) => (
+            <div key={person} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <label style={{ fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#888" }}>{person}:</label>
+              <input
+                type="number"
+                value={person === "M" ? weightM : weightZ}
+                onChange={(e) => onWeightChange(person, e.target.value)}
+                placeholder="kg"
+                style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }}
+              />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

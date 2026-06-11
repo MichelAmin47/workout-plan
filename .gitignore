@@ -27,3 +27,4 @@ dist-ssr
 preview-app/
 .playwright-cli/
 .vercel
+.env
