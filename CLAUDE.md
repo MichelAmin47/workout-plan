@@ -59,12 +59,16 @@ VITE_SUPABASE_ANON_KEY=...
 Everything lives in `fitness_schema.jsx`:
 
 - **`schema`** — static data object containing the full 5-week program. Two phases: `"Opbouw"` (weeks 1–3, same exercises with progressive overload) and `"Nieuwe Prikkel"` (weeks 4–5, new exercises).
-- **`FitnessSchema`** (default export) — top-level component. Manages state: `selectedWeek`, `selectedDay`, `expandedSections`, `weights` (map of fetched weights from Supabase), and `expandedExercise` (name of the currently open weight panel). Derives all display data from `schema` by indexing with those state values.
+- **`FitnessSchema`** (default export) — top-level component. Manages state: `selectedWeek`, `selectedDay`, `expandedSections`, `weights` (map of fetched weights from Supabase), `expandedExercise` (name of the currently open weight panel), `completedDays` (Set of completed day keys), and `completedExercises` (Set of completed exercise keys). Derives all display data from `schema` by indexing with those state values.
 - **`Section`** — collapsible card wrapper used for each exercise category.
-- **`ExRow`** — single exercise row (number badge, name, optional note, sets pill). When `onToggle` is provided (spiergroep, kettlebell, core), the row is clickable and renders a weight input panel below it when `expanded` is true. The panel contains M: and Z: number inputs that save to Supabase on change.
+- **`ExRow`** — single exercise row (number badge, name, optional note, sets pill). When `onToggle` is provided (spiergroep, kettlebell), the row is clickable and renders a weight input panel below it when `expanded` is true. The panel contains M: and Z: number inputs that save to Supabase on change, plus a previous-week reference line. The number badge is rendered by `ExCircle`.
+- **`ExCircle`** — the circular number badge inside `ExRow`. Supports a 2000ms long press (`onLongPress`) to toggle exercise completion. Shows a green ✓ when completed. Long press works on both mouse and touch; suppresses the subsequent click to prevent the weight panel from toggling.
+- **`DayButton`** — day selector button. Short click selects the day; 2000ms long press toggles completion for that day in the current week. Shows a small green ✓ badge overlaid on the emoji when completed.
 - **`dayColors` / `phaseColors`** — lookup maps from day ID / phase name to color tokens. These drive all theming; there is no CSS file.
 - **`getCurrentWeekIndex()`** — calculates the current ISO week number, subtracts 23 (first week of the program), and clamps to 0–4. Used as the initial value of `selectedWeek`.
 - **`wKey(exercise, week)`** — builds the in-memory map key `"exercise__week"` used to look up weights from the `weights` state object.
+- **`dKey(weekNum, dayId)`** — builds the key `"week__dayId"` used in the `completedDays` Set.
+- **`eKey(exercise, weekNum, dayId)`** — builds the key `"exercise__week__dayId"` used in the `completedExercises` Set.
 
 ## Data shape
 
@@ -95,6 +99,30 @@ Optional exercise accent color is always orange `#f37121` (same as the app heade
 ## Section render order
 
 Inside the content area, sections are rendered in this fixed order: Barbell → Spiergroep → Kettlebell → Core. The Barbell section uses a solid orange card (not `ExRow`) but is also clickable and shows an inline weight panel when expanded. The progress note below the sections changes based on `selectedWeek`: weeks 0–2 show an "Opbouw" (progressive overload) tip; weeks 3–4 show a "Nieuwe prikkel" tip.
+
+## Completion tracking
+
+A 2000ms long press toggles completion state, persisted to Supabase. Long press is implemented inline per component using a `useRef` timer (not a custom hook, to avoid hook-in-loop issues). `navigator.vibrate(100)` fires on mobile when the long press triggers.
+
+**Day completion** — long press on a `DayButton` toggles the day's completion for the currently selected week. Stored in `completedDays` (Set, keyed by `dKey`). The green ✓ badge overlays the emoji.
+
+**Exercise completion** — long press on an `ExCircle` toggles that exercise's completion for the current week and day. Stored in `completedExercises` (Set, keyed by `eKey`). The circle turns solid green with ✓. The click event after a long press is suppressed via `e.stopPropagation()` to prevent the weight panel from opening.
+
+Both sets are fetched on mount from Supabase. The `completedDays` key uses `dayId` (the muscle-group ID 1–4), not the day index.
+
+The Supabase table schemas:
+```
+completed_days:
+  week  int
+  day   int        (day id, 1–4)
+  unique constraint on (week, day)
+
+completed_exercises:
+  exercise  text
+  week      int
+  day       int    (day id, 1–4)
+  unique constraint on (exercise, week, day)
+```
 
 ## Supabase weight tracking
 
