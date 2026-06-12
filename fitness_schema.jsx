@@ -843,7 +843,17 @@ export default function FitnessSchema() {
         >
           {day.core.map((ex, i) => {
             return (
-              <ExRow key={i} num={i + 1} name={ex.name} sets={ex.sets} note={ex.note} accent="#7c3aed" light="#ede9fe" />
+              <ExRow
+                key={i}
+                num={i + 1}
+                name={ex.name}
+                sets={ex.sets}
+                note={ex.note}
+                accent="#7c3aed"
+                light="#ede9fe"
+                completed={completedExercises.has(eKey(ex.name, week.week, dayInfo.id))}
+                onLongPress={() => toggleExerciseCompletion(ex.name, week.week, dayInfo.id)}
+              />
             );
           })}
         </Section>
