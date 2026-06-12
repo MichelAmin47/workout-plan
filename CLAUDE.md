@@ -59,16 +59,20 @@ VITE_SUPABASE_ANON_KEY=...
 Everything lives in `fitness_schema.jsx`:
 
 - **`schema`** — static data object containing the full 5-week program. Two phases: `"Opbouw"` (weeks 1–3, same exercises with progressive overload) and `"Nieuwe Prikkel"` (weeks 4–5, new exercises).
-- **`FitnessSchema`** (default export) — top-level component. Manages state: `selectedWeek`, `selectedDay`, `expandedSections`, `weights` (map of fetched weights from Supabase), `expandedExercise` (name of the currently open weight panel), `completedDays` (Set of completed day keys), and `completedExercises` (Set of completed exercise keys). Derives all display data from `schema` by indexing with those state values.
+- **`FitnessSchema`** (default export) — top-level component. Manages state: `selectedWeek`, `selectedDay`, `expandedSections`, `weights` (map of fetched weights from Supabase), `expandedExercise` (name of the currently open weight panel), `completedDays` (Set of completed day keys), `completedExercises` (Set of completed exercise keys), `swaps` (map of swapped KB exercises keyed by `sKey`), and `swapModal` (null or `{original, week, day}` for the open bottom sheet). Derives all display data from `schema` by indexing with those state values.
 - **`Section`** — collapsible card wrapper used for each exercise category.
-- **`ExRow`** — single exercise row (number badge, name, optional note, sets pill). When `onToggle` is provided (spiergroep, kettlebell), the row is clickable and renders a weight input panel below it when `expanded` is true. The panel contains M: and Z: number inputs that save to Supabase on change, plus a previous-week reference line. The number badge is rendered by `ExCircle`.
-- **`ExCircle`** — the circular number badge inside `ExRow`. Supports a 2000ms long press (`onLongPress`) to toggle exercise completion. Shows a green ✓ when completed. Long press works on both mouse and touch; suppresses the subsequent click to prevent the weight panel from toggling.
-- **`DayButton`** — day selector button. Short click selects the day; 2000ms long press toggles completion for that day in the current week. Shows a small green ✓ badge overlaid on the emoji when completed.
+- **`ExRow`** — single exercise row (number badge, name, optional note, sets pill). When `onToggle` is provided (spiergroep, kettlebell), the row is clickable and renders a weight input panel below it when `expanded` is true. The panel contains M: and Z: number inputs that save to Supabase on change, plus a previous-week reference line. The number badge is rendered by `ExCircle`. Accepts `swapped` (bool) and `originalName` (string) props — when `swapped` is true, shows a purple "GEWIJZIGD" badge next to the name and renders `↩ originalName` below in gray.
+- **`ExCircle`** — the circular number badge inside `ExRow`. Supports a 1000ms long press (`onLongPress`) to toggle exercise completion. Shows a green ✓ when completed. Long press works on both mouse and touch; suppresses the subsequent click to prevent the weight panel from toggling.
+- **`DayButton`** — day selector button. Short click selects the day; 1000ms long press toggles completion for that day in the current week. Shows a small green ✓ badge overlaid on the emoji when completed.
+- **`SwipeableRow`** — wrapper component around each KB exercise row. Detects a horizontal swipe of ≥60px with <30px vertical drift (mouse and touch) and fires `onSwipeRight`. Translates the row during swipe and snaps back. Suppresses the click event after a completed swipe via a `swiped` ref.
+- **`BottomSheet`** — modal slide-up panel rendered when `swapModal` is set. Fixed overlay (zIndex 100) + fixed sheet (zIndex 101). Lists all KB exercises except the currently displayed one. Selecting an exercise calls `saveSwap()`, updates the `swaps` map, and closes the sheet.
+- **`KB_EXERCISES`** — constant array of 18 KB exercise names defined outside the component, used to populate the bottom sheet list.
 - **`dayColors` / `phaseColors`** — lookup maps from day ID / phase name to color tokens. These drive all theming; there is no CSS file.
 - **`getCurrentWeekIndex()`** — calculates the current ISO week number, subtracts 23 (first week of the program), and clamps to 0–4. Used as the initial value of `selectedWeek`.
 - **`wKey(exercise, week)`** — builds the in-memory map key `"exercise__week"` used to look up weights from the `weights` state object.
 - **`dKey(weekNum, dayId)`** — builds the key `"week__dayId"` used in the `completedDays` Set.
 - **`eKey(exercise, weekNum, dayId)`** — builds the key `"exercise__week__dayId"` used in the `completedExercises` Set.
+- **`sKey(original, weekNum, dayId)`** — builds the key `"original__week__dayId"` used in the `swaps` map.
 
 ## Data shape
 
@@ -125,6 +129,28 @@ completed_exercises:
   day       int    (day id, 1–4)
   unique constraint on (exercise, week, day)
 ```
+
+## KB exercise swapping
+
+Each kettlebell exercise row is wrapped in `<SwipeableRow>`. Swiping right (≥60px horizontal, <30px vertical drift) on any KB row opens `<BottomSheet>` with a list of all KB exercises minus the currently displayed one. Selecting an exercise:
+
+1. Calls `saveSwap(original, newExercise, weekNum, dayId)` — upserts to the `exercise_swaps` table.
+2. Updates `swaps` state map so the row immediately renders the new exercise name.
+3. Closes the bottom sheet (`swapModal = null`).
+
+Swapped rows show a purple **GEWIJZIGD** badge and the original name below with an `↩` prefix. The display name is resolved as `swaps[sKey(ex.name, weekNum, dayId)] ?? ex.name`.
+
+The Supabase table schema:
+```
+exercise_swaps:
+  original    text
+  replacement text
+  week        int
+  day         int    (day id, 1–4)
+  unique constraint on (original, week, day)
+```
+
+All swaps are fetched on mount alongside the other Supabase data.
 
 ## Supabase weight tracking
 

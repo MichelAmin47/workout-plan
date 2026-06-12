@@ -502,6 +502,18 @@ function eKey(exercise, weekNum, dayId) {
   return `${exercise}__${weekNum}__${dayId}`;
 }
 
+function sKey(original, weekNum, dayId) {
+  return `${original}__${weekNum}__${dayId}`;
+}
+
+const KB_EXERCISES = [
+  "KB Alternating March", "KB Around the World", "KB Bottoms-Up Press",
+  "KB Clean & Press", "KB Farmer's Carry", "KB Figure 8", "KB Floor Press",
+  "KB Halo", "KB High Pull", "KB Lateral Lunge", "KB Single Arm Swing",
+  "KB Snatch", "KB Suitcase Carry", "KB Sumo Deadlift", "KB Swing",
+  "KB Swing (één arm)", "KB Windmill", "KB Wood Chop",
+];
+
 export default function FitnessSchema() {
   const [selectedWeek, setSelectedWeek] = useState(getCurrentWeekIndex);
   const [selectedDay, setSelectedDay] = useState(0);
@@ -510,6 +522,8 @@ export default function FitnessSchema() {
   const [expandedExercise, setExpandedExercise] = useState(null);
   const [completedDays, setCompletedDays] = useState(new Set());
   const [completedExercises, setCompletedExercises] = useState(new Set());
+  const [swaps, setSwaps] = useState({});
+  const [swapModal, setSwapModal] = useState(null);
 
   useEffect(() => {
     supabase.from("weights").select("*").then(({ data }) => {
@@ -529,6 +543,12 @@ export default function FitnessSchema() {
     supabase.from("completed_exercises").select("*").then(({ data }) => {
       if (!data) return;
       setCompletedExercises(new Set(data.map((r) => eKey(r.exercise, r.week, r.day))));
+    });
+    supabase.from("exercise_swaps").select("*").then(({ data }) => {
+      if (!data) return;
+      const map = {};
+      for (const row of data) map[sKey(row.original_exercise, row.week, row.day)] = row.new_exercise;
+      setSwaps(map);
     });
   }, []);
 
@@ -577,6 +597,16 @@ export default function FitnessSchema() {
       flushSave(expandedExercise, week.week);
       setExpandedExercise(null);
     }
+  };
+
+  const saveSwap = (original, newExercise, weekNum, dayId) => {
+    const k = sKey(original, weekNum, dayId);
+    setSwaps((prev) => ({ ...prev, [k]: newExercise }));
+    supabase.from("exercise_swaps").upsert(
+      { original_exercise: original, new_exercise: newExercise, week: weekNum, day: dayId },
+      { onConflict: "original_exercise,week,day" }
+    ).then(({ error }) => { if (error) console.error("[saveSwap error]", error); });
+    setSwapModal(null);
   };
 
   const toggleSection = (key) =>
@@ -767,29 +797,38 @@ export default function FitnessSchema() {
           onToggle={() => toggleSection("kettlebell")}
         >
           {day.kettlebell.map((ex, i) => {
-            const k = wKey(ex.name, week.week);
+            const sk = sKey(ex.name, week.week, dayInfo.id);
+            const swappedName = swaps[sk];
+            const displayName = swappedName || ex.name;
+            const k = wKey(displayName, week.week);
             const w = weights[k] || { M: "", Z: "" };
-            const prevK = week.week > 1 ? wKey(ex.name, week.week - 1) : null;
+            const prevK = week.week > 1 ? wKey(displayName, week.week - 1) : null;
             const prevW = prevK ? (weights[prevK] || { M: "", Z: "" }) : { M: null, Z: null };
             return (
-              <ExRow
+              <SwipeableRow
                 key={i}
-                num={i + 1}
-                name={ex.name}
-                sets={ex.sets}
-                note={ex.note}
-                accent="#c05621"
-                light="#fed7aa"
-                expanded={expandedExercise === ex.name}
-                onToggle={() => handleExerciseClick(ex.name)}
-                weightM={w.M}
-                weightZ={w.Z}
-                onWeightChange={(person, value) => handleWeightChange(ex.name, week.week, person, value)}
-                prevWeightM={prevW.M}
-                prevWeightZ={prevW.Z}
-                completed={completedExercises.has(eKey(ex.name, week.week, dayInfo.id))}
-                onLongPress={() => toggleExerciseCompletion(ex.name, week.week, dayInfo.id)}
-              />
+                onSwipeRight={() => { closeAndSave(); setSwapModal({ original: ex.name, week: week.week, day: dayInfo.id }); }}
+              >
+                <ExRow
+                  num={i + 1}
+                  name={displayName}
+                  sets={ex.sets}
+                  note={ex.note}
+                  accent="#c05621"
+                  light="#fed7aa"
+                  expanded={expandedExercise === displayName}
+                  onToggle={() => handleExerciseClick(displayName)}
+                  weightM={w.M}
+                  weightZ={w.Z}
+                  onWeightChange={(person, value) => handleWeightChange(displayName, week.week, person, value)}
+                  prevWeightM={prevW.M}
+                  prevWeightZ={prevW.Z}
+                  completed={completedExercises.has(eKey(displayName, week.week, dayInfo.id))}
+                  onLongPress={() => toggleExerciseCompletion(displayName, week.week, dayInfo.id)}
+                  swapped={!!swappedName}
+                  originalName={swappedName ? ex.name : undefined}
+                />
+              </SwipeableRow>
             );
           })}
         </Section>
@@ -825,6 +864,14 @@ export default function FitnessSchema() {
           Core dagelijks herhalen · Rust: 60–90 sec tussen sets
         </div>
       </div>
+
+      {swapModal && (
+        <BottomSheet
+          exercises={KB_EXERCISES.filter((n) => n !== (swaps[sKey(swapModal.original, swapModal.week, swapModal.day)] || swapModal.original))}
+          onSelect={(name) => saveSwap(swapModal.original, name, swapModal.week, swapModal.day)}
+          onClose={() => setSwapModal(null)}
+        />
+      )}
     </div>
   );
 }
@@ -847,7 +894,7 @@ function Section({ title, icon, accent, expanded, onToggle, children }) {
   );
 }
 
-function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange, prevWeightM, prevWeightZ, completed, onLongPress }) {
+function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange, prevWeightM, prevWeightZ, completed, onLongPress, swapped, originalName }) {
   const isClickable = !!onToggle;
   const hasPrev = (prevWeightM !== "" && prevWeightM != null) || (prevWeightZ !== "" && prevWeightZ != null);
   return (
@@ -861,8 +908,10 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: "#1a1a1a" }}>{name}</span>
             {optional && <span style={{ fontSize: 10, background: "#fff0e6", color: "#f37121", padding: "2px 7px", borderRadius: 10, fontFamily: "sans-serif", fontWeight: 700, letterSpacing: 0.5, border: "1px solid #f37121" }}>OPTIONEEL</span>}
+            {swapped && <span style={{ fontSize: 10, background: "#f3e8ff", color: "#7c3aed", padding: "2px 7px", borderRadius: 10, fontFamily: "sans-serif", fontWeight: 700, letterSpacing: 0.5, border: "1px solid #c4b5fd" }}>GEWIJZIGD</span>}
           </div>
           {note && <div style={{ fontSize: 11, color: optional ? "#f37121" : accent, fontFamily: "sans-serif", marginTop: 1 }}>{note}</div>}
+          {originalName && <div style={{ fontSize: 11, color: "#bbb", fontFamily: "sans-serif", marginTop: 1 }}>↩ {originalName}</div>}
         </div>
         <div style={{ background: optional ? "#fff0e6" : accent, color: optional ? "#f37121" : "#fff", padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap", border: optional ? "1px solid #f37121" : "none" }}>
           {sets}
@@ -1000,5 +1049,73 @@ function DayButton({ day, isSelected, isCompleted, colors, onSelect, onLongPress
         {day.name}
       </div>
     </button>
+  );
+}
+
+function SwipeableRow({ onSwipeRight, children }) {
+  const startX = useRef(null);
+  const startY = useRef(null);
+  const swiped = useRef(false);
+  const isMouseDown = useRef(false);
+  const [offsetX, setOffsetX] = useState(0);
+
+  const onStart = (e) => {
+    const p = e.touches?.[0] || e;
+    startX.current = p.clientX;
+    startY.current = p.clientY;
+    swiped.current = false;
+  };
+
+  const onMove = (e) => {
+    if (startX.current === null || swiped.current) return;
+    const p = e.touches?.[0] || e;
+    const dx = p.clientX - startX.current;
+    const dy = Math.abs(p.clientY - startY.current);
+    if (dy > 30 || dx < 0) { startX.current = null; setOffsetX(0); return; }
+    setOffsetX(Math.min(dx, 80));
+    if (dx >= 60) {
+      swiped.current = true;
+      startX.current = null;
+      setOffsetX(0);
+      onSwipeRight();
+    }
+  };
+
+  const onEnd = () => { isMouseDown.current = false; startX.current = null; setOffsetX(0); };
+
+  return (
+    <div
+      onMouseDown={(e) => { isMouseDown.current = true; onStart(e); }}
+      onMouseMove={(e) => { if (isMouseDown.current) onMove(e); }}
+      onMouseUp={onEnd}
+      onTouchStart={onStart}
+      onTouchMove={onMove}
+      onTouchEnd={onEnd}
+      onClick={(e) => { if (swiped.current) { swiped.current = false; e.stopPropagation(); } }}
+      style={{ transform: `translateX(${offsetX}px)`, transition: offsetX === 0 ? "transform 0.2s" : "none" }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function BottomSheet({ exercises, onSelect, onClose }) {
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "#0005", zIndex: 100 }} />
+      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#fff", borderRadius: "16px 16px 0 0", padding: "16px 16px 48px", zIndex: 101, maxHeight: "70vh", overflowY: "auto" }}>
+        <div style={{ width: 40, height: 4, borderRadius: 2, background: "#ddd", margin: "0 auto 16px" }} />
+        <div style={{ fontFamily: "'Georgia', serif", fontWeight: 700, fontSize: 16, marginBottom: 12, color: "#1a1a1a" }}>Kies oefening</div>
+        {exercises.map((name) => (
+          <div
+            key={name}
+            onClick={() => onSelect(name)}
+            style={{ padding: "13px 4px", borderBottom: "1px solid #f0f0f0", fontFamily: "sans-serif", fontSize: 14, color: "#1a1a1a", cursor: "pointer" }}
+          >
+            {name}
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
