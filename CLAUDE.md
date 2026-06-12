@@ -110,7 +110,7 @@ A 2000ms long press toggles completion state, persisted to Supabase. Long press 
 
 Both sets are fetched on mount from Supabase. The `completedDays` key uses `dayId` (the muscle-group ID 1–4), not the day index.
 
-**Long press implementation details:** The timer starts on `mousedown` / `touchstart`. It is cancelled on `mouseup` / `touchend`. `onMouseLeave` is intentionally NOT used as a cancel trigger — mouse drift during a hold would reset the timer. For touch, `touchmove` only cancels if the finger has moved more than 10px from the start position (stored in a `startPos` ref), preventing natural hand tremor from resetting the timer. The threshold is 2000ms.
+**Long press implementation details:** The timer starts on `mousedown` / `touchstart`. It is cancelled on `mouseup` / `touchend`. `onMouseLeave` is intentionally NOT used as a cancel trigger — mouse drift during a hold would reset the timer. For touch, `touchmove` only cancels if the finger has moved more than 10px from the start position (stored in a `startPos` ref), preventing natural hand tremor from resetting the timer. The threshold is 1000ms. The root app div has `userSelect: none` / `WebkitUserSelect: none` to prevent the iOS/Android copy-paste callout from appearing during a hold.
 
 The Supabase table schemas:
 ```
