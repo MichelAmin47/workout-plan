@@ -901,9 +901,12 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
 function ExCircle({ num, completed, accent, optional, onLongPress }) {
   const timer = useRef(null);
   const longPressed = useRef(false);
+  const startPos = useRef({ x: 0, y: 0 });
 
-  const startPress = () => {
+  const startPress = (e) => {
     longPressed.current = false;
+    const t = e.touches?.[0];
+    if (t) startPos.current = { x: t.clientX, y: t.clientY };
     timer.current = setTimeout(() => {
       longPressed.current = true;
       if (navigator.vibrate) navigator.vibrate(100);
@@ -913,13 +916,19 @@ function ExCircle({ num, completed, accent, optional, onLongPress }) {
 
   const cancelPress = () => clearTimeout(timer.current);
 
+  const handleTouchMove = (e) => {
+    const t = e.touches?.[0];
+    if (!t) return;
+    if (Math.abs(t.clientX - startPos.current.x) > 10 || Math.abs(t.clientY - startPos.current.y) > 10) cancelPress();
+  };
+
   return (
     <div
       onMouseDown={startPress}
       onMouseUp={cancelPress}
       onTouchStart={startPress}
       onTouchEnd={cancelPress}
-      onTouchMove={cancelPress}
+      onTouchMove={handleTouchMove}
       onClick={(e) => { if (longPressed.current) { longPressed.current = false; e.stopPropagation(); } }}
       style={{
         width: 26, height: 26, borderRadius: "50%",
@@ -940,9 +949,12 @@ function DayButton({ day, isSelected, isCompleted, colors, onSelect, onLongPress
   const c = colors;
   const timer = useRef(null);
   const longPressed = useRef(false);
+  const startPos = useRef({ x: 0, y: 0 });
 
-  const startPress = () => {
+  const startPress = (e) => {
     longPressed.current = false;
+    const t = e.touches?.[0];
+    if (t) startPos.current = { x: t.clientX, y: t.clientY };
     timer.current = setTimeout(() => {
       longPressed.current = true;
       if (navigator.vibrate) navigator.vibrate(100);
@@ -952,13 +964,19 @@ function DayButton({ day, isSelected, isCompleted, colors, onSelect, onLongPress
 
   const cancelPress = () => clearTimeout(timer.current);
 
+  const handleTouchMove = (e) => {
+    const t = e.touches?.[0];
+    if (!t) return;
+    if (Math.abs(t.clientX - startPos.current.x) > 10 || Math.abs(t.clientY - startPos.current.y) > 10) cancelPress();
+  };
+
   return (
     <button
       onMouseDown={startPress}
       onMouseUp={cancelPress}
       onTouchStart={startPress}
       onTouchEnd={cancelPress}
-      onTouchMove={cancelPress}
+      onTouchMove={handleTouchMove}
       onClick={() => { if (longPressed.current) { longPressed.current = false; return; } onSelect(); }}
       style={{
         padding: "10px 6px",
