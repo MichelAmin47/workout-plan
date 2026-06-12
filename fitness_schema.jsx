@@ -867,6 +867,7 @@ export default function FitnessSchema() {
 
       {swapModal && (
         <BottomSheet
+          currentExercise={swaps[sKey(swapModal.original, swapModal.week, swapModal.day)] || swapModal.original}
           exercises={KB_EXERCISES.filter((n) => n !== (swaps[sKey(swapModal.original, swapModal.week, swapModal.day)] || swapModal.original))}
           onSelect={(name) => saveSwap(swapModal.original, name, swapModal.week, swapModal.day)}
           onClose={() => setSwapModal(null)}
@@ -908,7 +909,7 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: "#1a1a1a" }}>{name}</span>
             {optional && <span style={{ fontSize: 10, background: "#fff0e6", color: "#f37121", padding: "2px 7px", borderRadius: 10, fontFamily: "sans-serif", fontWeight: 700, letterSpacing: 0.5, border: "1px solid #f37121" }}>OPTIONEEL</span>}
-            {swapped && <span style={{ fontSize: 10, background: "#f3e8ff", color: "#7c3aed", padding: "2px 7px", borderRadius: 10, fontFamily: "sans-serif", fontWeight: 700, letterSpacing: 0.5, border: "1px solid #c4b5fd" }}>GEWIJZIGD</span>}
+            {swapped && <span style={{ fontSize: 10, background: "#fff0e6", color: "#f37121", padding: "2px 7px", borderRadius: 10, fontFamily: "sans-serif", fontWeight: 700, letterSpacing: 0.5, border: "1px solid #f37121" }}>GEWIJZIGD</span>}
           </div>
           {note && <div style={{ fontSize: 11, color: optional ? "#f37121" : accent, fontFamily: "sans-serif", marginTop: 1 }}>{note}</div>}
           {originalName && <div style={{ fontSize: 11, color: "#bbb", fontFamily: "sans-serif", marginTop: 1 }}>↩ {originalName}</div>}
@@ -1099,20 +1100,27 @@ function SwipeableRow({ onSwipeRight, children }) {
   );
 }
 
-function BottomSheet({ exercises, onSelect, onClose }) {
+function BottomSheet({ currentExercise, exercises, onSelect, onClose }) {
+  const [hovered, setHovered] = useState(null);
   return (
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "#0005", zIndex: 100 }} />
       <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#fff", borderRadius: "16px 16px 0 0", padding: "16px 16px 48px", zIndex: 101, maxHeight: "70vh", overflowY: "auto" }}>
         <div style={{ width: 40, height: 4, borderRadius: 2, background: "#ddd", margin: "0 auto 16px" }} />
-        <div style={{ fontFamily: "'Georgia', serif", fontWeight: 700, fontSize: 16, marginBottom: 12, color: "#1a1a1a" }}>Kies oefening</div>
+        <div style={{ textAlign: "center", marginBottom: 16, paddingBottom: 16, borderBottom: "1px solid #eee" }}>
+          <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#999", marginBottom: 4, letterSpacing: 0.5, textTransform: "uppercase" }}>Wissel voor</div>
+          <div style={{ fontFamily: "'Georgia', serif", fontWeight: 700, fontSize: 16, color: "#1a1a1a" }}>{currentExercise}</div>
+        </div>
         {exercises.map((name) => (
           <div
             key={name}
             onClick={() => onSelect(name)}
-            style={{ padding: "13px 4px", borderBottom: "1px solid #f0f0f0", fontFamily: "sans-serif", fontSize: 14, color: "#1a1a1a", cursor: "pointer" }}
+            onMouseEnter={() => setHovered(name)}
+            onMouseLeave={() => setHovered(null)}
+            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 8px", borderBottom: "1px solid #f0f0f0", fontFamily: "sans-serif", fontSize: 14, color: "#1a1a1a", cursor: "pointer", background: hovered === name ? "#fff8f3" : "transparent", transition: "background 0.15s" }}
           >
-            {name}
+            <span>{name}</span>
+            <span style={{ color: "#f37121", fontSize: 16, fontWeight: 700 }}>→</span>
           </div>
         ))}
       </div>
