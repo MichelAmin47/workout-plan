@@ -917,7 +917,6 @@ function ExCircle({ num, completed, accent, optional, onLongPress }) {
     <div
       onMouseDown={startPress}
       onMouseUp={cancelPress}
-      onMouseLeave={cancelPress}
       onTouchStart={startPress}
       onTouchEnd={cancelPress}
       onTouchMove={cancelPress}
@@ -957,7 +956,6 @@ function DayButton({ day, isSelected, isCompleted, colors, onSelect, onLongPress
     <button
       onMouseDown={startPress}
       onMouseUp={cancelPress}
-      onMouseLeave={cancelPress}
       onTouchStart={startPress}
       onTouchEnd={cancelPress}
       onTouchMove={cancelPress}
