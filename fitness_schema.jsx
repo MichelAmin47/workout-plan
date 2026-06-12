@@ -605,7 +605,7 @@ export default function FitnessSchema() {
   };
 
   return (
-    <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#f8f7f4", color: "#1a1a1a" }}>
+    <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#f8f7f4", color: "#1a1a1a", userSelect: "none", WebkitUserSelect: "none" }}>
       {/* Header */}
       <div style={{ background: "#f37121", color: "#fff", padding: "24px 20px 20px", textAlign: "center" }}>
         <div style={{ fontSize: 11, letterSpacing: 4, textTransform: "uppercase", color: "#888", marginBottom: 6 }}>Basic Fit · Gevorderd</div>
@@ -911,7 +911,7 @@ function ExCircle({ num, completed, accent, optional, onLongPress }) {
       longPressed.current = true;
       if (navigator.vibrate) navigator.vibrate(100);
       if (onLongPress) onLongPress();
-    }, 2000);
+    }, 1000);
   };
 
   const cancelPress = () => clearTimeout(timer.current);
@@ -959,7 +959,7 @@ function DayButton({ day, isSelected, isCompleted, colors, onSelect, onLongPress
       longPressed.current = true;
       if (navigator.vibrate) navigator.vibrate(100);
       onLongPress();
-    }, 2000);
+    }, 1000);
   };
 
   const cancelPress = () => clearTimeout(timer.current);
