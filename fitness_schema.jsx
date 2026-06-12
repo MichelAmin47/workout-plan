@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "./src/supabase.js";
 
 const schema = {
@@ -494,12 +494,22 @@ function wKey(exercise, week) {
   return `${exercise}__${week}`;
 }
 
+function dKey(weekNum, dayId) {
+  return `${weekNum}__${dayId}`;
+}
+
+function eKey(exercise, weekNum, dayId) {
+  return `${exercise}__${weekNum}__${dayId}`;
+}
+
 export default function FitnessSchema() {
   const [selectedWeek, setSelectedWeek] = useState(getCurrentWeekIndex);
   const [selectedDay, setSelectedDay] = useState(0);
   const [expandedSections, setExpandedSections] = useState({ spiergroep: true, barbell: true, kettlebell: true, core: true });
   const [weights, setWeights] = useState({});
   const [expandedExercise, setExpandedExercise] = useState(null);
+  const [completedDays, setCompletedDays] = useState(new Set());
+  const [completedExercises, setCompletedExercises] = useState(new Set());
 
   useEffect(() => {
     supabase.from("weights").select("*").then(({ data }) => {
@@ -511,6 +521,14 @@ export default function FitnessSchema() {
         map[k][row.person] = row.weight ?? "";
       }
       setWeights(map);
+    });
+    supabase.from("completed_days").select("*").then(({ data }) => {
+      if (!data) return;
+      setCompletedDays(new Set(data.map((r) => dKey(r.week, r.day))));
+    });
+    supabase.from("completed_exercises").select("*").then(({ data }) => {
+      if (!data) return;
+      setCompletedExercises(new Set(data.map((r) => eKey(r.exercise, r.week, r.day))));
     });
   }, []);
 
@@ -564,6 +582,28 @@ export default function FitnessSchema() {
   const toggleSection = (key) =>
     setExpandedSections((s) => ({ ...s, [key]: !s[key] }));
 
+  const toggleDayCompletion = (weekNum, dayId) => {
+    const k = dKey(weekNum, dayId);
+    if (completedDays.has(k)) {
+      setCompletedDays((prev) => { const s = new Set(prev); s.delete(k); return s; });
+      supabase.from("completed_days").delete().eq("week", weekNum).eq("day", dayId).then();
+    } else {
+      setCompletedDays((prev) => new Set([...prev, k]));
+      supabase.from("completed_days").insert({ week: weekNum, day: dayId }).then();
+    }
+  };
+
+  const toggleExerciseCompletion = (exercise, weekNum, dayId) => {
+    const k = eKey(exercise, weekNum, dayId);
+    if (completedExercises.has(k)) {
+      setCompletedExercises((prev) => { const s = new Set(prev); s.delete(k); return s; });
+      supabase.from("completed_exercises").delete().eq("exercise", exercise).eq("week", weekNum).eq("day", dayId).then();
+    } else {
+      setCompletedExercises((prev) => new Set([...prev, k]));
+      supabase.from("completed_exercises").insert({ exercise, week: weekNum, day: dayId }).then();
+    }
+  };
+
   return (
     <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#f8f7f4", color: "#1a1a1a" }}>
       {/* Header */}
@@ -606,30 +646,17 @@ export default function FitnessSchema() {
 
       {/* Day selector */}
       <div style={{ padding: "16px 16px 0", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, maxWidth: 600, margin: "0 auto" }}>
-        {schema.days.map((d, i) => {
-          const c = dayColors[d.id];
-          return (
-            <button
-              key={i}
-              onClick={() => { closeAndSave(); setSelectedDay(i); }}
-              style={{
-                padding: "10px 6px",
-                borderRadius: 10,
-                border: selectedDay === i ? `2px solid ${c.accent}` : "2px solid transparent",
-                cursor: "pointer",
-                background: selectedDay === i ? c.bg : "#fff",
-                textAlign: "center",
-                transition: "all 0.15s",
-                boxShadow: selectedDay === i ? `0 2px 8px ${c.accent}33` : "0 1px 3px #0001",
-              }}
-            >
-              <div style={{ fontSize: 20 }}>{d.emoji}</div>
-              <div style={{ fontSize: 10, fontFamily: "sans-serif", fontWeight: 600, color: selectedDay === i ? c.accent : "#888", marginTop: 2, lineHeight: 1.2 }}>
-                {d.name}
-              </div>
-            </button>
-          );
-        })}
+        {schema.days.map((d, i) => (
+          <DayButton
+            key={i}
+            day={d}
+            isSelected={selectedDay === i}
+            isCompleted={completedDays.has(dKey(week.week, d.id))}
+            colors={dayColors[d.id]}
+            onSelect={() => { closeAndSave(); setSelectedDay(i); }}
+            onLongPress={() => toggleDayCompletion(week.week, d.id)}
+          />
+        ))}
       </div>
 
       {/* Content */}
@@ -724,6 +751,8 @@ export default function FitnessSchema() {
                 onWeightChange={(person, value) => handleWeightChange(ex.name, week.week, person, value)}
                 prevWeightM={prevW.M}
                 prevWeightZ={prevW.Z}
+                completed={completedExercises.has(eKey(ex.name, week.week, dayInfo.id))}
+                onLongPress={() => toggleExerciseCompletion(ex.name, week.week, dayInfo.id)}
               />
             );
           })}
@@ -758,6 +787,8 @@ export default function FitnessSchema() {
                 onWeightChange={(person, value) => handleWeightChange(ex.name, week.week, person, value)}
                 prevWeightM={prevW.M}
                 prevWeightZ={prevW.Z}
+                completed={completedExercises.has(eKey(ex.name, week.week, dayInfo.id))}
+                onLongPress={() => toggleExerciseCompletion(ex.name, week.week, dayInfo.id)}
               />
             );
           })}
@@ -816,7 +847,7 @@ function Section({ title, icon, accent, expanded, onToggle, children }) {
   );
 }
 
-function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange, prevWeightM, prevWeightZ }) {
+function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange, prevWeightM, prevWeightZ, completed, onLongPress }) {
   const isClickable = !!onToggle;
   const hasPrev = (prevWeightM !== "" && prevWeightM != null) || (prevWeightZ !== "" && prevWeightZ != null);
   return (
@@ -825,9 +856,7 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
         style={{ display: "flex", alignItems: "center", gap: 10, background: light + "55", padding: "10px 12px", cursor: isClickable ? "pointer" : "default" }}
         onClick={onToggle}
       >
-        <div style={{ width: 26, height: 26, borderRadius: "50%", background: optional ? "transparent" : accent, color: optional ? "#f37121" : "#fff", border: optional ? "1.5px dashed #f37121" : "none", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", flexShrink: 0 }}>
-          {num}
-        </div>
+        <ExCircle num={num} completed={completed} accent={accent} optional={optional} onLongPress={onLongPress} />
         <div style={{ flex: 1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: "#1a1a1a" }}>{name}</span>
@@ -866,5 +895,94 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
         </div>
       )}
     </div>
+  );
+}
+
+function ExCircle({ num, completed, accent, optional, onLongPress }) {
+  const timer = useRef(null);
+  const longPressed = useRef(false);
+
+  const startPress = () => {
+    longPressed.current = false;
+    timer.current = setTimeout(() => {
+      longPressed.current = true;
+      if (navigator.vibrate) navigator.vibrate(100);
+      if (onLongPress) onLongPress();
+    }, 2000);
+  };
+
+  const cancelPress = () => clearTimeout(timer.current);
+
+  return (
+    <div
+      onMouseDown={startPress}
+      onMouseUp={cancelPress}
+      onMouseLeave={cancelPress}
+      onTouchStart={startPress}
+      onTouchEnd={cancelPress}
+      onTouchMove={cancelPress}
+      onClick={(e) => { if (longPressed.current) { longPressed.current = false; e.stopPropagation(); } }}
+      style={{
+        width: 26, height: 26, borderRadius: "50%",
+        background: completed ? "#16a34a" : (optional ? "transparent" : accent),
+        color: completed ? "#fff" : (optional ? "#f37121" : "#fff"),
+        border: completed ? "none" : (optional ? "1.5px dashed #f37121" : "none"),
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: completed ? 14 : 12, fontWeight: 700, fontFamily: "sans-serif",
+        flexShrink: 0, cursor: "pointer", userSelect: "none",
+      }}
+    >
+      {completed ? "✓" : num}
+    </div>
+  );
+}
+
+function DayButton({ day, isSelected, isCompleted, colors, onSelect, onLongPress }) {
+  const c = colors;
+  const timer = useRef(null);
+  const longPressed = useRef(false);
+
+  const startPress = () => {
+    longPressed.current = false;
+    timer.current = setTimeout(() => {
+      longPressed.current = true;
+      if (navigator.vibrate) navigator.vibrate(100);
+      onLongPress();
+    }, 2000);
+  };
+
+  const cancelPress = () => clearTimeout(timer.current);
+
+  return (
+    <button
+      onMouseDown={startPress}
+      onMouseUp={cancelPress}
+      onMouseLeave={cancelPress}
+      onTouchStart={startPress}
+      onTouchEnd={cancelPress}
+      onTouchMove={cancelPress}
+      onClick={() => { if (longPressed.current) { longPressed.current = false; return; } onSelect(); }}
+      style={{
+        padding: "10px 6px",
+        borderRadius: 10,
+        border: isSelected ? `2px solid ${c.accent}` : "2px solid transparent",
+        cursor: "pointer",
+        background: isSelected ? c.bg : "#fff",
+        textAlign: "center",
+        transition: "all 0.15s",
+        boxShadow: isSelected ? `0 2px 8px ${c.accent}33` : "0 1px 3px #0001",
+        userSelect: "none",
+      }}
+    >
+      <div style={{ position: "relative", display: "inline-block" }}>
+        <div style={{ fontSize: 20 }}>{day.emoji}</div>
+        {isCompleted && (
+          <div style={{ position: "absolute", top: -4, right: -6, background: "#16a34a", color: "#fff", borderRadius: "50%", width: 14, height: 14, fontSize: 9, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900 }}>✓</div>
+        )}
+      </div>
+      <div style={{ fontSize: 10, fontFamily: "sans-serif", fontWeight: 600, color: isSelected ? c.accent : "#888", marginTop: 2, lineHeight: 1.2 }}>
+        {day.name}
+      </div>
+    </button>
   );
 }
