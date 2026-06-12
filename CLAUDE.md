@@ -143,11 +143,11 @@ Swapped rows show a purple **GEWIJZIGD** badge and the original name below with 
 The Supabase table schema:
 ```
 exercise_swaps:
-  original    text
-  replacement text
-  week        int
-  day         int    (day id, 1–4)
-  unique constraint on (original, week, day)
+  original_exercise  text
+  new_exercise       text
+  week               int
+  day                int    (day id, 1–4)
+  unique constraint on (original_exercise, week, day)
 ```
 
 All swaps are fetched on mount alongside the other Supabase data.
