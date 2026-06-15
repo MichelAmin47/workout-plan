@@ -5,7 +5,7 @@ const schema = {
   days: [
     { id: 4, name: "Schouders", emoji: "🪨", color: "#e9c46a" },
     { id: 2, name: "Borst & Triceps", emoji: "💪", color: "#457b9d" },
-    { id: 3, name: "Rug & Biceps", emoji: "🏋️", color: "#2d6a4f" },
+    { id: 3, name: "Rug & Biceps", emoji: "🏋️", color: "#7c3aed" },
     { id: 1, name: "Benen & Billen", emoji: "🦵", color: "#e63946" },
   ],
   weeks: [
@@ -472,7 +472,7 @@ const schema = {
 const dayColors = {
   1: { bg: "#fff1f2", accent: "#e63946", light: "#fecdd3" },
   2: { bg: "#eff6ff", accent: "#2563eb", light: "#bfdbfe" },
-  3: { bg: "#f0fdf4", accent: "#16a34a", light: "#bbf7d0" },
+  3: { bg: "#f5f3ff", accent: "#7c3aed", light: "#ede9fe" },
   4: { bg: "#fefce8", accent: "#ca8a04", light: "#fef08a" },
 };
 

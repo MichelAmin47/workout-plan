@@ -95,7 +95,7 @@ Exercise object fields:
 `dayColors` is keyed by day id (1–4):
 - `1` (Benen & Billen) — red `#e63946`
 - `2` (Borst & Triceps) — blue `#2563eb`
-- `3` (Rug & Biceps) — green `#16a34a`
+- `3` (Rug & Biceps) — purple `#7c3aed`
 - `4` (Schouders) — yellow `#ca8a04`
 
 Optional exercise accent color is always orange `#f37121` (same as the app header/brand color), regardless of the current day.
