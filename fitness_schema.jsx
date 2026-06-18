@@ -989,16 +989,16 @@ export default function FitnessSchema() {
             <div style={{ display: "flex", gap: 6 }}>
               {!isDone && (
                 <button onClick={() => running ? pause() : start(timeLeft)}
-                  style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 30, lineHeight: 1 }}>
+                  style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 15, lineHeight: 1 }}>
                   {running ? "⏸" : "▶"}
                 </button>
               )}
               <button onClick={() => { reset(activeSection.seconds); start(activeSection.seconds); }}
-                style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 30, lineHeight: 1 }}>
+                style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 15, lineHeight: 1 }}>
                 ↺
               </button>
               <button onClick={() => { setActiveTimer(null); setActiveSection(null); pause(); }}
-                style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 30, lineHeight: 1 }}>
+                style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 15, lineHeight: 1 }}>
                 ✕
               </button>
             </div>
