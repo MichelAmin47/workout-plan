@@ -731,6 +731,8 @@ export default function FitnessSchema() {
                           <label style={{ fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#888" }}>{person}:</label>
                           <input
                             type="number"
+                            step="any"
+                            min={0}
                             value={person === "M" ? w.M : w.Z}
                             onChange={(e) => handleWeightChange(day.barbell.name, week.week, person, e.target.value)}
                             placeholder="kg"
@@ -939,6 +941,8 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
                 <label style={{ fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#888" }}>{person}:</label>
                 <input
                   type="number"
+                  step="any"
+                  min={0}
                   value={person === "M" ? weightM : weightZ}
                   onChange={(e) => onWeightChange(person, e.target.value)}
                   placeholder="kg"
