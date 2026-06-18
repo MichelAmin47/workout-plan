@@ -506,6 +506,69 @@ function sKey(original, weekNum, dayId) {
   return `${original}__${weekNum}__${dayId}`;
 }
 
+function playBoxingBell() {
+  const audio = new Audio("/boxing-bell.mp3");
+  audio.volume = 1.0;
+  audio.play().catch(() => {});
+}
+
+function triggerVibration() {
+  if (navigator.vibrate) navigator.vibrate([400, 200, 400, 200, 600]);
+}
+
+function useTimer(initialSeconds) {
+  const [timeLeft, setTimeLeft] = useState(initialSeconds);
+  const [running, setRunning] = useState(false);
+  const intervalRef = useRef(null);
+  const audioCtxRef = useRef(null);
+
+  const getAudioCtx = () => {
+    if (!audioCtxRef.current)
+      audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    return audioCtxRef.current;
+  };
+
+  useEffect(() => {
+    if (running && timeLeft > 0) {
+      intervalRef.current = setInterval(() => {
+        setTimeLeft((t) => {
+          if (t <= 1) {
+            clearInterval(intervalRef.current);
+            setRunning(false);
+            playBoxingBell();
+            triggerVibration();
+            return 0;
+          }
+          return t - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(intervalRef.current);
+  }, [running]);
+
+  const start = (seconds) => {
+    clearInterval(intervalRef.current);
+    setTimeLeft(seconds);
+    setRunning(true);
+    getAudioCtx().resume();
+  };
+  const pause = () => { clearInterval(intervalRef.current); setRunning(false); };
+  const reset = (seconds) => { clearInterval(intervalRef.current); setRunning(false); setTimeLeft(seconds); };
+
+  return { timeLeft, running, start, pause, reset };
+}
+
+function formatTime(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function formatTimerLabel(seconds) {
+  if (seconds % 60 === 0) return `${seconds / 60}min`;
+  return `${seconds}sec`;
+}
+
 const KB_EXERCISES = [
   "KB Alternating March", "KB Around the World", "KB Bottoms-Up Press",
   "KB Clean & Press", "KB Farmer's Carry", "KB Figure 8", "KB Floor Press",
@@ -517,8 +580,10 @@ const KB_EXERCISES = [
 export default function FitnessSchema() {
   const [selectedWeek, setSelectedWeek] = useState(getCurrentWeekIndex);
   const [selectedDay, setSelectedDay] = useState(0);
-  const [expandedSections, setExpandedSections] = useState({ spiergroep: true, barbell: true, kettlebell: true, core: true });
   const [weights, setWeights] = useState({});
+  const [activeTimer, setActiveTimer] = useState(null);
+  const [activeSection, setActiveSection] = useState(null);
+  const { timeLeft, running, start, pause, reset } = useTimer(120);
   const [expandedExercise, setExpandedExercise] = useState(null);
   const [completedDays, setCompletedDays] = useState(new Set());
   const [completedExercises, setCompletedExercises] = useState(new Set());
@@ -609,8 +674,17 @@ export default function FitnessSchema() {
     setSwapModal(null);
   };
 
-  const toggleSection = (key) =>
-    setExpandedSections((s) => ({ ...s, [key]: !s[key] }));
+  const handleTimerClick = (key, label, icon, seconds, accent) => {
+    if (activeTimer === key) {
+      setActiveTimer(null);
+      setActiveSection(null);
+      pause();
+    } else {
+      setActiveTimer(key);
+      setActiveSection({ key, label, icon, seconds, accent });
+      start(seconds);
+    }
+  };
 
   const toggleDayCompletion = (weekNum, dayId) => {
     const k = dKey(weekNum, dayId);
@@ -635,7 +709,7 @@ export default function FitnessSchema() {
   };
 
   return (
-    <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#f8f7f4", color: "#1a1a1a", userSelect: "none", WebkitUserSelect: "none" }}>
+    <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#f8f7f4", color: "#1a1a1a", userSelect: "none", WebkitUserSelect: "none", paddingBottom: activeTimer ? 100 : 0 }}>
       {/* Header */}
       <div style={{ background: "#f37121", color: "#fff", padding: "24px 20px 20px", textAlign: "center" }}>
         <div style={{ fontSize: 11, letterSpacing: 4, textTransform: "uppercase", color: "#888", marginBottom: 6 }}>Basic Fit · Gevorderd</div>
@@ -697,8 +771,9 @@ export default function FitnessSchema() {
           title="Barbell Hoofdoefening"
           icon="🏋️"
           accent="#f37121"
-          expanded={expandedSections.barbell}
-          onToggle={() => toggleSection("barbell")}
+          timerSeconds={120}
+          timerActive={activeTimer === "barbell"}
+          onTimerClick={() => handleTimerClick("barbell", "Barbell Hoofdoefening", "🏋️", 120, "#f37121")}
         >
           {(() => {
             const k = wKey(day.barbell.name, week.week);
@@ -758,8 +833,9 @@ export default function FitnessSchema() {
           title="Spiergroep Oefeningen"
           icon="🎯"
           accent={colors.accent}
-          expanded={expandedSections.spiergroep}
-          onToggle={() => toggleSection("spiergroep")}
+          timerSeconds={90}
+          timerActive={activeTimer === "spiergroep"}
+          onTimerClick={() => handleTimerClick("spiergroep", "Spiergroep Oefeningen", "🎯", 90, colors.accent)}
         >
           {day.spiergroep.map((ex, i) => {
             const k = wKey(ex.name, week.week);
@@ -795,8 +871,9 @@ export default function FitnessSchema() {
           title="Kettlebell (Full Body)"
           icon="🔔"
           accent="#c05621"
-          expanded={expandedSections.kettlebell}
-          onToggle={() => toggleSection("kettlebell")}
+          timerSeconds={60}
+          timerActive={activeTimer === "kettlebell"}
+          onTimerClick={() => handleTimerClick("kettlebell", "Kettlebell (Full Body)", "🔔", 60, "#c05621")}
         >
           {day.kettlebell.map((ex, i) => {
             const sk = sKey(ex.name, week.week, dayInfo.id);
@@ -840,8 +917,9 @@ export default function FitnessSchema() {
           title="Core Finisher"
           icon="🔥"
           accent="#7c3aed"
-          expanded={expandedSections.core}
-          onToggle={() => toggleSection("core")}
+          timerSeconds={45}
+          timerActive={activeTimer === "core"}
+          onTimerClick={() => handleTimerClick("core", "Core Finisher", "🔥", 45, "#7c3aed")}
         >
           {day.core.map((ex, i) => {
             return (
@@ -877,6 +955,57 @@ export default function FitnessSchema() {
         </div>
       </div>
 
+      {activeTimer && activeSection && (() => {
+        const progress = activeSection.seconds > 0 ? timeLeft / activeSection.seconds : 0;
+        const isDone = timeLeft === 0;
+        const circumference = 2 * Math.PI * 23;
+        return (
+          <div style={{
+            position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
+            width: "100%", maxWidth: 600, background: isDone ? "#16a34a" : activeSection.accent,
+            color: "#fff", padding: "14px 20px", display: "flex", alignItems: "center", gap: 14,
+            boxShadow: "0 -4px 20px #0004", borderRadius: "20px 20px 0 0", transition: "background 0.3s", zIndex: 50,
+          }}>
+            <div style={{ position: "relative", width: 56, height: 56, flexShrink: 0 }}>
+              <svg width="56" height="56" style={{ transform: "rotate(-90deg)" }}>
+                <circle cx="28" cy="28" r="23" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="4" />
+                <circle cx="28" cy="28" r="23" fill="none" stroke="#fff" strokeWidth="4"
+                  strokeDasharray={circumference}
+                  strokeDashoffset={circumference * (1 - progress)}
+                  strokeLinecap="round"
+                  style={{ transition: "stroke-dashoffset 0.9s linear" }}
+                />
+              </svg>
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: isDone ? 20 : 13, fontWeight: 700 }}>
+                {isDone ? "🔔" : formatTime(timeLeft)}
+              </div>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, opacity: 0.8 }}>{activeSection.icon} {activeSection.label} rust</div>
+              <div style={{ fontSize: isDone ? 16 : 26, fontWeight: 700, lineHeight: 1.1 }}>
+                {isDone ? "Rust voorbij, ga! 💪" : formatTime(timeLeft)}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {!isDone && (
+                <button onClick={() => running ? pause() : start(timeLeft)}
+                  style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 30, lineHeight: 1 }}>
+                  {running ? "⏸" : "▶"}
+                </button>
+              )}
+              <button onClick={() => { reset(activeSection.seconds); start(activeSection.seconds); }}
+                style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 30, lineHeight: 1 }}>
+                ↺
+              </button>
+              <button onClick={() => { setActiveTimer(null); setActiveSection(null); pause(); }}
+                style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 30, lineHeight: 1 }}>
+                ✕
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       {swapModal && (
         <BottomSheet
           currentExercise={swaps[sKey(swapModal.original, swapModal.week, swapModal.day)] || swapModal.original}
@@ -889,20 +1018,22 @@ export default function FitnessSchema() {
   );
 }
 
-function Section({ title, icon, accent, expanded, onToggle, children }) {
+function Section({ title, icon, accent, timerSeconds, timerActive, onTimerClick, children }) {
   return (
     <div style={{ background: "#fff", borderRadius: 12, marginBottom: 12, overflow: "hidden", boxShadow: "0 1px 4px #0001" }}>
-      <button
-        onClick={onToggle}
-        style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
-      >
+      <div style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 18 }}>{icon}</span>
           <span style={{ fontWeight: 700, fontSize: 14, color: "#1a1a1a" }}>{title}</span>
         </div>
-        <span style={{ fontSize: 18, color: accent, transform: expanded ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s" }}>⌄</span>
-      </button>
-      {expanded && <div style={{ padding: "0 12px 12px", display: "flex", flexDirection: "column", gap: 8 }}>{children}</div>}
+        <button
+          onClick={onTimerClick}
+          style={{ background: timerActive ? accent : "#f0f0f0", border: "none", borderRadius: 8, padding: "6px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 13, fontWeight: 600, color: timerActive ? "#fff" : "#555", transition: "all 0.15s" }}
+        >
+          ⏱ {formatTimerLabel(timerSeconds)}
+        </button>
+      </div>
+      <div style={{ padding: "0 12px 12px", display: "flex", flexDirection: "column", gap: 8 }}>{children}</div>
     </div>
   );
 }

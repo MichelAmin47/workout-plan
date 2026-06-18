@@ -59,8 +59,8 @@ VITE_SUPABASE_ANON_KEY=...
 Everything lives in `fitness_schema.jsx`:
 
 - **`schema`** — static data object containing the full 5-week program. Two phases: `"Opbouw"` (weeks 1–3, same exercises with progressive overload) and `"Nieuwe Prikkel"` (weeks 4–5, new exercises).
-- **`FitnessSchema`** (default export) — top-level component. Manages state: `selectedWeek`, `selectedDay`, `expandedSections`, `weights` (map of fetched weights from Supabase), `expandedExercise` (name of the currently open weight panel), `completedDays` (Set of completed day keys), `completedExercises` (Set of completed exercise keys), `swaps` (map of swapped KB exercises keyed by `sKey`), and `swapModal` (null or `{original, week, day}` for the open bottom sheet). Derives all display data from `schema` by indexing with those state values.
-- **`Section`** — collapsible card wrapper used for each exercise category.
+- **`FitnessSchema`** (default export) — top-level component. Manages state: `selectedWeek`, `selectedDay`, `weights` (map of fetched weights from Supabase), `expandedExercise` (name of the currently open weight panel), `completedDays` (Set of completed day keys), `completedExercises` (Set of completed exercise keys), `swaps` (map of swapped KB exercises keyed by `sKey`), `swapModal` (null or `{original, week, day}` for the open bottom sheet), `activeTimer` (section key or null), and `activeSection` (object with key/label/icon/seconds/accent or null). Calls `useTimer` for the rest timer. Derives all display data from `schema` by indexing with those state values.
+- **`Section`** — always-expanded card wrapper used for each exercise category. Header shows section title + a timer button (⏱ label). Timer button uses section accent when active. Props: `title`, `icon`, `accent`, `timerSeconds`, `timerActive`, `onTimerClick`.
 - **`ExRow`** — single exercise row (number badge, name, optional note, sets pill). When `onToggle` is provided (spiergroep, kettlebell), the row is clickable and renders a weight input panel below it when `expanded` is true. The panel contains M: and Z: number inputs that save to Supabase on change, plus a previous-week reference line. The number badge is rendered by `ExCircle`. Accepts `swapped` (bool) and `originalName` (string) props — when `swapped` is true, shows a purple "GEWIJZIGD" badge next to the name and renders `↩ originalName` below in gray.
 - **`ExCircle`** — the circular number badge inside `ExRow`. Supports a 1000ms long press (`onLongPress`) to toggle exercise completion. Shows a green ✓ when completed. Long press works on both mouse and touch; suppresses the subsequent click to prevent the weight panel from toggling.
 - **`DayButton`** — day selector button. Short click selects the day; 1000ms long press toggles completion for that day in the current week. Shows a small green ✓ badge overlaid on the emoji when completed.
@@ -166,6 +166,22 @@ unique constraint on (exercise, week, person)
 ```
 
 Important: Supabase `PostgrestBuilder` is a lazy promise — the HTTP request only fires when `.then()` is called or the result is awaited. Always chain `.then()` on upsert/insert calls, otherwise the request is silently dropped.
+
+## Rest timer
+
+Each section header has a timer button showing the rest duration (e.g. "⏱ 2min"). Clicking it starts a countdown in a fixed bottom bar; clicking it again closes the timer. Only one timer is active at a time.
+
+Timer durations per section:
+- Barbell: 120s (2min)
+- Spiergroep: 90sec
+- Kettlebell: 60s (1min)
+- Core: 45sec
+
+The bottom bar shows a circular SVG progress ring (56px, r=23), large countdown text (26px), section label with "rust" suffix, and ⏸/▶, ↺, ✕ controls. On completion: background turns green (`#16a34a`), ring shows 🔔, text shows "Rust voorbij, ga! 💪". Completion plays `/boxing-bell.mp3` and triggers `navigator.vibrate([400, 200, 400, 200, 600])`.
+
+The `useTimer(initialSeconds)` hook lives outside the component. It holds `timeLeft`, `running`, and `intervalRef`. `start(seconds)` resets and starts; `pause()` stops; `reset(seconds)` stops and resets. The root div gets `paddingBottom: 100` when a timer is active so content isn't hidden behind the bar.
+
+Helper functions: `playBoxingBell()`, `triggerVibration()`, `formatTime(seconds)` → `"M:SS"`, `formatTimerLabel(seconds)` → `"Xmin"` or `"Xsec"`.
 
 ## Progressive overload pattern (weeks 1–3)
 
