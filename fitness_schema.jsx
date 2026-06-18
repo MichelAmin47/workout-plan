@@ -962,7 +962,7 @@ export default function FitnessSchema() {
         return (
           <div style={{
             position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
-            width: "100%", maxWidth: 600, background: isDone ? "#16a34a" : activeSection.accent,
+            width: "calc(100% - 32px)", maxWidth: 568, background: isDone ? "#16a34a" : activeSection.accent,
             color: "#fff", padding: "14px 20px", display: "flex", alignItems: "center", gap: 14,
             boxShadow: "0 -4px 20px #0004", borderRadius: "20px 20px 0 0", transition: "background 0.3s", zIndex: 50,
           }}>
@@ -989,16 +989,16 @@ export default function FitnessSchema() {
             <div style={{ display: "flex", gap: 6 }}>
               {!isDone && (
                 <button onClick={() => running ? pause() : start(timeLeft)}
-                  style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 15, lineHeight: 1 }}>
+                  style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 20, lineHeight: 1 }}>
                   {running ? "⏸" : "▶"}
                 </button>
               )}
               <button onClick={() => { reset(activeSection.seconds); start(activeSection.seconds); }}
-                style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 15, lineHeight: 1 }}>
+                style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 20, lineHeight: 1 }}>
                 ↺
               </button>
               <button onClick={() => { setActiveTimer(null); setActiveSection(null); pause(); }}
-                style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 15, lineHeight: 1 }}>
+                style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 20, lineHeight: 1 }}>
                 ✕
               </button>
             </div>
