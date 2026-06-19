@@ -586,6 +586,7 @@ export default function FitnessSchema() {
   const [weights, setWeights] = useState({});
   const [activeTimer, setActiveTimer] = useState(null);
   const [activeSection, setActiveSection] = useState(null);
+  const [timerLocked, setTimerLocked] = useState(false);
   const wakeLockRef = useRef(null);
 
   const acquireWakeLock = async () => {
@@ -692,11 +693,13 @@ export default function FitnessSchema() {
     if (activeTimer === key) {
       setActiveTimer(null);
       setActiveSection(null);
+      setTimerLocked(false);
       pause();
       releaseWakeLock();
     } else {
       setActiveTimer(key);
       setActiveSection({ key, label, icon, seconds, accent });
+      setTimerLocked(true);
       start(seconds);
       acquireWakeLock();
     }
@@ -980,7 +983,34 @@ export default function FitnessSchema() {
             width: "calc(100% - 32px)", maxWidth: 568, background: isDone ? "#16a34a" : activeSection.accent,
             color: "#fff", padding: "14px 20px", display: "flex", alignItems: "center", gap: 14,
             boxShadow: "0 -4px 20px #0004", borderRadius: "20px 20px 0 0", transition: "background 0.3s", zIndex: 50,
+            overflow: "hidden",
           }}>
+            {timerLocked && (
+              <div style={{ position: "absolute", inset: 0, background: isDone ? "#16a34a" : activeSection.accent, display: "flex", alignItems: "center", padding: "0 20px", gap: 14, zIndex: 1 }}>
+                <div style={{ position: "relative", width: 75, height: 75, flexShrink: 0 }}>
+                  <svg width="75" height="75" style={{ transform: "rotate(-90deg)" }}>
+                    <circle cx="37.5" cy="37.5" r="31" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="4" />
+                    <circle cx="37.5" cy="37.5" r="31" fill="none" stroke="#fff" strokeWidth="4"
+                      strokeDasharray={2 * Math.PI * 31}
+                      strokeDashoffset={2 * Math.PI * 31 * (1 - progress)}
+                      strokeLinecap="round"
+                      style={{ transition: "stroke-dashoffset 0.9s linear" }}
+                    />
+                  </svg>
+                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: isDone ? 31 : 19, fontWeight: 700 }}>
+                    {isDone ? "🔔" : formatTime(timeLeft)}
+                  </div>
+                </div>
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", textAlign: "center" }}>
+                  <div style={{ fontSize: 13, opacity: 0.8 }}>{activeSection.icon} {activeSection.label} rust</div>
+                  {isDone && <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.2, marginTop: 2 }}>Rust voorbij, ga! 💪</div>}
+                </div>
+                <button onClick={() => setTimerLocked(false)}
+                  style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  🔓
+                </button>
+              </div>
+            )}
             <div style={{ position: "relative", width: 75, height: 75, flexShrink: 0 }}>
               <svg width="75" height="75" style={{ transform: "rotate(-90deg)" }}>
                 <circle cx="37.5" cy="37.5" r="31" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="4" />
@@ -1006,11 +1036,11 @@ export default function FitnessSchema() {
                   {running ? "II" : "▶"}
                 </button>
               )}
-              <button onClick={() => { reset(activeSection.seconds); start(activeSection.seconds); }}
+              <button onClick={() => { reset(activeSection.seconds); start(activeSection.seconds); setTimerLocked(true); }}
                 style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, lineHeight: 1, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 ↺
               </button>
-              <button onClick={() => { setActiveTimer(null); setActiveSection(null); pause(); releaseWakeLock(); }}
+              <button onClick={() => { setActiveTimer(null); setActiveSection(null); setTimerLocked(false); pause(); releaseWakeLock(); }}
                 style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, lineHeight: 1, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 ✕
               </button>
