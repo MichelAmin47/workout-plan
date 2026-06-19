@@ -582,12 +582,18 @@ const KB_EXERCISES = [
 
 export default function FitnessSchema() {
   const [selectedWeek, setSelectedWeek] = useState(getCurrentWeekIndex);
-  const [selectedDay, setSelectedDay] = useState(0);
+  const [selectedDay, setSelectedDay] = useState(() => {
+    const saved = localStorage.getItem("selectedDay");
+    return saved !== null ? Number(saved) : 0;
+  });
   const [weights, setWeights] = useState({});
   const [activeTimer, setActiveTimer] = useState(null);
   const [activeSection, setActiveSection] = useState(null);
   const [timerLocked, setTimerLocked] = useState(false);
   const wakeLockRef = useRef(null);
+  const bbTimerRef = useRef(null);
+  const bbLongPressed = useRef(false);
+  const bbStartPos = useRef({ x: 0, y: 0 });
 
   const acquireWakeLock = async () => {
     if (!("wakeLock" in navigator)) return;
@@ -631,6 +637,8 @@ export default function FitnessSchema() {
       setSwaps(map);
     });
   }, []);
+
+  useEffect(() => { localStorage.setItem("selectedDay", selectedDay); }, [selectedDay]);
 
   const week = schema.weeks[selectedWeek];
   const day = week.days[selectedDay];
@@ -703,6 +711,23 @@ export default function FitnessSchema() {
       start(seconds);
       acquireWakeLock();
     }
+  };
+
+  const bbStartPress = (e) => {
+    bbLongPressed.current = false;
+    const t = e.touches?.[0];
+    if (t) bbStartPos.current = { x: t.clientX, y: t.clientY };
+    bbTimerRef.current = setTimeout(() => {
+      bbLongPressed.current = true;
+      if (navigator.vibrate) navigator.vibrate(100);
+      toggleExerciseCompletion(day.barbell.name, week.week, dayInfo.id);
+    }, 1000);
+  };
+  const bbCancelPress = () => clearTimeout(bbTimerRef.current);
+  const bbHandleTouchMove = (e) => {
+    const t = e.touches?.[0];
+    if (!t) return;
+    if (Math.abs(t.clientX - bbStartPos.current.x) > 10 || Math.abs(t.clientY - bbStartPos.current.y) > 10) bbCancelPress();
   };
 
   const toggleDayCompletion = (weekNum, dayId) => {
@@ -800,15 +825,21 @@ export default function FitnessSchema() {
             const prevK = week.week > 1 ? wKey(day.barbell.name, week.week - 1) : null;
             const prevW = prevK ? (weights[prevK] || { M: "", Z: "" }) : { M: null, Z: null };
             const hasPrev = prevW.M !== "" && prevW.M != null || prevW.Z !== "" && prevW.Z != null;
+            const barbellCompleted = completedExercises.has(eKey(day.barbell.name, week.week, dayInfo.id));
             return (
               <div style={{ borderRadius: 10, overflow: "hidden" }}>
                 <div
                   style={{ background: "#f37121", padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
-                  onClick={() => handleExerciseClick(day.barbell.name)}
+                  onClick={(e) => { if (bbLongPressed.current) { bbLongPressed.current = false; e.stopPropagation(); return; } handleExerciseClick(day.barbell.name); }}
+                  onMouseDown={bbStartPress} onMouseUp={bbCancelPress}
+                  onTouchStart={bbStartPress} onTouchEnd={bbCancelPress} onTouchMove={bbHandleTouchMove}
                 >
-                  <div>
-                    <div style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>{day.barbell.name}</div>
-                    {day.barbell.note && <div style={{ color: "#ffcfa0", fontSize: 12, fontFamily: "sans-serif", marginTop: 2 }}>{day.barbell.note}</div>}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ visibility: barbellCompleted ? "visible" : "hidden", width: 24, height: 24, borderRadius: "50%", background: "#16a34a", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#fff", fontWeight: 700, flexShrink: 0 }}>✓</span>
+                    <div>
+                      <div style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>{day.barbell.name}</div>
+                      {day.barbell.note && <div style={{ color: "#ffcfa0", fontSize: 12, fontFamily: "sans-serif", marginTop: 2 }}>{day.barbell.note}</div>}
+                    </div>
                   </div>
                   <div style={{ background: "#fff", color: "#f37121", padding: "5px 12px", borderRadius: 20, fontSize: 13, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap" }}>
                     {day.barbell.sets}
@@ -837,7 +868,7 @@ export default function FitnessSchema() {
                     </div>
                     {hasPrev && (
                       <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
-                        Vorige week  M: {prevW.M !== "" && prevW.M != null ? `${prevW.M}kg` : "—"} / Z: {prevW.Z !== "" && prevW.Z != null ? `${prevW.Z}kg` : "—"}
+                        Vorige week  <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevW.M !== "" && prevW.M != null ? `${prevW.M}kg` : "—"}</span> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevW.Z !== "" && prevW.Z != null ? `${prevW.Z}kg` : "—"}</span>
                       </div>
                     )}
                   </div>
@@ -1129,7 +1160,7 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
           </div>
           {hasPrev && (
             <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
-              Vorige week  M: {prevWeightM !== "" && prevWeightM != null ? `${prevWeightM}kg` : "—"} / Z: {prevWeightZ !== "" && prevWeightZ != null ? `${prevWeightZ}kg` : "—"}
+              Vorige week  <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevWeightM !== "" && prevWeightM != null ? `${prevWeightM}kg` : "—"}</span> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevWeightZ !== "" && prevWeightZ != null ? `${prevWeightZ}kg` : "—"}</span>
             </div>
           )}
         </div>
