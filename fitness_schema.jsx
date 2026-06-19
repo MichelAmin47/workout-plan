@@ -981,12 +981,12 @@ export default function FitnessSchema() {
             color: "#fff", padding: "14px 20px", display: "flex", alignItems: "center", gap: 14,
             boxShadow: "0 -4px 20px #0004", borderRadius: "20px 20px 0 0", transition: "background 0.3s", zIndex: 50,
           }}>
-            <div style={{ position: "relative", width: 68, height: 68, flexShrink: 0 }}>
-              <svg width="68" height="68" style={{ transform: "rotate(-90deg)" }}>
-                <circle cx="34" cy="34" r="28" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="4" />
-                <circle cx="34" cy="34" r="28" fill="none" stroke="#fff" strokeWidth="4"
-                  strokeDasharray={2 * Math.PI * 28}
-                  strokeDashoffset={2 * Math.PI * 28 * (1 - progress)}
+            <div style={{ position: "relative", width: 75, height: 75, flexShrink: 0 }}>
+              <svg width="75" height="75" style={{ transform: "rotate(-90deg)" }}>
+                <circle cx="37.5" cy="37.5" r="31" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="4" />
+                <circle cx="37.5" cy="37.5" r="31" fill="none" stroke="#fff" strokeWidth="4"
+                  strokeDasharray={2 * Math.PI * 31}
+                  strokeDashoffset={2 * Math.PI * 31 * (1 - progress)}
                   strokeLinecap="round"
                   style={{ transition: "stroke-dashoffset 0.9s linear" }}
                 />
