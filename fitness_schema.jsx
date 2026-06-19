@@ -999,19 +999,19 @@ export default function FitnessSchema() {
               <div style={{ fontSize: 13, opacity: 0.8 }}>{activeSection.icon} {activeSection.label} rust</div>
               {isDone && <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.2, marginTop: 2 }}>Rust voorbij, ga! 💪</div>}
             </div>
-            <div style={{ display: "flex", gap: 10 }}>
+            <div style={{ display: "flex", gap: 6 }}>
               {!isDone && (
                 <button onClick={() => { if (running) { pause(); releaseWakeLock(); } else { start(timeLeft); acquireWakeLock(); } }}
-                  style={{ background: "rgba(255,255,255,0.25)", border: "none", color: "#fff", borderRadius: 10, padding: "4px 8px", cursor: "pointer", fontSize: 20, lineHeight: 1 }}>
+                  style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 20, lineHeight: 1 }}>
                   {running ? "⏸" : "▶"}
                 </button>
               )}
               <button onClick={() => { reset(activeSection.seconds); start(activeSection.seconds); }}
-                style={{ background: "rgba(255,255,255,0.25)", border: "none", color: "#fff", borderRadius: 10, padding: "4px 8px", cursor: "pointer", fontSize: 20, lineHeight: 1 }}>
+                style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 20, lineHeight: 1 }}>
                 ↺
               </button>
               <button onClick={() => { setActiveTimer(null); setActiveSection(null); pause(); releaseWakeLock(); }}
-                style={{ background: "rgba(255,255,255,0.25)", border: "none", color: "#fff", borderRadius: 10, padding: "4px 8px", cursor: "pointer", fontSize: 20, lineHeight: 1 }}>
+                style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 20, lineHeight: 1 }}>
                 ✕
               </button>
             </div>
@@ -1041,7 +1041,7 @@ function Section({ title, icon, accent, timerSeconds, timerActive, onTimerClick,
         </div>
         <button
           onClick={onTimerClick}
-          style={{ background: timerActive ? accent : `${accent}38`, border: `1.5px solid ${accent}`, borderRadius: 8, padding: "6px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 13, fontWeight: 600, color: timerActive ? "#fff" : accent, transition: "all 0.15s" }}
+          style={{ background: timerActive ? accent : "#f0f0f0", border: "none", borderRadius: 8, padding: "6px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 13, fontWeight: 600, color: timerActive ? "#fff" : "#555", transition: "all 0.15s" }}
         >
           ⏱ {formatTimerLabel(timerSeconds)}
         </button>
