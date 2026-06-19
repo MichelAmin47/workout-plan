@@ -177,9 +177,11 @@ Timer durations per section:
 - Kettlebell: 60s (1min)
 - Core: 45sec
 
-The bottom bar shows a circular SVG progress ring (56px, r=23), large countdown text (26px), section label with "rust" suffix, and ⏸/▶, ↺, ✕ controls. On completion: background turns green (`#16a34a`), ring shows 🔔, text shows "Rust voorbij, ga! 💪". Completion plays `/boxing-bell.mp3` and triggers `navigator.vibrate([400, 200, 400, 200, 600])`.
+The bottom bar shows a circular SVG progress ring (75px container, r=31), countdown text inside the ring (19px, 31px when done), section label with "rust" suffix centered below, and ⏸/▶, ↺, ✕ controls (20px icons). On completion: background turns green (`#16a34a`), ring shows 🔔, "Rust voorbij, ga! 💪" appears below the label. Completion plays `/boxing-bell.mp3` and triggers `navigator.vibrate([400, 200, 400, 200, 600])`.
 
-The `useTimer(initialSeconds)` hook lives outside the component. It holds `timeLeft`, `running`, and `intervalRef`. `start(seconds)` resets and starts; `pause()` stops; `reset(seconds)` stops and resets. The root div gets `paddingBottom: 100` when a timer is active so content isn't hidden behind the bar.
+The `useTimer(initialSeconds, { onComplete })` hook lives outside the component. It holds `timeLeft`, `running`, and `intervalRef`. `start(seconds)` resets and starts; `pause()` stops; `reset(seconds)` stops and resets. `onComplete` fires when the countdown reaches zero. The root div gets `paddingBottom: 100` when a timer is active so content isn't hidden behind the bar.
+
+Wake Lock: `acquireWakeLock()` requests `navigator.wakeLock.request("screen")` when a timer starts or resumes; `releaseWakeLock()` releases it on pause, close, and completion. Unsupported browsers are handled silently.
 
 Helper functions: `playBoxingBell()`, `triggerVibration()`, `formatTime(seconds)` → `"M:SS"`, `formatTimerLabel(seconds)` → `"Xmin"` or `"Xsec"`.
 
