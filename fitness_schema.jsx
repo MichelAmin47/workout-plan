@@ -974,6 +974,8 @@ export default function FitnessSchema() {
         </div>
       </div>
 
+      {timerLocked && <div style={{ position: "fixed", inset: 0, zIndex: 49 }} />}
+
       {activeTimer && activeSection && (() => {
         const progress = activeSection.seconds > 0 ? timeLeft / activeSection.seconds : 0;
         const isDone = timeLeft === 0;
