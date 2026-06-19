@@ -991,7 +991,7 @@ export default function FitnessSchema() {
                   style={{ transition: "stroke-dashoffset 0.9s linear" }}
                 />
               </svg>
-              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: isDone ? 26 : 16, fontWeight: 700 }}>
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: isDone ? 31 : 19, fontWeight: 700 }}>
                 {isDone ? "🔔" : formatTime(timeLeft)}
               </div>
             </div>
