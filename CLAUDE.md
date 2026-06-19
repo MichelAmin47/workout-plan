@@ -177,7 +177,7 @@ Timer durations per section:
 - Kettlebell: 60s (1min)
 - Core: 45sec
 
-The bottom bar shows a circular SVG progress ring (75px container, r=31), countdown text inside the ring (19px, 31px when done), section label with "rust" suffix centered below, and ⏸/▶, ↺, ✕ controls (20px icons). On completion: background turns green (`#16a34a`), ring shows 🔔, "Rust voorbij, ga! 💪" appears below the label. Completion plays `/boxing-bell.mp3` and triggers `navigator.vibrate([400, 200, 400, 200, 600])`.
+The bottom bar shows a circular SVG progress ring (75px container, r=31), countdown text inside the ring (19px, 31px when done), section label with "rust" suffix centered below, and II/▶, ↺, ✕ controls (20px icons, 48×48px fixed size, `appearance: none` to prevent Android emoji rendering). On completion: background turns green (`#16a34a`), ring shows 🔔, "Rust voorbij, ga! 💪" appears below the label. Completion plays `/boxing-bell.mp3` and triggers `navigator.vibrate([400, 200, 400, 200, 600])`.
 
 The `useTimer(initialSeconds, { onComplete })` hook lives outside the component. It holds `timeLeft`, `running`, and `intervalRef`. `start(seconds)` resets and starts; `pause()` stops; `reset(seconds)` stops and resets. `onComplete` fires when the countdown reaches zero. The root div gets `paddingBottom: 100` when a timer is active so content isn't hidden behind the bar.
 
