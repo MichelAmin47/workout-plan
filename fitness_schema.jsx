@@ -516,11 +516,13 @@ function triggerVibration() {
   if (navigator.vibrate) navigator.vibrate([400, 200, 400, 200, 600]);
 }
 
-function useTimer(initialSeconds) {
+function useTimer(initialSeconds, { onComplete } = {}) {
   const [timeLeft, setTimeLeft] = useState(initialSeconds);
   const [running, setRunning] = useState(false);
   const intervalRef = useRef(null);
   const audioCtxRef = useRef(null);
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
   const getAudioCtx = () => {
     if (!audioCtxRef.current)
@@ -537,6 +539,7 @@ function useTimer(initialSeconds) {
             setRunning(false);
             playBoxingBell();
             triggerVibration();
+            onCompleteRef.current?.();
             return 0;
           }
           return t - 1;
@@ -583,7 +586,18 @@ export default function FitnessSchema() {
   const [weights, setWeights] = useState({});
   const [activeTimer, setActiveTimer] = useState(null);
   const [activeSection, setActiveSection] = useState(null);
-  const { timeLeft, running, start, pause, reset } = useTimer(120);
+  const wakeLockRef = useRef(null);
+
+  const acquireWakeLock = async () => {
+    if (!("wakeLock" in navigator)) return;
+    try { wakeLockRef.current = await navigator.wakeLock.request("screen"); } catch (_) {}
+  };
+  const releaseWakeLock = () => {
+    wakeLockRef.current?.release().catch(() => {});
+    wakeLockRef.current = null;
+  };
+
+  const { timeLeft, running, start, pause, reset } = useTimer(120, { onComplete: releaseWakeLock });
   const [expandedExercise, setExpandedExercise] = useState(null);
   const [completedDays, setCompletedDays] = useState(new Set());
   const [completedExercises, setCompletedExercises] = useState(new Set());
@@ -679,10 +693,12 @@ export default function FitnessSchema() {
       setActiveTimer(null);
       setActiveSection(null);
       pause();
+      releaseWakeLock();
     } else {
       setActiveTimer(key);
       setActiveSection({ key, label, icon, seconds, accent });
       start(seconds);
+      acquireWakeLock();
     }
   };
 
@@ -958,7 +974,6 @@ export default function FitnessSchema() {
       {activeTimer && activeSection && (() => {
         const progress = activeSection.seconds > 0 ? timeLeft / activeSection.seconds : 0;
         const isDone = timeLeft === 0;
-        const circumference = 2 * Math.PI * 23;
         return (
           <div style={{
             position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
@@ -966,29 +981,27 @@ export default function FitnessSchema() {
             color: "#fff", padding: "14px 20px", display: "flex", alignItems: "center", gap: 14,
             boxShadow: "0 -4px 20px #0004", borderRadius: "20px 20px 0 0", transition: "background 0.3s", zIndex: 50,
           }}>
-            <div style={{ position: "relative", width: 56, height: 56, flexShrink: 0 }}>
-              <svg width="56" height="56" style={{ transform: "rotate(-90deg)" }}>
-                <circle cx="28" cy="28" r="23" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="4" />
-                <circle cx="28" cy="28" r="23" fill="none" stroke="#fff" strokeWidth="4"
-                  strokeDasharray={circumference}
-                  strokeDashoffset={circumference * (1 - progress)}
+            <div style={{ position: "relative", width: 68, height: 68, flexShrink: 0 }}>
+              <svg width="68" height="68" style={{ transform: "rotate(-90deg)" }}>
+                <circle cx="34" cy="34" r="28" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="4" />
+                <circle cx="34" cy="34" r="28" fill="none" stroke="#fff" strokeWidth="4"
+                  strokeDasharray={2 * Math.PI * 28}
+                  strokeDashoffset={2 * Math.PI * 28 * (1 - progress)}
                   strokeLinecap="round"
                   style={{ transition: "stroke-dashoffset 0.9s linear" }}
                 />
               </svg>
-              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: isDone ? 20 : 13, fontWeight: 700 }}>
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: isDone ? 26 : 16, fontWeight: 700 }}>
                 {isDone ? "🔔" : formatTime(timeLeft)}
               </div>
             </div>
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", textAlign: "center" }}>
               <div style={{ fontSize: 13, opacity: 0.8 }}>{activeSection.icon} {activeSection.label} rust</div>
-              <div style={{ fontSize: isDone ? 16 : 26, fontWeight: 700, lineHeight: 1.1 }}>
-                {isDone ? "Rust voorbij, ga! 💪" : formatTime(timeLeft)}
-              </div>
+              {isDone && <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.2, marginTop: 2 }}>Rust voorbij, ga! 💪</div>}
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               {!isDone && (
-                <button onClick={() => running ? pause() : start(timeLeft)}
+                <button onClick={() => { if (running) { pause(); releaseWakeLock(); } else { start(timeLeft); acquireWakeLock(); } }}
                   style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 20, lineHeight: 1 }}>
                   {running ? "⏸" : "▶"}
                 </button>
@@ -997,7 +1010,7 @@ export default function FitnessSchema() {
                 style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 20, lineHeight: 1 }}>
                 ↺
               </button>
-              <button onClick={() => { setActiveTimer(null); setActiveSection(null); pause(); }}
+              <button onClick={() => { setActiveTimer(null); setActiveSection(null); pause(); releaseWakeLock(); }}
                 style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 20, lineHeight: 1 }}>
                 ✕
               </button>
