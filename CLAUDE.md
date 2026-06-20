@@ -110,7 +110,7 @@ Inside the content area, sections are rendered in this fixed order: Barbell → 
 A collapsible **Progressie** section sits at the bottom of the content area. State: `progressieOpen` (bool), `progressieExercise` (string or null, defaults to first exercise).
 
 When open it shows:
-- A styled `<select>` dropdown listing all unique barbell + spiergroep + kettlebell exercise names extracted from the full schema (deduplicated across all weeks/days).
+- A styled `<select>` dropdown with exercises ordered: current day's exercises first, then all barbell → spiergroep → kettlebell → core exercises from the full schema (deduplicated, excluding already-listed day exercises).
 - A stats row with M — Max / gain (orange) and Z — Max / gain (blue) cards derived from the `weights` state already loaded on mount.
 - A Recharts `LineChart` (220px height) with M in orange `#f37121` and Z in blue `#0ea5e9`, `connectNulls`, week labels on X axis (`W23`–`W27`).
 - A `CustomTooltip` component renders a white card with colored dots and bold kg values.

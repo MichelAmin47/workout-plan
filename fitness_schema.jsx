@@ -1025,11 +1025,17 @@ export default function FitnessSchema() {
 
         {/* Progressie */}
         {(() => {
-          const allExercises = [...new Set(schema.weeks.flatMap(w => w.days.flatMap(d => [
-            d.barbell.name,
-            ...d.spiergroep.map(e => e.name),
-            ...d.kettlebell.map(e => e.name),
-          ])))];
+          const dayExercises = [
+            day.barbell.name,
+            ...day.spiergroep.map(e => e.name),
+            ...day.kettlebell.map(e => e.name),
+          ];
+          const uniq = (arr) => [...new Set(arr)].filter(e => !dayExercises.includes(e));
+          const allBarbell = uniq(schema.weeks.flatMap(w => w.days.map(d => d.barbell.name)));
+          const allSpiergroep = uniq(schema.weeks.flatMap(w => w.days.flatMap(d => d.spiergroep.map(e => e.name))));
+          const allKettlebell = uniq(schema.weeks.flatMap(w => w.days.flatMap(d => d.kettlebell.map(e => e.name))));
+          const allCore = uniq(schema.weeks.flatMap(w => w.days.flatMap(d => d.core.map(e => e.name))));
+          const allExercises = [...dayExercises, ...allBarbell, ...allSpiergroep, ...allKettlebell, ...allCore];
           const selEx = progressieExercise ?? allExercises[0];
           const chartData = schema.weeks.map(w => {
             const mVal = weights[wKey(selEx, w.week)]?.M;
