@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "./src/supabase.js";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 const schema = {
   days: [
@@ -572,6 +573,22 @@ function formatTimerLabel(seconds) {
   return `${seconds}sec`;
 }
 
+function CustomTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{ background: "#fff", border: "1px solid #f0f0f0", borderRadius: 10, padding: "10px 14px", boxShadow: "0 4px 12px #0002" }}>
+      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6, color: "#1a1a1a" }}>{label}</div>
+      {payload.map((p, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: p.color }} />
+          <span style={{ color: "#666" }}>{p.name}:</span>
+          <span style={{ fontWeight: 700, color: "#1a1a1a" }}>{p.value} kg</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const KB_EXERCISES = [
   "KB Alternating March", "KB Around the World", "KB Bottoms-Up Press",
   "KB Clean & Press", "KB Farmer's Carry", "KB Figure 8", "KB Floor Press",
@@ -610,6 +627,8 @@ export default function FitnessSchema() {
   const [completedExercises, setCompletedExercises] = useState(new Set());
   const [swaps, setSwaps] = useState({});
   const [swapModal, setSwapModal] = useState(null);
+  const [progressieOpen, setProgressieOpen] = useState(false);
+  const [progressieExercise, setProgressieExercise] = useState(null);
 
   useEffect(() => {
     supabase.from("weights").select("*").then(({ data }) => {
@@ -1003,6 +1022,90 @@ export default function FitnessSchema() {
         <div style={{ textAlign: "center", color: "#bbb", fontSize: 11, fontFamily: "sans-serif", marginTop: 20, marginBottom: 8 }}>
           Core dagelijks herhalen · Rust: 60–90 sec tussen sets
         </div>
+
+        {/* Progressie */}
+        {(() => {
+          const allExercises = [...new Set(schema.weeks.flatMap(w => w.days.flatMap(d => [
+            d.barbell.name,
+            ...d.spiergroep.map(e => e.name),
+            ...d.kettlebell.map(e => e.name),
+          ])))];
+          const selEx = progressieExercise ?? allExercises[0];
+          const chartData = schema.weeks.map(w => {
+            const mVal = weights[wKey(selEx, w.week)]?.M;
+            const zVal = weights[wKey(selEx, w.week)]?.Z;
+            return {
+              week: `W${w.label.replace("Week ", "")}`,
+              M: mVal !== "" && mVal != null ? Number(mVal) : null,
+              Z: zVal !== "" && zVal != null ? Number(zVal) : null,
+            };
+          });
+          const mVals = chartData.map(d => d.M).filter(v => v != null);
+          const zVals = chartData.map(d => d.Z).filter(v => v != null);
+          const mMax = mVals.length ? Math.max(...mVals) : null;
+          const zMax = zVals.length ? Math.max(...zVals) : null;
+          const mGain = mVals.length >= 2 ? mVals[mVals.length - 1] - mVals[0] : null;
+          const zGain = zVals.length >= 2 ? zVals[zVals.length - 1] - zVals[0] : null;
+          return (
+            <div style={{ marginTop: 12 }}>
+              <div style={{
+                background: "#fff", borderRadius: 12, boxShadow: "0 1px 4px #0001", overflow: "hidden",
+                border: progressieOpen ? "2px solid #f37121" : "2px solid transparent", transition: "border 0.2s",
+              }}>
+                <button
+                  onClick={() => setProgressieOpen(o => !o)}
+                  style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 18 }}>📈</span>
+                    <span style={{ fontWeight: 700, fontSize: 14, color: "#1a1a1a" }}>Progressie</span>
+                  </div>
+                  <span style={{ fontSize: 18, color: "#f37121", transform: progressieOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s", display: "inline-block" }}>⌄</span>
+                </button>
+                {progressieOpen && (
+                  <div style={{ padding: "0 16px 16px" }}>
+                    <select
+                      value={selEx}
+                      onChange={e => setProgressieExercise(e.target.value)}
+                      style={{
+                        width: "100%", padding: "10px 12px", borderRadius: 10, border: "1.5px solid #f37121",
+                        fontSize: 14, fontWeight: 600, color: "#1a1a1a", background: "#fff", marginBottom: 16,
+                        cursor: "pointer", outline: "none", appearance: "none",
+                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23f37121' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+                        backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center", paddingRight: 36,
+                      }}
+                    >
+                      {allExercises.map(ex => <option key={ex} value={ex}>{ex}</option>)}
+                    </select>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                      <div style={{ flex: 1, background: "#fff8f3", border: "1px solid #f3712133", borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
+                        <div style={{ fontSize: 11, color: "#888", marginBottom: 2 }}>M — Max</div>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: "#f37121" }}>{mMax != null ? `${mMax} kg` : "—"}</div>
+                        <div style={{ fontSize: 11, color: "#16a34a", fontWeight: 600 }}>{mGain != null ? `+${mGain} kg` : "—"}</div>
+                      </div>
+                      <div style={{ flex: 1, background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
+                        <div style={{ fontSize: 11, color: "#888", marginBottom: 2 }}>Z — Max</div>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: "#0ea5e9" }}>{zMax != null ? `${zMax} kg` : "—"}</div>
+                        <div style={{ fontSize: 11, color: "#16a34a", fontWeight: 600 }}>{zGain != null ? `+${zGain} kg` : "—"}</div>
+                      </div>
+                    </div>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <LineChart data={chartData} margin={{ top: 5, right: 5, left: -10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis dataKey="week" tick={{ fontSize: 12, fill: "#888" }} />
+                        <YAxis tick={{ fontSize: 12, fill: "#888" }} unit=" kg" />
+                        <Tooltip content={<CustomTooltip />} />
+                        <Legend wrapperStyle={{ fontSize: 13, paddingTop: 8 }} formatter={v => <span style={{ color: "#555", fontWeight: 600 }}>{v}</span>} />
+                        <Line type="monotone" dataKey="M" stroke="#f37121" strokeWidth={3} dot={{ fill: "#f37121", strokeWidth: 2, r: 5 }} activeDot={{ r: 7 }} connectNulls />
+                        <Line type="monotone" dataKey="Z" stroke="#0ea5e9" strokeWidth={3} dot={{ fill: "#0ea5e9", strokeWidth: 2, r: 5 }} activeDot={{ r: 7 }} connectNulls />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {timerLocked && <div style={{ position: "fixed", inset: 0, zIndex: 49 }} />}

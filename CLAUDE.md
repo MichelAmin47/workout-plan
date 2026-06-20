@@ -44,6 +44,7 @@ package.json              ← scripts: dev / build / preview / lint
 - React 19, react-dom 19
 - Vite 8, @vitejs/plugin-react 6
 - @supabase/supabase-js (latest) — weight persistence
+- recharts (latest) — progress chart
 - No routing, no state management, no CSS framework
 
 ## Environment variables
@@ -102,7 +103,19 @@ Optional exercise accent color is always orange `#f37121` (same as the app heade
 
 ## Section render order
 
-Inside the content area, sections are rendered in this fixed order: Barbell → Spiergroep → Kettlebell → Core. The Barbell section uses a solid orange card (not `ExRow`) but is also clickable and shows an inline weight panel when expanded. The progress note below the sections changes based on `selectedWeek`: weeks 0–2 show an "Opbouw" (progressive overload) tip; weeks 3–4 show a "Nieuwe prikkel" tip.
+Inside the content area, sections are rendered in this fixed order: Barbell → Spiergroep → Kettlebell → Core → Progressie. The Barbell section uses a solid orange card (not `ExRow`) but is also clickable and shows an inline weight panel when expanded. The progress note below the sections changes based on `selectedWeek`: weeks 0–2 show an "Opbouw" (progressive overload) tip; weeks 3–4 show a "Nieuwe prikkel" tip.
+
+## Progressie chart
+
+A collapsible **Progressie** section sits at the bottom of the content area. State: `progressieOpen` (bool), `progressieExercise` (string or null, defaults to first exercise).
+
+When open it shows:
+- A styled `<select>` dropdown listing all unique barbell + spiergroep + kettlebell exercise names extracted from the full schema (deduplicated across all weeks/days).
+- A stats row with M — Max / gain (orange) and Z — Max / gain (blue) cards derived from the `weights` state already loaded on mount.
+- A Recharts `LineChart` (220px height) with M in orange `#f37121` and Z in blue `#0ea5e9`, `connectNulls`, week labels on X axis (`W23`–`W27`).
+- A `CustomTooltip` component renders a white card with colored dots and bold kg values.
+
+The chart reads from the existing `weights` state — no additional Supabase fetch needed.
 
 ## Completion tracking
 
