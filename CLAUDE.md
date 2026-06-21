@@ -62,12 +62,13 @@ Everything lives in `fitness_schema.jsx`:
 - **`schema`** — static data object containing the full 5-week program. Two phases: `"Opbouw"` (weeks 1–3, same exercises with progressive overload) and `"Nieuwe Prikkel"` (weeks 4–5, new exercises).
 - **`FitnessSchema`** (default export) — top-level component. Manages state: `selectedWeek`, `selectedDay` (persisted to `localStorage` under key `"selectedDay"`), `weights` (map of fetched weights from Supabase), `expandedExercise` (name of the currently open weight panel), `completedDays` (Set of completed day keys), `completedExercises` (Set of completed exercise keys), `swaps` (map of swapped KB exercises keyed by `sKey`), `swapModal` (null or `{original, week, day}` for the open bottom sheet), `activeTimer` (section key or null), `activeSection` (object with key/label/icon/seconds/accent or null), and `timerLocked` (bool). Calls `useTimer` for the rest timer. Barbell long-press uses component-level refs `bbTimerRef`, `bbLongPressed`, `bbStartPos`. Derives all display data from `schema` by indexing with those state values.
 - **`Section`** — always-expanded card wrapper used for each exercise category. Header shows section title + a timer button (⏱ label). Timer button uses section accent when active. Props: `title`, `icon`, `accent`, `timerSeconds`, `timerActive`, `onTimerClick`.
-- **`ExRow`** — single exercise row (number badge, name, optional note, sets pill). When `onToggle` is provided (spiergroep, kettlebell), the row is clickable and renders a weight input panel below it when `expanded` is true. The panel contains M: and Z: number inputs that save to Supabase on change, plus a previous-week reference line. The number badge is rendered by `ExCircle`. Accepts `swapped` (bool) and `originalName` (string) props — when `swapped` is true, shows a purple "GEWIJZIGD" badge next to the name and renders `↩ originalName` below in gray.
+- **`ExRow`** — single exercise row (number badge, name, optional note, sets pill). When `onToggle` is provided (spiergroep, kettlebell), the row is clickable and renders a weight input panel below it when `expanded` is true. The panel contains M: and Z: number inputs that save to Supabase on change, plus a previous-week reference line. The number badge is rendered by `ExCircle`. Accepts `swapped` (bool) and `originalName` (string) props — when `swapped` is true, shows a purple "GEWIJZIGD" badge next to the name and renders `↩ originalName` below in gray. Accepts `hiitInterval` (`{ work, rest }` or null) — when set, renders a split badge (`Xs | Ys`) instead of the regular sets pill.
 - **`ExCircle`** — the circular number badge inside `ExRow`. Supports a 1000ms long press (`onLongPress`) to toggle exercise completion. Shows a green ✓ when completed. Long press works on both mouse and touch; suppresses the subsequent click to prevent the weight panel from toggling.
 - **`DayButton`** — day selector button. Short click selects the day; 1000ms long press toggles completion for that day in the current week. Shows a small green ✓ badge overlaid on the emoji when completed.
 - **`SwipeableRow`** — wrapper component around each KB exercise row. Detects a horizontal swipe of ≥60px with <30px vertical drift (mouse and touch) and fires `onSwipeRight`. Translates the row during swipe and snaps back. Suppresses the click event after a completed swipe via a `swiped` ref.
 - **`BottomSheet`** — modal slide-up panel rendered when `swapModal` is set. Fixed overlay (zIndex 100) + fixed sheet (zIndex 101). Lists all KB exercises except the currently displayed one. Selecting an exercise calls `saveSwap()`, updates the `swaps` map, and closes the sheet.
 - **`KB_EXERCISES`** — constant array of 18 KB exercise names defined outside the component, used to populate the bottom sheet list.
+- **`HIIT_INTERVALS`** — constant map from week number to `{ work, rest }` seconds: `{ 4: { work: 30, rest: 20 }, 5: { work: 35, rest: 20 } }`. Week 4 = Week 26, week 5 = Week 27.
 - **`dayColors` / `phaseColors`** — lookup maps from day ID / phase name to color tokens. These drive all theming; there is no CSS file.
 - **`getCurrentWeekIndex()`** — calculates the current ISO week number, subtracts 23 (first week of the program), and clamps to 0–4. Used as the initial value of `selectedWeek`.
 - **`wKey(exercise, week)`** — builds the in-memory map key `"exercise__week"` used to look up weights from the `weights` state object.
@@ -142,6 +143,15 @@ completed_exercises:
   day       int    (day id, 1–4)
   unique constraint on (exercise, week, day)
 ```
+
+## KB HIIT intervals (weeks 26–27)
+
+For weeks 26 and 27 (`week.week` 4 and 5), the kettlebell section switches to HIIT interval mode. The KB section renders:
+
+1. A **HIIT banner** above the exercise list — orange border card showing ⚡ "HIIT Intervallen" with the werk/rust seconds side-by-side.
+2. Each KB `ExRow` receives `hiitInterval={{ work, rest }}` and renders a **split badge** (orange `Xs` left pill + gray `Ys` right pill) instead of the normal sets pill.
+
+Weeks 23–25 (`week.week` 1–3) are unaffected; `hiitInterval` is `null` and sets display normally. The split is derived via `HIIT_INTERVALS[week.week] || null` inside an IIFE wrapping the KB section's children.
 
 ## KB exercise swapping
 

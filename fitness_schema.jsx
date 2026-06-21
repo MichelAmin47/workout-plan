@@ -589,6 +589,11 @@ function CustomTooltip({ active, payload, label }) {
   );
 }
 
+const HIIT_INTERVALS = {
+  4: { work: 30, rest: 20 },
+  5: { work: 35, rest: 20 },
+};
+
 const KB_EXERCISES = [
   "KB Alternating March", "KB Around the World", "KB Bottoms-Up Press",
   "KB Clean & Press", "KB Farmer's Carry", "KB Figure 8", "KB Floor Press",
@@ -944,41 +949,80 @@ export default function FitnessSchema() {
           timerActive={activeTimer === "kettlebell"}
           onTimerClick={() => handleTimerClick("kettlebell", "Kettlebell (Full Body)", "🔔", 60, "#c05621")}
         >
-          {day.kettlebell.map((ex, i) => {
-            const sk = sKey(ex.name, week.week, dayInfo.id);
-            const swappedName = swaps[sk];
-            const displayName = swappedName || ex.name;
-            const k = wKey(displayName, week.week);
-            const w = weights[k] || { M: "", Z: "" };
-            const prevK = week.week > 1 ? wKey(displayName, week.week - 1) : null;
-            const prevW = prevK ? (weights[prevK] || { M: "", Z: "" }) : { M: null, Z: null };
+          {(() => {
+            const hiitInterval = HIIT_INTERVALS[week.week] || null;
             return (
-              <SwipeableRow
-                key={i}
-                onSwipeRight={() => { closeAndSave(); setSwapModal({ original: ex.name, week: week.week, day: dayInfo.id }); }}
-              >
-                <ExRow
-                  num={i + 1}
-                  name={displayName}
-                  sets={ex.sets}
-                  note={ex.note}
-                  accent="#c05621"
-                  light="#fed7aa"
-                  expanded={expandedExercise === displayName}
-                  onToggle={() => handleExerciseClick(displayName)}
-                  weightM={w.M}
-                  weightZ={w.Z}
-                  onWeightChange={(person, value) => handleWeightChange(displayName, week.week, person, value)}
-                  prevWeightM={prevW.M}
-                  prevWeightZ={prevW.Z}
-                  completed={completedExercises.has(eKey(displayName, week.week, dayInfo.id))}
-                  onLongPress={() => toggleExerciseCompletion(displayName, week.week, dayInfo.id)}
-                  swapped={!!swappedName}
-                  originalName={swappedName ? ex.name : undefined}
-                />
-              </SwipeableRow>
+              <>
+                {hiitInterval && (
+                  <div style={{
+                    margin: "0 0 8px",
+                    background: "#fff8f3",
+                    border: "1.5px solid #f37121",
+                    borderRadius: 10,
+                    padding: "10px 14px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 18 }}>⚡</span>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#f37121", fontFamily: "sans-serif" }}>HIIT Intervallen</div>
+                        <div style={{ fontSize: 11, color: "#888", fontFamily: "sans-serif" }}>werk / rust per oefening</div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 18, fontWeight: 800, color: "#f37121", lineHeight: 1, fontFamily: "sans-serif" }}>{hiitInterval.work}s</div>
+                        <div style={{ fontSize: 10, color: "#888", fontFamily: "sans-serif" }}>werk</div>
+                      </div>
+                      <div style={{ fontSize: 16, color: "#ccc" }}>/</div>
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 18, fontWeight: 800, color: "#888", lineHeight: 1, fontFamily: "sans-serif" }}>{hiitInterval.rest}s</div>
+                        <div style={{ fontSize: 10, color: "#888", fontFamily: "sans-serif" }}>rust</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {day.kettlebell.map((ex, i) => {
+                  const sk = sKey(ex.name, week.week, dayInfo.id);
+                  const swappedName = swaps[sk];
+                  const displayName = swappedName || ex.name;
+                  const k = wKey(displayName, week.week);
+                  const w = weights[k] || { M: "", Z: "" };
+                  const prevK = week.week > 1 ? wKey(displayName, week.week - 1) : null;
+                  const prevW = prevK ? (weights[prevK] || { M: "", Z: "" }) : { M: null, Z: null };
+                  return (
+                    <SwipeableRow
+                      key={i}
+                      onSwipeRight={() => { closeAndSave(); setSwapModal({ original: ex.name, week: week.week, day: dayInfo.id }); }}
+                    >
+                      <ExRow
+                        num={i + 1}
+                        name={displayName}
+                        sets={ex.sets}
+                        note={ex.note}
+                        accent="#c05621"
+                        light="#fed7aa"
+                        expanded={expandedExercise === displayName}
+                        onToggle={() => handleExerciseClick(displayName)}
+                        weightM={w.M}
+                        weightZ={w.Z}
+                        onWeightChange={(person, value) => handleWeightChange(displayName, week.week, person, value)}
+                        prevWeightM={prevW.M}
+                        prevWeightZ={prevW.Z}
+                        completed={completedExercises.has(eKey(displayName, week.week, dayInfo.id))}
+                        onLongPress={() => toggleExerciseCompletion(displayName, week.week, dayInfo.id)}
+                        swapped={!!swappedName}
+                        originalName={swappedName ? ex.name : undefined}
+                        hiitInterval={hiitInterval}
+                      />
+                    </SwipeableRow>
+                  );
+                })}
+              </>
             );
-          })}
+          })()}
         </Section>
 
         {/* Core */}
@@ -1223,7 +1267,7 @@ function Section({ title, icon, accent, timerSeconds, timerActive, onTimerClick,
   );
 }
 
-function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange, prevWeightM, prevWeightZ, completed, onLongPress, swapped, originalName }) {
+function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange, prevWeightM, prevWeightZ, completed, onLongPress, swapped, originalName, hiitInterval }) {
   const isClickable = !!onToggle;
   const hasPrev = (prevWeightM !== "" && prevWeightM != null) || (prevWeightZ !== "" && prevWeightZ != null);
   return (
@@ -1242,9 +1286,20 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
           {note && <div style={{ fontSize: 11, color: optional ? "#f37121" : accent, fontFamily: "sans-serif", marginTop: 1 }}>{note}</div>}
           {originalName && <div style={{ fontSize: 11, color: "#bbb", fontFamily: "sans-serif", marginTop: 1 }}>↩ {originalName}</div>}
         </div>
-        <div style={{ background: optional ? "#fff0e6" : accent, color: optional ? "#f37121" : "#fff", padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap", border: optional ? "1px solid #f37121" : "none" }}>
-          {sets}
-        </div>
+        {hiitInterval ? (
+          <div style={{ display: "flex" }}>
+            <div style={{ background: "#f37121", color: "#fff", padding: "4px 8px", borderRadius: "10px 0 0 10px", fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap" }}>
+              {hiitInterval.work}s
+            </div>
+            <div style={{ background: "#888", color: "#fff", padding: "4px 8px", borderRadius: "0 10px 10px 0", fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap" }}>
+              {hiitInterval.rest}s
+            </div>
+          </div>
+        ) : (
+          <div style={{ background: optional ? "#fff0e6" : accent, color: optional ? "#f37121" : "#fff", padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap", border: optional ? "1px solid #f37121" : "none" }}>
+            {sets}
+          </div>
+        )}
       </div>
       {expanded && (
         <div
