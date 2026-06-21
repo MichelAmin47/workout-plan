@@ -169,6 +169,8 @@ All swaps are fetched on mount alongside the other Supabase data.
 
 On load, all rows are fetched from the `weights` table and stored in a `weights` map keyed by `"exerciseName__weekNumber"`. Clicking any exercise row expands a small panel with two number inputs labeled **M:** and **Z:** (for each person). On input change, an upsert fires immediately. When the user opens a different exercise, the current exercise's values are flushed to Supabase before switching (`flushSave`). The same flush runs when switching week or day tabs.
 
+**Z field visibility** — The Z input field and the Z portion of the "Vorige week" reference line are hidden with `display: none` (not deleted). The data is still saved/loaded from Supabase. Hidden via: `display: person === "Z" ? "none" : "flex"` on input containers, and `<span style={{ display: "none" }}>` wrapping the `/ Z: ...` text in both the barbell section and `ExRow`.
+
 The `weights` Supabase table schema:
 ```
 exercise  text

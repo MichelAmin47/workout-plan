@@ -871,7 +871,7 @@ export default function FitnessSchema() {
                   >
                     <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
                       {["M", "Z"].map((person) => (
-                        <div key={person} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <div key={person} style={{ display: person === "Z" ? "none" : "flex", alignItems: "center", gap: 6 }}>
                           <label style={{ fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#888" }}>{person}:</label>
                           <input
                             type="number"
@@ -887,7 +887,7 @@ export default function FitnessSchema() {
                     </div>
                     {hasPrev && (
                       <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
-                        Vorige week  <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevW.M !== "" && prevW.M != null ? `${prevW.M}kg` : "—"}</span> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevW.Z !== "" && prevW.Z != null ? `${prevW.Z}kg` : "—"}</span>
+                        Vorige week  <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevW.M !== "" && prevW.M != null ? `${prevW.M}kg` : "—"}</span><span style={{ display: "none" }}> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevW.Z !== "" && prevW.Z != null ? `${prevW.Z}kg` : "—"}</span></span>
                       </div>
                     )}
                   </div>
@@ -1253,7 +1253,7 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
         >
           <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
             {["M", "Z"].map((person) => (
-              <div key={person} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div key={person} style={{ display: person === "Z" ? "none" : "flex", alignItems: "center", gap: 6 }}>
                 <label style={{ fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#888" }}>{person}:</label>
                 <input
                   type="number"
@@ -1269,7 +1269,7 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
           </div>
           {hasPrev && (
             <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
-              Vorige week  <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevWeightM !== "" && prevWeightM != null ? `${prevWeightM}kg` : "—"}</span> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevWeightZ !== "" && prevWeightZ != null ? `${prevWeightZ}kg` : "—"}</span>
+              Vorige week  <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevWeightM !== "" && prevWeightM != null ? `${prevWeightM}kg` : "—"}</span><span style={{ display: "none" }}> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevWeightZ !== "" && prevWeightZ != null ? `${prevWeightZ}kg` : "—"}</span></span>
             </div>
           )}
         </div>
