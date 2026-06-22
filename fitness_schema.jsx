@@ -617,11 +617,21 @@ export default function FitnessSchema() {
   const [activeTimer, setActiveTimer] = useState(null);
   const [activeSection, setActiveSection] = useState(null);
   const [timerLocked, setTimerLocked] = useState(false);
+  const wakeLockRef = useRef(null);
   const bbTimerRef = useRef(null);
   const bbLongPressed = useRef(false);
   const bbStartPos = useRef({ x: 0, y: 0 });
 
-  const { timeLeft, running, start, pause, reset } = useTimer(120);
+  const acquireWakeLock = async () => {
+    if (!("wakeLock" in navigator)) return;
+    try { wakeLockRef.current = await navigator.wakeLock.request("screen"); } catch (_) {}
+  };
+  const releaseWakeLock = () => {
+    wakeLockRef.current?.release().catch(() => {});
+    wakeLockRef.current = null;
+  };
+
+  const { timeLeft, running, start, pause, reset } = useTimer(120, { onComplete: releaseWakeLock });
   const [expandedExercise, setExpandedExercise] = useState(null);
   const [completedDays, setCompletedDays] = useState(new Set());
   const [completedExercises, setCompletedExercises] = useState(new Set());
@@ -722,11 +732,13 @@ export default function FitnessSchema() {
       setActiveSection(null);
       setTimerLocked(false);
       pause();
+      releaseWakeLock();
     } else {
       setActiveTimer(key);
       setActiveSection({ key, label, icon, seconds, accent });
       setTimerLocked(true);
       start(seconds);
+      acquireWakeLock();
     }
   };
 
@@ -1210,7 +1222,7 @@ export default function FitnessSchema() {
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               {!isDone && (
-                <button onClick={() => { if (running) { pause(); } else { start(timeLeft); } }}
+                <button onClick={() => { if (running) { pause(); releaseWakeLock(); } else { start(timeLeft); acquireWakeLock(); } }}
                   style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, lineHeight: 1, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   {running ? "II" : "▶"}
                 </button>
@@ -1219,7 +1231,7 @@ export default function FitnessSchema() {
                 style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, lineHeight: 1, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 ↺
               </button>
-              <button onClick={() => { setActiveTimer(null); setActiveSection(null); setTimerLocked(false); pause(); }}
+              <button onClick={() => { setActiveTimer(null); setActiveSection(null); setTimerLocked(false); pause(); releaseWakeLock(); }}
                 style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, lineHeight: 1, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 ✕
               </button>
