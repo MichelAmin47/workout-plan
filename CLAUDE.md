@@ -120,7 +120,7 @@ The chart reads from the existing `weights` state — no additional Supabase fet
 
 ## Completion tracking
 
-A 2000ms long press toggles completion state, persisted to Supabase. Long press is implemented inline per component using a `useRef` timer (not a custom hook, to avoid hook-in-loop issues). `navigator.vibrate(100)` fires on mobile when the long press triggers.
+A 2000ms long press toggles completion state, persisted to Supabase. Long press is implemented inline per component using a `useRef` timer (not a custom hook, to avoid hook-in-loop issues). `triggerImpact()` fires on mobile when the long press triggers.
 
 **Day completion** — long press on a `DayButton` toggles the day's completion for the currently selected week. Stored in `completedDays` (Set, keyed by `dKey`). The green ✓ badge overlays the emoji.
 
@@ -202,7 +202,7 @@ Timer durations per section:
 - Kettlebell: 60s (1min)
 - Core: 45sec
 
-The bottom bar shows a circular SVG progress ring (75px container, r=31), countdown text inside the ring (19px, 31px when done), section label with "rust" suffix centered below, and II/▶, ↺, ✕ controls (20px icons, 38×38px fixed size, `appearance: none` to prevent Android emoji rendering). On completion: background turns green (`#16a34a`), ring shows 🔔, "Rust voorbij, ga! 💪" appears below the label. Completion plays `/boxing-bell.mp3` and triggers `navigator.vibrate([400, 200, 400, 200, 600])`.
+The bottom bar shows a circular SVG progress ring (75px container, r=31), countdown text inside the ring (19px, 31px when done), section label with "rust" suffix centered below, and II/▶, ↺, ✕ controls (20px icons, 38×38px fixed size, `appearance: none` to prevent Android emoji rendering). On completion: background turns green (`#16a34a`), ring shows 🔔, "Rust voorbij, ga! 💪" appears below the label. Completion plays `/boxing-bell.mp3` and calls `triggerVibration()`.
 
 **Lock overlay** — when a timer starts or resets (↺), a `timerLocked` state covers the controls with an absolute-positioned overlay matching the bar's background color. The overlay shows the live progress ring and countdown so the user can still see the time, plus a 🔓 button on the right to dismiss it. A separate transparent full-screen overlay (`position: fixed, inset: 0, zIndex: 49`) also blocks all taps on the rest of the page while locked. The timer bar sits at `zIndex: 50`. Tapping 🔓 dismisses both overlays.
 
@@ -210,7 +210,7 @@ The `useTimer(initialSeconds, { onComplete })` hook lives outside the component.
 
 Wake Lock: `acquireWakeLock()` requests `navigator.wakeLock.request("screen")` when a timer starts or resumes; `releaseWakeLock()` releases it on pause, close, and completion. Unsupported browsers are handled silently.
 
-Helper functions: `playBoxingBell()`, `triggerVibration()`, `formatTime(seconds)` → `"M:SS"`, `formatTimerLabel(seconds)` → `"Xmin"` or `"Xsec"`.
+Helper functions: `playBoxingBell()`, `triggerVibration()` (timer completion — calls `Haptics.vibrate({ duration: 1600 })`), `triggerImpact()` (long press — calls `Haptics.impact({ style: ImpactStyle.Medium })`), `formatTime(seconds)` → `"M:SS"`, `formatTimerLabel(seconds)` → `"Xmin"` or `"Xsec"`. Both haptics helpers use `.catch(() => {})` so they fail silently in web browsers where Capacitor Haptics is unavailable.
 
 ## Progressive overload pattern (weeks 1–3)
 

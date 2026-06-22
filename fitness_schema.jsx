@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "./src/supabase.js";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { Haptics, ImpactStyle } from "@capacitor/haptics";
 
 const schema = {
   days: [
@@ -514,7 +515,11 @@ function playBoxingBell() {
 }
 
 function triggerVibration() {
-  if (navigator.vibrate) navigator.vibrate([400, 200, 400, 200, 600]);
+  Haptics.vibrate({ duration: 1600 }).catch(() => {});
+}
+
+function triggerImpact() {
+  Haptics.impact({ style: ImpactStyle.Medium }).catch(() => {});
 }
 
 function useTimer(initialSeconds, { onComplete } = {}) {
@@ -743,7 +748,7 @@ export default function FitnessSchema() {
     if (t) bbStartPos.current = { x: t.clientX, y: t.clientY };
     bbTimerRef.current = setTimeout(() => {
       bbLongPressed.current = true;
-      if (navigator.vibrate) navigator.vibrate(100);
+      triggerImpact();
       toggleExerciseCompletion(day.barbell.name, week.week, dayInfo.id);
     }, 1000);
   };
@@ -1344,7 +1349,7 @@ function ExCircle({ num, completed, accent, optional, onLongPress }) {
     if (t) startPos.current = { x: t.clientX, y: t.clientY };
     timer.current = setTimeout(() => {
       longPressed.current = true;
-      if (navigator.vibrate) navigator.vibrate(100);
+      triggerImpact();
       if (onLongPress) onLongPress();
     }, 1000);
   };
@@ -1392,7 +1397,7 @@ function DayButton({ day, isSelected, isCompleted, colors, onSelect, onLongPress
     if (t) startPos.current = { x: t.clientX, y: t.clientY };
     timer.current = setTimeout(() => {
       longPressed.current = true;
-      if (navigator.vibrate) navigator.vibrate(100);
+      triggerImpact();
       onLongPress();
     }, 1000);
   };
