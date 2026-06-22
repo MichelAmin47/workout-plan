@@ -28,3 +28,6 @@ preview-app/
 .playwright-cli/
 .vercel
 .env
+
+# Capacitor
+android/
