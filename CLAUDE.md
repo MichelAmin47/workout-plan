@@ -208,8 +208,6 @@ The bottom bar shows a circular SVG progress ring (75px container, r=31), countd
 
 The `useTimer(initialSeconds, { onComplete })` hook lives outside the component. It holds `timeLeft`, `running`, and `intervalRef`. `start(seconds)` resets and starts; `pause()` stops; `reset(seconds)` stops and resets. `onComplete` fires when the countdown reaches zero. The root div gets `paddingBottom: 100` when a timer is active so content isn't hidden behind the bar.
 
-Wake Lock: `acquireWakeLock()` requests `navigator.wakeLock.request("screen")` when a timer starts or resumes; `releaseWakeLock()` releases it on pause, close, and completion. Unsupported browsers are handled silently.
-
 Helper functions: `playBoxingBell()`, `triggerVibration()` (timer completion — calls `Haptics.vibrate({ duration: 1600 })`), `triggerImpact()` (long press — calls `Haptics.impact({ style: ImpactStyle.Medium })`), `formatTime(seconds)` → `"M:SS"`, `formatTimerLabel(seconds)` → `"Xmin"` or `"Xsec"`. Both haptics helpers use `.catch(() => {})` so they fail silently in web browsers where Capacitor Haptics is unavailable.
 
 ## Progressive overload pattern (weeks 1–3)
