@@ -290,7 +290,7 @@ const schema = {
         },
       ],
     },
-    // WEEK 4-5: Nieuwe oefeningen, meer volume
+    // WEEK 4-7: Nieuwe oefeningen, meer volume
     {
       week: 4,
       label: "Week 26",
@@ -473,6 +473,188 @@ const schema = {
         },
       ],
     },
+    {
+      week: 6,
+      label: "Week 28",
+      phase: "Nieuwe Prikkel",
+      days: [
+        {
+          dayId: 4,
+          spiergroep: [
+            { name: "Machine Shoulder Press", sets: "4x12", note: "Nieuw" },
+            { name: "Dumbbell Y-Raise", sets: "4x15", note: "Nieuw" },
+            { name: "Cable Rear Delt Fly", sets: "4x15", note: "Nieuw" },
+            { name: "Barbell Shrug (behind back)", sets: "3x15", note: "Nieuw" },
+            { name: "Lateral Raise Machine", sets: "3x12", note: "Nieuw", optional: true },
+          ],
+          barbell: { name: "Barbell Z-Press", sets: "4x8", note: "Nieuw stabiel" },
+          kettlebell: [
+            { name: "KB Turkish Get-Up", sets: "3x4/arm", note: "Full body stabiel" },
+            { name: "KB Overhead Carry", sets: "3x20m/arm", note: "Full body" },
+            { name: "KB Thruster", sets: "3x10", note: "Full body explosief" },
+          ],
+          core: [
+            { name: "L-Sit Hold", sets: "3x20sec", note: "" },
+            { name: "Windshield Wiper (grond)", sets: "3x8/zij", note: "" },
+            { name: "Bear Crawl", sets: "3x15m", note: "" },
+          ],
+        },
+        {
+          dayId: 2,
+          spiergroep: [
+            { name: "Dumbbell Pullover", sets: "4x12", note: "Nieuw" },
+            { name: "Low-to-High Cable Fly", sets: "4x12", note: "Nieuw" },
+            { name: "Rope Tricep Extension", sets: "4x12", note: "Nieuw" },
+            { name: "Diamond Push-Up", sets: "3x15", note: "Nieuw" },
+            { name: "Single Arm Cable Tricep Extension", sets: "3x12", note: "Nieuw", optional: true },
+          ],
+          barbell: { name: "Barbell Incline Bench Press", sets: "4x8", note: "Nieuw hoek" },
+          kettlebell: [
+            { name: "KB Renegade Row", sets: "3x8/arm", note: "Full body stabiel" },
+            { name: "KB Single Arm Push Press", sets: "4x8/arm", note: "Full body explosief" },
+            { name: "KB Suitcase Deadlift", sets: "3x10/arm", note: "Full body" },
+          ],
+          core: [
+            { name: "Pike Hold", sets: "3x30sec", note: "" },
+            { name: "Decline Sit-Up", sets: "3x15", note: "" },
+            { name: "Oblique V-Up", sets: "3x12/zij", note: "" },
+          ],
+        },
+        {
+          dayId: 3,
+          spiergroep: [
+            { name: "Chest-Supported Dumbbell Row", sets: "4x10", note: "Nieuw" },
+            { name: "Close Grip Lat Pulldown", sets: "4x12", note: "Nieuw" },
+            { name: "Incline Dumbbell Curl", sets: "4x12", note: "Nieuw" },
+            { name: "Cable Hammer Curl", sets: "4x12", note: "Nieuw" },
+            { name: "Reverse Curl", sets: "3x12", note: "Nieuw", optional: true },
+          ],
+          barbell: { name: "Barbell Yates Row", sets: "4x8", note: "Nieuw patroon" },
+          kettlebell: [
+            { name: "KB Bent Over Row", sets: "4x10/arm", note: "Full body" },
+            { name: "KB Good Morning", sets: "3x12", note: "Full body" },
+            { name: "KB Single Leg Deadlift", sets: "3x10/been", note: "Full body stabiel" },
+          ],
+          core: [
+            { name: "Tuck L-Sit", sets: "3x20sec", note: "" },
+            { name: "Pallof Hold", sets: "3x30sec/zij", note: "" },
+            { name: "Reverse Crunch", sets: "3x15", note: "" },
+          ],
+        },
+        {
+          dayId: 1,
+          spiergroep: [
+            { name: "Leg Press (smalle stand)", sets: "4x12", note: "Nieuw" },
+            { name: "Walking Lunge (dumbbell)", sets: "4x10/been", note: "Nieuw" },
+            { name: "Nordic Curl", sets: "3x6", note: "Nieuw" },
+            { name: "Adductor Machine", sets: "3x15", note: "Nieuw" },
+            { name: "Seated Calf Raise", sets: "4x15", note: "Nieuw", optional: true },
+          ],
+          barbell: { name: "Barbell Box Squat", sets: "4x8", note: "Nieuw patroon" },
+          kettlebell: [
+            { name: "KB Goblet Squat", sets: "4x12", note: "Full body" },
+            { name: "KB Step-Up", sets: "3x10/been", note: "Full body" },
+            { name: "KB Jump Squat", sets: "3x10", note: "Full body explosief" },
+          ],
+          core: [
+            { name: "Glute Bridge Hold", sets: "3x45sec", note: "" },
+            { name: "Copenhagen Adduction", sets: "3x12/zij", note: "" },
+            { name: "Single Leg Hip Thrust", sets: "3x10/been", note: "" },
+          ],
+        },
+      ],
+    },
+    {
+      week: 7,
+      label: "Week 29",
+      phase: "Nieuwe Prikkel",
+      days: [
+        {
+          dayId: 4,
+          spiergroep: [
+            { name: "Machine Shoulder Press", sets: "5x12", note: "+gewicht" },
+            { name: "Dumbbell Y-Raise", sets: "5x15", note: "+gewicht" },
+            { name: "Cable Rear Delt Fly", sets: "4x15", note: "+gewicht" },
+            { name: "Barbell Shrug (behind back)", sets: "4x15", note: "+gewicht" },
+            { name: "Lateral Raise Machine", sets: "4x12", note: "+gewicht", optional: true },
+          ],
+          barbell: { name: "Barbell Z-Press", sets: "5x6", note: "+gewicht piek" },
+          kettlebell: [
+            { name: "KB Turkish Get-Up", sets: "4x4/arm", note: "+gewicht" },
+            { name: "KB Overhead Carry", sets: "4x20m/arm", note: "+gewicht" },
+            { name: "KB Thruster", sets: "4x10", note: "+gewicht" },
+          ],
+          core: [
+            { name: "L-Sit Hold", sets: "3x30sec", note: "" },
+            { name: "Windshield Wiper (grond)", sets: "3x10/zij", note: "" },
+            { name: "Bear Crawl", sets: "4x15m", note: "" },
+          ],
+        },
+        {
+          dayId: 2,
+          spiergroep: [
+            { name: "Dumbbell Pullover", sets: "5x12", note: "+gewicht" },
+            { name: "Low-to-High Cable Fly", sets: "4x12", note: "+gewicht" },
+            { name: "Rope Tricep Extension", sets: "4x15", note: "+gewicht" },
+            { name: "Diamond Push-Up", sets: "4x15", note: "+gewicht" },
+            { name: "Single Arm Cable Tricep Extension", sets: "4x12", note: "+gewicht", optional: true },
+          ],
+          barbell: { name: "Barbell Incline Bench Press", sets: "5x6", note: "+gewicht piek" },
+          kettlebell: [
+            { name: "KB Renegade Row", sets: "4x8/arm", note: "+gewicht" },
+            { name: "KB Single Arm Push Press", sets: "5x8/arm", note: "+gewicht" },
+            { name: "KB Suitcase Deadlift", sets: "4x10/arm", note: "+gewicht" },
+          ],
+          core: [
+            { name: "Pike Hold", sets: "3x40sec", note: "" },
+            { name: "Decline Sit-Up", sets: "4x15", note: "" },
+            { name: "Oblique V-Up", sets: "4x12/zij", note: "" },
+          ],
+        },
+        {
+          dayId: 3,
+          spiergroep: [
+            { name: "Chest-Supported Dumbbell Row", sets: "5x10", note: "+gewicht" },
+            { name: "Close Grip Lat Pulldown", sets: "4x12", note: "+gewicht" },
+            { name: "Incline Dumbbell Curl", sets: "4x15", note: "+gewicht" },
+            { name: "Cable Hammer Curl", sets: "4x15", note: "+gewicht" },
+            { name: "Reverse Curl", sets: "4x12", note: "+gewicht", optional: true },
+          ],
+          barbell: { name: "Barbell Yates Row", sets: "5x6", note: "+gewicht piek" },
+          kettlebell: [
+            { name: "KB Bent Over Row", sets: "5x10/arm", note: "+gewicht" },
+            { name: "KB Good Morning", sets: "4x12", note: "+gewicht" },
+            { name: "KB Single Leg Deadlift", sets: "4x10/been", note: "+gewicht" },
+          ],
+          core: [
+            { name: "Tuck L-Sit", sets: "3x30sec", note: "" },
+            { name: "Pallof Hold", sets: "3x40sec/zij", note: "" },
+            { name: "Reverse Crunch", sets: "4x15", note: "" },
+          ],
+        },
+        {
+          dayId: 1,
+          spiergroep: [
+            { name: "Leg Press (smalle stand)", sets: "5x12", note: "+gewicht" },
+            { name: "Walking Lunge (dumbbell)", sets: "4x12/been", note: "+gewicht" },
+            { name: "Nordic Curl", sets: "4x6", note: "+gewicht" },
+            { name: "Adductor Machine", sets: "4x15", note: "+gewicht" },
+            { name: "Seated Calf Raise", sets: "5x15", note: "+gewicht", optional: true },
+          ],
+          barbell: { name: "Barbell Box Squat", sets: "5x6", note: "+gewicht piek" },
+          kettlebell: [
+            { name: "KB Goblet Squat", sets: "5x12", note: "+gewicht" },
+            { name: "KB Step-Up", sets: "4x10/been", note: "+gewicht" },
+            { name: "KB Jump Squat", sets: "4x10", note: "+gewicht" },
+          ],
+          core: [
+            { name: "Glute Bridge Hold", sets: "3x60sec", note: "" },
+            { name: "Copenhagen Adduction", sets: "4x12/zij", note: "" },
+            { name: "Single Leg Hip Thrust", sets: "4x10/been", note: "" },
+          ],
+        },
+      ],
+    },
   ],
 };
 
@@ -494,7 +676,7 @@ function getCurrentWeekIndex() {
   d.setDate(d.getDate() + 4 - dayOfWeek);
   const yearStart = new Date(d.getFullYear(), 0, 1);
   const isoWeek = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
-  return Math.min(Math.max(isoWeek - 23, 0), 4);
+  return Math.min(Math.max(isoWeek - 23, 0), 6);
 }
 
 function wKey(exercise, week) {
@@ -602,14 +784,20 @@ function CustomTooltip({ active, payload, label }) {
 const HIIT_INTERVALS = {
   4: { work: 30, rest: 20 },
   5: { work: 35, rest: 20 },
+  6: { work: 40, rest: 20 },
+  7: { work: 45, rest: 20 },
 };
 
 const KB_EXERCISES = [
-  "KB Alternating March", "KB Around the World", "KB Bottoms-Up Press",
-  "KB Clean & Press", "KB Farmer's Carry", "KB Figure 8", "KB Floor Press",
-  "KB Halo", "KB High Pull", "KB Lateral Lunge", "KB Single Arm Swing",
-  "KB Snatch", "KB Suitcase Carry", "KB Sumo Deadlift", "KB Swing",
-  "KB Swing (één arm)", "KB Windmill", "KB Wood Chop",
+  "KB Alternating March", "KB Around the World", "KB Bent Over Row",
+  "KB Bottoms-Up Press", "KB Clean & Press", "KB Farmer's Carry",
+  "KB Figure 8", "KB Floor Press", "KB Goblet Squat", "KB Good Morning",
+  "KB Halo", "KB High Pull", "KB Jump Squat", "KB Lateral Lunge",
+  "KB Overhead Carry", "KB Renegade Row", "KB Single Arm Push Press",
+  "KB Single Arm Swing", "KB Single Leg Deadlift", "KB Snatch",
+  "KB Step-Up", "KB Suitcase Carry", "KB Suitcase Deadlift",
+  "KB Sumo Deadlift", "KB Swing", "KB Swing (één arm)",
+  "KB Thruster", "KB Turkish Get-Up", "KB Windmill", "KB Wood Chop",
 ];
 
 export default function FitnessSchema() {
@@ -1169,14 +1357,17 @@ export default function FitnessSchema() {
         </Section>
 
         {/* Progress note */}
-        {selectedWeek < 3 && (
+        {week.phase === "Opbouw" && (
           <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: "12px 14px", marginTop: 4, fontFamily: "sans-serif", fontSize: 13, color: "#166534" }}>
             <strong>📈 Progressie:</strong> Verhoog het gewicht elke week. Week 1 = basisgewicht, Week 2 = +5kg/zwaarder, Week 3 = piekgewicht.
           </div>
         )}
-        {selectedWeek >= 3 && (
+        {week.phase === "Nieuwe Prikkel" && (
           <div style={{ background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 10, padding: "12px 14px", marginTop: 4, fontFamily: "sans-serif", fontSize: 13, color: "#5b21b6" }}>
-            <strong>⚡ Nieuwe prikkel:</strong> Nieuwe oefeningen activeren andere spiervezels. Begin met een goed uitvoerbaar gewicht en bouw op in week 5.
+            {schema.weeks[selectedWeek + 1]?.phase === "Nieuwe Prikkel"
+              ? <><strong>⚡ Nieuwe prikkel:</strong> Nieuwe oefeningen activeren andere spiervezels. Begin met een goed uitvoerbaar gewicht en bouw op volgende week.</>
+              : <><strong>⚡ Nieuwe prikkel:</strong> Piekweek — ga voor maximaal gewicht op alle oefeningen.</>
+            }
           </div>
         )}
 
