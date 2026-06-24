@@ -33,10 +33,21 @@ src/
 public/
   favicon.svg             ← orange dumbbell icon shown in browser tab
   icons.svg               ← unused
+  boxing-bell.mp3         ← bell sound played natively by TimerPlugin on Android
 .env                      ← not committed; holds VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
 vite.config.js            ← minimal: only @vitejs/plugin-react, no aliases or custom config
 eslint.config.js          ← standard Vite scaffold ESLint config (react-hooks, react-refresh)
 package.json              ← scripts: dev / build / preview / lint
+android/                  ← Capacitor Android project (generated, do not edit build files)
+  app/src/main/
+    java/com/workout/plan/
+      MainActivity.java         ← registers BatteryOptimizationPlugin + TimerPlugin
+      TimerPlugin.java          ← custom native timer plugin (NativeTimer)
+      BatteryOptimizationPlugin.java ← requests battery optimization exemption
+    res/
+      drawable/ic_timer_notification.xml ← flat monochrome notification icon (required)
+      raw/boxing_bell.mp3       ← bell audio used by TimerPlugin.playBell()
+    AndroidManifest.xml         ← permissions + foreground service declaration
 ```
 
 ## Dependency versions (as of last update)
@@ -45,6 +56,10 @@ package.json              ← scripts: dev / build / preview / lint
 - Vite 8, @vitejs/plugin-react 6
 - @supabase/supabase-js (latest) — weight persistence
 - recharts (latest) — progress chart
+- @capacitor/core, @capacitor/android — Capacitor 8 Android bridge
+- @capacitor/haptics@8.0.2 — `Haptics.impact()` for long-press feedback
+- @capacitor/local-notifications@8.2.0 — in-progress timer notification on lock screen
+- @capawesome-team/capacitor-android-foreground-service@8.1.0 — keeps app alive in background while timer runs
 - No routing, no state management, no CSS framework
 
 ## Environment variables
@@ -206,15 +221,86 @@ The bottom bar shows a circular SVG progress ring (75px container, r=31), countd
 
 **Lock overlay** — when a timer starts or resets (↺), a `timerLocked` state covers the controls with an absolute-positioned overlay matching the bar's background color. The overlay shows the live progress ring and countdown so the user can still see the time, plus a 🔓 button on the right to dismiss it. A separate transparent full-screen overlay (`position: fixed, inset: 0, zIndex: 49`) also blocks all taps on the rest of the page while locked. The timer bar sits at `zIndex: 50`. Tapping 🔓 dismisses both overlays.
 
-The `useTimer(initialSeconds, { onComplete })` hook lives outside the component. It holds `timeLeft`, `running`, and `intervalRef`. `start(seconds)` resets and starts; `pause()` stops; `reset(seconds)` stops and resets. `onComplete` fires when the countdown reaches zero. The root div gets `paddingBottom: 100` when a timer is active so content isn't hidden behind the bar.
+The `useTimer(initialSeconds, { onComplete })` hook lives outside the component. It drives state from native Android events rather than `setInterval`. On mount it registers two `NativeTimer` listeners: `timerTick` (updates `timeLeft`) and `timerComplete` (sets `running = false`, `timeLeft = 0`, fires `onComplete`). Methods: `start(seconds, title)` — sets state and calls `NativeTimer.start`; `pause()` — calls `NativeTimer.pause`; `reset(seconds)` — calls `NativeTimer.stop`; `restart(seconds, title)` — calls `NativeTimer.restart`. Both `start` and `restart` accept an optional `title` string forwarded to the native plugin for use in the completion notification. `onComplete` fires when the countdown reaches zero. The root div gets `paddingBottom: 100` when a timer is active so content isn't hidden behind the bar.
 
-Wake Lock: `acquireWakeLock()` requests `navigator.wakeLock.request("screen")` when a timer starts or resumes; `releaseWakeLock()` releases it on pause, close, and completion. Unsupported browsers are handled silently.
+`onTimerComplete` (component-level) calls `releaseWakeLock()` and `stopForegroundTimer()`. Bell playback, vibration, screen wake, and the completion notification are all handled natively by `TimerPlugin` — not from JS.
 
-Helper functions: `playBoxingBell()`, `triggerVibration()` (timer completion — calls `Haptics.vibrate({ duration: 1600 })`), `triggerImpact()` (long press — calls `Haptics.impact({ style: ImpactStyle.Medium })`), `formatTime(seconds)` → `"M:SS"`, `formatTimerLabel(seconds)` → `"Xmin"` or `"Xsec"`. Both haptics helpers use `.catch(() => {})` so they fail silently in web browsers where Capacitor Haptics is unavailable.
+Wake Lock: `acquireWakeLock()` requests `navigator.wakeLock.request("screen")` when a timer starts or resumes; `releaseWakeLock()` releases it on pause, close, and completion. A `visibilitychange` listener re-acquires on tab re-focus while the timer is running. Unsupported browsers are handled silently. Screen wake on timer completion is additionally handled natively (see `TimerPlugin.wakeScreen()`).
+
+Helper functions: `playBoxingBell()` (Web Audio API, fallback only — not called on completion on Android), `triggerVibration()` (calls `Haptics.vibrate({ duration: 1600 })` — not called on completion on Android), `triggerImpact()` (long press — calls `Haptics.impact({ style: ImpactStyle.Medium })`), `formatTime(seconds)` → `"M:SS"`, `formatTimerLabel(seconds)` → `"Xmin"` or `"Xsec"`. Haptics helpers use `.catch(() => {})` so they fail silently in web browsers where Capacitor Haptics is unavailable.
 
 ## Progressive overload pattern (weeks 1–3)
 
 Weeks 1–3 use the same exercises. Volume increases each week (e.g. 3x → 4x → 5x sets) and the barbell notes say `"Focusgewicht"` → `"+5kg"` → `"+5kg piek"`. The `note` field on `spiergroep` exercises is `""` in week 1 and `"+gewicht"` in weeks 2–3.
+
+## Android / Capacitor
+
+The app is wrapped in Capacitor 8 and can be built as an Android APK. The web assets are loaded into an Android WebView via the Capacitor bridge.
+
+### Foreground service
+
+`@capawesome-team/capacitor-android-foreground-service` keeps the process alive in the background while the timer runs. It is started in `startForegroundTimer(section)` and stopped in `stopForegroundTimer()`.
+
+```js
+ForegroundService.startForegroundService({
+  id: 99,
+  title: section.label,
+  body: "Timer loopt...",
+  smallIcon: "ic_timer_notification",
+  notificationChannelId: FGS_CHANNEL_ID,   // "fgs-timer-v2"
+  silent: true,
+  serviceType: 1,   // dataSync = 1 (NOT 4 — that is phoneCall)
+});
+```
+
+The notification icon **must** be a flat monochrome vector drawable in `res/drawable/`. Adaptive icon layers in `drawable-v24/` will fail; the foreground service crashes within 5s if the icon resolves incorrectly.
+
+### Notification channels
+
+Three channels are created on mount (channels are immutable after first creation — use a new ID if sound/importance must change):
+
+| Channel ID | Name | Importance | Sound | Used for |
+|---|---|---|---|---|
+| `fgs-timer-v2` | Timer (achtergrond) | 3 (DEFAULT) | none | Foreground service persistent notification |
+| `timer-silent` | Timer (stil) | 2 (LOW) | none | In-progress timer notification on lock screen |
+| `timer-complete-v3` | Timer klaar | 3 (DEFAULT) | none | Completion notification (posted natively by TimerPlugin) |
+
+### NativeTimer plugin (`TimerPlugin.java`)
+
+Custom Capacitor plugin that runs the countdown on the Android main `Handler` (immune to WebView JS throttling). Registered as `"NativeTimer"` via `registerPlugin()` on the JS side and `@CapacitorPlugin(name = "NativeTimer")` on the Java side.
+
+**Plugin methods:** `start({ seconds, title })`, `pause()`, `resume()`, `stop()`, `restart({ seconds, title })`.
+
+**Native events fired:** `timerTick` → `{ timeLeft: number }` every second; `timerComplete` → `{}` when countdown hits zero.
+
+**On completion (`timeLeftSeconds <= 0`):**
+1. `postCompletionNotification()` — posts a notification on channel `timer-complete-v3` so it appears on the lock screen. Tapping it opens the app.
+2. `wakeScreen()` — acquires `SCREEN_BRIGHT_WAKE_LOCK | ACQUIRE_CAUSES_WAKEUP` for 5 seconds. This lights up the screen from locked state; the `wl.acquire(5000)` call auto-releases. Requires `WAKE_LOCK` permission in the manifest.
+3. `playBell()` — plays `res/raw/boxing_bell.mp3` via `MediaPlayer` with `AudioAttributes.USAGE_ALARM`. Before playback, explicitly requests `AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE` via `AudioManager` so Spotify (and other media apps) pause for the duration of the bell. Audio focus is released in `MediaPlayer.OnCompletionListener`. Uses `AudioManager.AUDIO_SESSION_ID_GENERATE` (constant `0`) as the session ID argument — **not** `AudioManager.generateAudioSessionId()` which is a non-static method and will not compile.
+4. `vibrate()` — fires `VibrationEffect.createOneShot(1600, DEFAULT_AMPLITUDE)` on API 26+.
+5. `notifyListeners("timerComplete", ...)` — signals the JS layer.
+
+### BatteryOptimizationPlugin (`BatteryOptimizationPlugin.java`)
+
+Registered as `"BatteryOptimization"`. On first timer start, `checkAndRequest()` is called from JS: if `isIgnoringBatteryOptimizations()` returns false, it opens the system dialog via `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`. This covers standard Android battery optimization. OEM-level deep-sleep (e.g. Samsung) requires the user to manually set Battery → Unrestricted in device settings.
+
+### AndroidManifest permissions
+
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+<uses-permission android:name="android.permission.VIBRATE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+<uses-permission android:name="android.permission.WAKE_LOCK" />
+<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+```
+
+`WAKE_LOCK` is required for both `TimerPlugin.wakeScreen()` (completion screen wake) and the foreground service plugin's internal partial wake lock.
+
+The foreground service is declared with `android:foregroundServiceType="dataSync"`, which maps to type value `1`. Always pass `serviceType: 1` when calling `startForegroundService()` from JS — value `4` is `phoneCall` and will crash.
+
+The `MainActivity` has no `android:showWhenLocked` or `android:turnScreenOn` attributes — these would bypass the lock screen and show the app directly. The wake lock approach is correct: it lights up the screen so the notification is visible on the lock screen.
 
 ## Language
 

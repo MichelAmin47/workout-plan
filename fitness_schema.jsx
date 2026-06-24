@@ -2,6 +2,11 @@ import { useState, useEffect, useRef } from "react";
 import { supabase } from "./src/supabase.js";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { Haptics, ImpactStyle } from "@capacitor/haptics";
+import { LocalNotifications } from "@capacitor/local-notifications";
+import { ForegroundService } from "@capawesome-team/capacitor-android-foreground-service";
+import { registerPlugin } from "@capacitor/core";
+const BatteryOptimization = registerPlugin("BatteryOptimization");
+const NativeTimer = registerPlugin("NativeTimer");
 
 const schema = {
   days: [
@@ -525,46 +530,46 @@ function triggerImpact() {
 function useTimer(initialSeconds, { onComplete } = {}) {
   const [timeLeft, setTimeLeft] = useState(initialSeconds);
   const [running, setRunning] = useState(false);
-  const intervalRef = useRef(null);
-  const audioCtxRef = useRef(null);
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
 
-  const getAudioCtx = () => {
-    if (!audioCtxRef.current)
-      audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
-    return audioCtxRef.current;
-  };
-
   useEffect(() => {
-    if (running && timeLeft > 0) {
-      intervalRef.current = setInterval(() => {
-        setTimeLeft((t) => {
-          if (t <= 1) {
-            clearInterval(intervalRef.current);
-            setRunning(false);
-            playBoxingBell();
-            triggerVibration();
-            onCompleteRef.current?.();
-            return 0;
-          }
-          return t - 1;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(intervalRef.current);
-  }, [running]);
+    let tickHandle, completeHandle;
+    NativeTimer.addListener("timerTick", ({ timeLeft: t }) => {
+      setTimeLeft(t);
+    }).then((h) => { tickHandle = h; });
+    NativeTimer.addListener("timerComplete", () => {
+      setRunning(false);
+      setTimeLeft(0);
+      onCompleteRef.current?.();
+    }).then((h) => { completeHandle = h; });
+    return () => {
+      tickHandle?.remove();
+      completeHandle?.remove();
+    };
+  }, []);
 
-  const start = (seconds) => {
-    clearInterval(intervalRef.current);
+  const start = (seconds, title = "") => {
     setTimeLeft(seconds);
     setRunning(true);
-    getAudioCtx().resume();
+    NativeTimer.start({ seconds, title }).catch(console.error);
   };
-  const pause = () => { clearInterval(intervalRef.current); setRunning(false); };
-  const reset = (seconds) => { clearInterval(intervalRef.current); setRunning(false); setTimeLeft(seconds); };
+  const pause = () => {
+    setRunning(false);
+    NativeTimer.pause().catch(console.error);
+  };
+  const reset = (seconds) => {
+    setRunning(false);
+    setTimeLeft(seconds);
+    NativeTimer.stop().catch(console.error);
+  };
+  const restart = (seconds, title = "") => {
+    setTimeLeft(seconds);
+    setRunning(true);
+    NativeTimer.restart({ seconds, title }).catch(console.error);
+  };
 
-  return { timeLeft, running, start, pause, reset };
+  return { timeLeft, running, start, pause, reset, restart };
 }
 
 function formatTime(seconds) {
@@ -618,6 +623,7 @@ export default function FitnessSchema() {
   const [activeSection, setActiveSection] = useState(null);
   const [timerLocked, setTimerLocked] = useState(false);
   const wakeLockRef = useRef(null);
+  const timerRunningRef = useRef(false);
   const bbTimerRef = useRef(null);
   const bbLongPressed = useRef(false);
   const bbStartPos = useRef({ x: 0, y: 0 });
@@ -631,7 +637,37 @@ export default function FitnessSchema() {
     wakeLockRef.current = null;
   };
 
-  const { timeLeft, running, start, pause, reset } = useTimer(120, { onComplete: releaseWakeLock });
+  const startForegroundTimer = (section) => {
+    console.log("[FGS] startForegroundTimer called for:", section.label);
+    ForegroundService.startForegroundService({
+      id: 99,
+      title: section.label,
+      body: "Timer loopt...",
+      smallIcon: "ic_timer_notification",
+      notificationChannelId: FGS_CHANNEL_ID,
+      silent: true,
+      serviceType: 1,
+    }).then(() => {
+      console.log("[FGS] startForegroundService succeeded");
+    }).catch((err) => {
+      console.error("[FGS] startForegroundService failed:", err);
+    });
+  };
+  const stopForegroundTimer = () => {
+    console.log("[FGS] stopForegroundTimer called");
+    ForegroundService.stopForegroundService().then(() => {
+      console.log("[FGS] stopForegroundService succeeded");
+    }).catch((err) => {
+      console.error("[FGS] stopForegroundService failed:", err);
+    });
+  };
+
+  const onTimerComplete = () => {
+    releaseWakeLock();
+    stopForegroundTimer();
+  };
+
+  const { timeLeft, running, start, pause, reset, restart } = useTimer(120, { onComplete: onTimerComplete });
   const [expandedExercise, setExpandedExercise] = useState(null);
   const [completedDays, setCompletedDays] = useState(new Set());
   const [completedExercises, setCompletedExercises] = useState(new Set());
@@ -639,6 +675,56 @@ export default function FitnessSchema() {
   const [swapModal, setSwapModal] = useState(null);
   const [progressieOpen, setProgressieOpen] = useState(false);
   const [progressieExercise, setProgressieExercise] = useState(null);
+
+  const TIMER_NOTIF_ID = 42;
+  const TIMER_CHANNEL_ID = "timer-silent";
+  const TIMER_COMPLETE_CHANNEL_ID = "timer-complete-v3";
+  const FGS_CHANNEL_ID = "fgs-timer-v2";
+
+  useEffect(() => { timerRunningRef.current = running; }, [running]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && timerRunningRef.current) acquireWakeLock();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
+
+  useEffect(() => {
+    ForegroundService.createNotificationChannel({
+      id: FGS_CHANNEL_ID,
+      name: "Timer (achtergrond)",
+      importance: 3,
+    }).catch(() => {});
+    LocalNotifications.createChannel({
+      id: TIMER_CHANNEL_ID,
+      name: "Timer (stil)",
+      importance: 2,
+      sound: null,
+      vibration: false,
+    }).catch(() => {});
+    LocalNotifications.createChannel({
+      id: TIMER_COMPLETE_CHANNEL_ID,
+      name: "Timer klaar",
+      importance: 3,
+      sound: null,
+      vibration: false,
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const cancel = () => LocalNotifications.cancel({ notifications: [{ id: TIMER_NOTIF_ID }] }).catch(() => {});
+    const scheduleStart = (title, body) => LocalNotifications.schedule({ notifications: [{ id: TIMER_NOTIF_ID, title, body, channelId: TIMER_CHANNEL_ID, silent: true }] }).catch(() => {});
+
+    if (!activeSection) { cancel(); return; }
+    if (timeLeft === 0) { cancel(); return; }
+    if (!running) { cancel(); return; }
+
+    if (timeLeft === activeSection.seconds) {
+      scheduleStart(activeSection.label, `${activeSection.label} rust — ${formatTime(activeSection.seconds)}`);
+    }
+  }, [timeLeft, running, activeSection]);
 
   useEffect(() => {
     supabase.from("weights").select("*").then(({ data }) => {
@@ -733,12 +819,21 @@ export default function FitnessSchema() {
       setTimerLocked(false);
       pause();
       releaseWakeLock();
+      stopForegroundTimer();
     } else {
+      LocalNotifications.requestPermissions().catch(() => {});
+      BatteryOptimization.checkAndRequest().then((res) => {
+        console.log("[Battery] isIgnoring:", res.isIgnoring, "prompted:", res.prompted, "error:", res.error);
+      }).catch((err) => {
+        console.log("[Battery] plugin not available:", err);
+      });
+      const section = { key, label, icon, seconds, accent };
       setActiveTimer(key);
-      setActiveSection({ key, label, icon, seconds, accent });
+      setActiveSection(section);
       setTimerLocked(true);
-      start(seconds);
+      start(seconds, label);
       acquireWakeLock();
+      startForegroundTimer(section);
     }
   };
 
@@ -787,10 +882,27 @@ export default function FitnessSchema() {
       <div style={{ background: "#f37121", color: "#fff", padding: "24px 20px 20px", textAlign: "center" }}>
         <div style={{ fontSize: 11, letterSpacing: 4, textTransform: "uppercase", color: "#888", marginBottom: 6 }}>Basic Fit · Gevorderd</div>
         <h1 style={{ margin: 0, fontSize: 26, fontWeight: 700, letterSpacing: -0.5 }}>5-Weken Trainingsschema</h1>
-        <div style={{ marginTop: 8, display: "flex", justifyContent: "center", gap: 6 }}>
+        <div style={{ marginTop: 8, display: "flex", justifyContent: "center", alignItems: "center", gap: 8 }}>
           <span style={{ background: phase.bg, color: phase.text, fontSize: 11, padding: "3px 10px", borderRadius: 20, fontFamily: "sans-serif" }}>
             {week.phase}
           </span>
+          <button
+            onClick={async () => {
+              const perm = await LocalNotifications.requestPermissions();
+              if (perm.display === "granted") {
+                await LocalNotifications.schedule({
+                  notifications: [{
+                    id: 1,
+                    title: "Timer Test",
+                    body: "Notificatie werkt!",
+                  }],
+                });
+              }
+            }}
+            style={{ background: "rgba(255,255,255,0.25)", border: "1px solid rgba(255,255,255,0.5)", color: "#fff", borderRadius: 20, padding: "3px 10px", fontSize: 11, fontFamily: "sans-serif", cursor: "pointer" }}
+          >
+            🔔 Test
+          </button>
         </div>
       </div>
 
@@ -1222,16 +1334,16 @@ export default function FitnessSchema() {
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               {!isDone && (
-                <button onClick={() => { if (running) { pause(); releaseWakeLock(); } else { start(timeLeft); acquireWakeLock(); } }}
+                <button onClick={() => { if (running) { pause(); releaseWakeLock(); stopForegroundTimer(); } else { start(timeLeft); acquireWakeLock(); startForegroundTimer(activeSection); } }}
                   style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, lineHeight: 1, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   {running ? "II" : "▶"}
                 </button>
               )}
-              <button onClick={() => { reset(activeSection.seconds); start(activeSection.seconds); setTimerLocked(true); }}
+              <button onClick={() => { restart(activeSection.seconds, activeSection.label); setTimerLocked(true); }}
                 style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, lineHeight: 1, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 ↺
               </button>
-              <button onClick={() => { setActiveTimer(null); setActiveSection(null); setTimerLocked(false); pause(); releaseWakeLock(); }}
+              <button onClick={() => { setActiveTimer(null); setActiveSection(null); setTimerLocked(false); pause(); releaseWakeLock(); stopForegroundTimer(); }}
                 style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, lineHeight: 1, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 ✕
               </button>
