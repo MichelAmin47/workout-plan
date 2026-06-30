@@ -1074,23 +1074,6 @@ export default function FitnessSchema() {
           <span style={{ background: phase.bg, color: phase.text, fontSize: 11, padding: "3px 10px", borderRadius: 20, fontFamily: "sans-serif" }}>
             {week.phase}
           </span>
-          <button
-            onClick={async () => {
-              const perm = await LocalNotifications.requestPermissions();
-              if (perm.display === "granted") {
-                await LocalNotifications.schedule({
-                  notifications: [{
-                    id: 1,
-                    title: "Timer Test",
-                    body: "Notificatie werkt!",
-                  }],
-                });
-              }
-            }}
-            style={{ background: "rgba(255,255,255,0.25)", border: "1px solid rgba(255,255,255,0.5)", color: "#fff", borderRadius: 20, padding: "3px 10px", fontSize: 11, fontFamily: "sans-serif", cursor: "pointer" }}
-          >
-            🔔 Test
-          </button>
         </div>
       </div>
 
