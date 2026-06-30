@@ -810,20 +810,9 @@ export default function FitnessSchema() {
   const [activeTimer, setActiveTimer] = useState(null);
   const [activeSection, setActiveSection] = useState(null);
   const [timerLocked, setTimerLocked] = useState(false);
-  const wakeLockRef = useRef(null);
-  const timerRunningRef = useRef(false);
   const bbTimerRef = useRef(null);
   const bbLongPressed = useRef(false);
   const bbStartPos = useRef({ x: 0, y: 0 });
-
-  const acquireWakeLock = async () => {
-    if (!("wakeLock" in navigator)) return;
-    try { wakeLockRef.current = await navigator.wakeLock.request("screen"); } catch (_) {}
-  };
-  const releaseWakeLock = () => {
-    wakeLockRef.current?.release().catch(() => {});
-    wakeLockRef.current = null;
-  };
 
   const startForegroundTimer = (section) => {
     console.log("[FGS] startForegroundTimer called for:", section.label);
@@ -851,7 +840,6 @@ export default function FitnessSchema() {
   };
 
   const onTimerComplete = () => {
-    releaseWakeLock();
     stopForegroundTimer();
   };
 
@@ -869,15 +857,6 @@ export default function FitnessSchema() {
   const TIMER_COMPLETE_CHANNEL_ID = "timer-complete-v3";
   const FGS_CHANNEL_ID = "fgs-timer-v2";
 
-  useEffect(() => { timerRunningRef.current = running; }, [running]);
-
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible" && timerRunningRef.current) acquireWakeLock();
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, []);
 
   useEffect(() => {
     ForegroundService.createNotificationChannel({
@@ -1006,7 +985,6 @@ export default function FitnessSchema() {
       setActiveSection(null);
       setTimerLocked(false);
       pause();
-      releaseWakeLock();
       stopForegroundTimer();
     } else {
       LocalNotifications.requestPermissions().catch(() => {});
@@ -1020,7 +998,6 @@ export default function FitnessSchema() {
       setActiveSection(section);
       setTimerLocked(true);
       start(seconds, label);
-      acquireWakeLock();
       startForegroundTimer(section);
     }
   };
@@ -1508,7 +1485,7 @@ export default function FitnessSchema() {
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               {!isDone && (
-                <button onClick={() => { if (running) { pause(); releaseWakeLock(); stopForegroundTimer(); } else { start(timeLeft); acquireWakeLock(); startForegroundTimer(activeSection); } }}
+                <button onClick={() => { if (running) { pause(); stopForegroundTimer(); } else { start(timeLeft); startForegroundTimer(activeSection); } }}
                   style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, lineHeight: 1, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   {running ? "II" : "▶"}
                 </button>
@@ -1517,7 +1494,7 @@ export default function FitnessSchema() {
                 style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, lineHeight: 1, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 ↺
               </button>
-              <button onClick={() => { setActiveTimer(null); setActiveSection(null); setTimerLocked(false); pause(); releaseWakeLock(); stopForegroundTimer(); }}
+              <button onClick={() => { setActiveTimer(null); setActiveSection(null); setTimerLocked(false); pause(); stopForegroundTimer(); }}
                 style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, lineHeight: 1, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 ✕
               </button>
