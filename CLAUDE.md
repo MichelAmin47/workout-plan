@@ -16,6 +16,16 @@ npm run preview
 
 Requires Node.js 20.19+ or 22.12+. The project was developed on Node 22.22.3 (nvm).
 
+## Android build
+
+After any JS change that needs to be reflected in the Android app:
+
+```bash
+npm run build && npx cap sync android
+```
+
+Then rebuild and install the APK in Android Studio. `cap sync` copies `dist/` into `android/app/src/main/assets/public/` — the WebView will not pick up JS changes until this is run.
+
 ## File layout
 
 ```
