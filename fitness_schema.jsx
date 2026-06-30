@@ -813,6 +813,7 @@ export default function FitnessSchema() {
   const bbTimerRef = useRef(null);
   const bbLongPressed = useRef(false);
   const bbStartPos = useRef({ x: 0, y: 0 });
+  const weekButtonRefs = useRef([]);
 
   const startForegroundTimer = (section) => {
     console.log("[FGS] startForegroundTimer called for:", section.label);
@@ -857,6 +858,9 @@ export default function FitnessSchema() {
   const TIMER_COMPLETE_CHANNEL_ID = "timer-complete-v3";
   const FGS_CHANNEL_ID = "fgs-timer-v2";
 
+  useEffect(() => {
+    weekButtonRefs.current[selectedWeek]?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }, [selectedWeek]);
 
   useEffect(() => {
     ForegroundService.createNotificationChannel({
@@ -1060,6 +1064,7 @@ export default function FitnessSchema() {
           {schema.weeks.map((w, i) => (
             <button
               key={i}
+              ref={el => weekButtonRefs.current[i] = el}
               onClick={() => { closeAndSave(); setSelectedWeek(i); }}
               style={{
                 padding: "8px 16px",
