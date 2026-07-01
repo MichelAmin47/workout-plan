@@ -2,8 +2,6 @@ import { useState, useEffect, useRef } from "react";
 import { supabase } from "./src/supabase.js";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { Haptics, ImpactStyle } from "@capacitor/haptics";
-import { LocalNotifications } from "@capacitor/local-notifications";
-import { ForegroundService } from "@capawesome-team/capacitor-android-foreground-service";
 import { registerPlugin } from "@capacitor/core";
 const BatteryOptimization = registerPlugin("BatteryOptimization");
 const NativeTimer = registerPlugin("NativeTimer");
@@ -709,14 +707,16 @@ function triggerImpact() {
   Haptics.impact({ style: ImpactStyle.Medium }).catch(() => {});
 }
 
-function useTimer(initialSeconds, { onComplete } = {}) {
+function useTimer(initialSeconds, { onComplete, onStop } = {}) {
   const [timeLeft, setTimeLeft] = useState(initialSeconds);
   const [running, setRunning] = useState(false);
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
+  const onStopRef = useRef(onStop);
+  onStopRef.current = onStop;
 
   useEffect(() => {
-    let tickHandle, completeHandle;
+    let tickHandle, completeHandle, stoppedHandle;
     NativeTimer.addListener("timerTick", ({ timeLeft: t }) => {
       setTimeLeft(t);
     }).then((h) => { tickHandle = h; });
@@ -725,9 +725,15 @@ function useTimer(initialSeconds, { onComplete } = {}) {
       setTimeLeft(0);
       onCompleteRef.current?.();
     }).then((h) => { completeHandle = h; });
+    NativeTimer.addListener("timerStopped", () => {
+      setRunning(false);
+      setTimeLeft(0);
+      onStopRef.current?.();
+    }).then((h) => { stoppedHandle = h; });
     return () => {
       tickHandle?.remove();
       completeHandle?.remove();
+      stoppedHandle?.remove();
     };
   }, []);
 
@@ -815,36 +821,13 @@ export default function FitnessSchema() {
   const bbStartPos = useRef({ x: 0, y: 0 });
   const weekButtonRefs = useRef([]);
 
-  const startForegroundTimer = (section) => {
-    console.log("[FGS] startForegroundTimer called for:", section.label);
-    ForegroundService.startForegroundService({
-      id: 99,
-      title: section.label,
-      body: "Timer loopt...",
-      smallIcon: "ic_timer_notification",
-      notificationChannelId: FGS_CHANNEL_ID,
-      silent: true,
-      serviceType: 1,
-    }).then(() => {
-      console.log("[FGS] startForegroundService succeeded");
-    }).catch((err) => {
-      console.error("[FGS] startForegroundService failed:", err);
-    });
-  };
-  const stopForegroundTimer = () => {
-    console.log("[FGS] stopForegroundTimer called");
-    ForegroundService.stopForegroundService().then(() => {
-      console.log("[FGS] stopForegroundService succeeded");
-    }).catch((err) => {
-      console.error("[FGS] stopForegroundService failed:", err);
-    });
+  const onTimerStop = () => {
+    setActiveTimer(null);
+    setActiveSection(null);
+    setTimerLocked(false);
   };
 
-  const onTimerComplete = () => {
-    stopForegroundTimer();
-  };
-
-  const { timeLeft, running, start, pause, reset, restart } = useTimer(120, { onComplete: onTimerComplete });
+  const { timeLeft, running, start, pause, reset, restart } = useTimer(120, { onComplete: () => {}, onStop: onTimerStop });
   const [expandedExercise, setExpandedExercise] = useState(null);
   const [completedDays, setCompletedDays] = useState(new Set());
   const [completedExercises, setCompletedExercises] = useState(new Set());
@@ -853,49 +836,9 @@ export default function FitnessSchema() {
   const [progressieOpen, setProgressieOpen] = useState(false);
   const [progressieExercise, setProgressieExercise] = useState(null);
 
-  const TIMER_NOTIF_ID = 42;
-  const TIMER_CHANNEL_ID = "timer-silent";
-  const TIMER_COMPLETE_CHANNEL_ID = "timer-complete-v3";
-  const FGS_CHANNEL_ID = "fgs-timer-v2";
-
   useEffect(() => {
     weekButtonRefs.current[selectedWeek]?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
   }, [selectedWeek]);
-
-  useEffect(() => {
-    ForegroundService.createNotificationChannel({
-      id: FGS_CHANNEL_ID,
-      name: "Timer (achtergrond)",
-      importance: 3,
-    }).catch(() => {});
-    LocalNotifications.createChannel({
-      id: TIMER_CHANNEL_ID,
-      name: "Timer (stil)",
-      importance: 2,
-      sound: null,
-      vibration: false,
-    }).catch(() => {});
-    LocalNotifications.createChannel({
-      id: TIMER_COMPLETE_CHANNEL_ID,
-      name: "Timer klaar",
-      importance: 3,
-      sound: null,
-      vibration: false,
-    }).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    const cancel = () => LocalNotifications.cancel({ notifications: [{ id: TIMER_NOTIF_ID }] }).catch(() => {});
-    const scheduleStart = (title, body) => LocalNotifications.schedule({ notifications: [{ id: TIMER_NOTIF_ID, title, body, channelId: TIMER_CHANNEL_ID, silent: true }] }).catch(() => {});
-
-    if (!activeSection) { cancel(); return; }
-    if (timeLeft === 0) { cancel(); return; }
-    if (!running) { cancel(); return; }
-
-    if (timeLeft === activeSection.seconds) {
-      scheduleStart(activeSection.label, `${activeSection.label} rust — ${formatTime(activeSection.seconds)}`);
-    }
-  }, [timeLeft, running, activeSection]);
 
   useEffect(() => {
     supabase.from("weights").select("*").then(({ data }) => {
@@ -999,10 +942,8 @@ export default function FitnessSchema() {
       setActiveTimer(null);
       setActiveSection(null);
       setTimerLocked(false);
-      pause();
-      stopForegroundTimer();
+      NativeTimer.stop().catch(console.error);
     } else {
-      LocalNotifications.requestPermissions().catch(() => {});
       BatteryOptimization.checkAndRequest().then((res) => {
         console.log("[Battery] isIgnoring:", res.isIgnoring, "prompted:", res.prompted, "error:", res.error);
       }).catch((err) => {
@@ -1013,7 +954,6 @@ export default function FitnessSchema() {
       setActiveSection(section);
       setTimerLocked(true);
       start(seconds, label);
-      startForegroundTimer(section);
     }
   };
 
@@ -1502,7 +1442,7 @@ export default function FitnessSchema() {
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               {!isDone && (
-                <button onClick={() => { if (running) { pause(); stopForegroundTimer(); } else { start(timeLeft); startForegroundTimer(activeSection); } }}
+                <button onClick={() => { if (running) { pause(); } else { start(timeLeft, activeSection?.label ?? ""); } }}
                   style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, lineHeight: 1, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   {running ? "II" : "▶"}
                 </button>
@@ -1511,7 +1451,7 @@ export default function FitnessSchema() {
                 style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, lineHeight: 1, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 ↺
               </button>
-              <button onClick={() => { setActiveTimer(null); setActiveSection(null); setTimerLocked(false); pause(); stopForegroundTimer(); }}
+              <button onClick={() => { setActiveTimer(null); setActiveSection(null); setTimerLocked(false); NativeTimer.stop().catch(console.error); }}
                 style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, lineHeight: 1, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 ✕
               </button>
