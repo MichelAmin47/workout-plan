@@ -180,11 +180,16 @@ Weeks 23–25 (`week.week` 1–3) are unaffected; `hiitInterval` is `null` and s
 
 ## KB exercise swapping
 
-Each kettlebell exercise row is wrapped in `<SwipeableRow>`. Swiping right (≥60px horizontal, <30px vertical drift) on any KB row opens `<BottomSheet>` with a list of all KB exercises minus the currently displayed one. Selecting an exercise:
+Each kettlebell exercise row is wrapped in `<SwipeableRow>`. It handles swipes in both directions (≥60px horizontal, <30px vertical drift):
 
+**Swipe right** — opens `<BottomSheet>` with all KB exercises except the currently displayed one. Selecting an exercise:
 1. Calls `saveSwap(original, newExercise, weekNum, dayId)` — upserts to the `exercise_swaps` table.
 2. Updates `swaps` state map so the row immediately renders the new exercise name.
 3. Closes the bottom sheet (`swapModal = null`).
+
+**Swipe left** — only available on rows that are already swapped (GEWIJZIGD). Shows a red "↩ Terug" hint behind the row as you drag. On release at ≥60px, calls `revertSwap(original, weekNum, dayId)` which removes the key from `swaps` state and deletes the row from `exercise_swaps` in Supabase.
+
+`SwipeableRow` accepts `onSwipeRight` and `onSwipeLeft` props. `onSwipeLeft` is only passed when `swappedName` is set; unswapped rows ignore leftward drags. The row wraps its children in a `position: relative` container so the "↩ Terug" hint can be absolutely positioned on the right edge.
 
 Swapped rows show a purple **GEWIJZIGD** badge and the original name below with an `↩` prefix. The display name is resolved as `swaps[sKey(ex.name, weekNum, dayId)] ?? ex.name`.
 
