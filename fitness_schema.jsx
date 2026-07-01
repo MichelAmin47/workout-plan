@@ -983,6 +983,17 @@ export default function FitnessSchema() {
     setSwapModal(null);
   };
 
+  const revertSwap = (original, weekNum, dayId) => {
+    const k = sKey(original, weekNum, dayId);
+    setSwaps((prev) => { const next = { ...prev }; delete next[k]; return next; });
+    supabase.from("exercise_swaps")
+      .delete()
+      .eq("original_exercise", original)
+      .eq("week", weekNum)
+      .eq("day", dayId)
+      .then(({ error }) => { if (error) console.error("[revertSwap error]", error); });
+  };
+
   const handleTimerClick = (key, label, icon, seconds, accent) => {
     if (activeTimer === key) {
       setActiveTimer(null);
@@ -1266,6 +1277,7 @@ export default function FitnessSchema() {
                     <SwipeableRow
                       key={i}
                       onSwipeRight={() => { closeAndSave(); setSwapModal({ original: ex.name, week: week.week, day: dayInfo.id }); }}
+                      onSwipeLeft={swappedName ? () => revertSwap(ex.name, week.week, dayInfo.id) : undefined}
                     >
                       <ExRow
                         num={i + 1}
@@ -1711,7 +1723,7 @@ function DayButton({ day, isSelected, isCompleted, colors, onSelect, onLongPress
   );
 }
 
-function SwipeableRow({ onSwipeRight, children }) {
+function SwipeableRow({ onSwipeRight, onSwipeLeft, children }) {
   const startX = useRef(null);
   const startY = useRef(null);
   const swiped = useRef(false);
@@ -1730,30 +1742,50 @@ function SwipeableRow({ onSwipeRight, children }) {
     const p = e.touches?.[0] || e;
     const dx = p.clientX - startX.current;
     const dy = Math.abs(p.clientY - startY.current);
-    if (dy > 30 || dx < 0) { startX.current = null; setOffsetX(0); return; }
-    setOffsetX(Math.min(dx, 80));
-    if (dx >= 60) {
-      swiped.current = true;
+    if (dy > 30) { startX.current = null; setOffsetX(0); return; }
+    if (dx > 0 && onSwipeRight) {
+      setOffsetX(Math.min(dx, 80));
+      if (dx >= 60) {
+        swiped.current = true;
+        startX.current = null;
+        setOffsetX(0);
+        onSwipeRight();
+      }
+    } else if (dx < 0 && onSwipeLeft) {
+      setOffsetX(Math.max(dx, -80));
+      if (dx <= -60) {
+        swiped.current = true;
+        startX.current = null;
+        setOffsetX(0);
+        onSwipeLeft();
+      }
+    } else {
       startX.current = null;
       setOffsetX(0);
-      onSwipeRight();
     }
   };
 
   const onEnd = () => { isMouseDown.current = false; startX.current = null; setOffsetX(0); };
 
   return (
-    <div
-      onMouseDown={(e) => { isMouseDown.current = true; onStart(e); }}
-      onMouseMove={(e) => { if (isMouseDown.current) onMove(e); }}
-      onMouseUp={onEnd}
-      onTouchStart={onStart}
-      onTouchMove={onMove}
-      onTouchEnd={onEnd}
-      onClick={(e) => { if (swiped.current) { swiped.current = false; e.stopPropagation(); } }}
-      style={{ transform: `translateX(${offsetX}px)`, transition: offsetX === 0 ? "transform 0.2s" : "none" }}
-    >
-      {children}
+    <div style={{ position: "relative", overflow: "hidden" }}>
+      {onSwipeLeft && offsetX < 0 && (
+        <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, display: "flex", alignItems: "center", paddingRight: 16, color: "#dc2626", fontSize: 13, fontWeight: 700, fontFamily: "sans-serif" }}>
+          ↩ Terug
+        </div>
+      )}
+      <div
+        onMouseDown={(e) => { isMouseDown.current = true; onStart(e); }}
+        onMouseMove={(e) => { if (isMouseDown.current) onMove(e); }}
+        onMouseUp={onEnd}
+        onTouchStart={onStart}
+        onTouchMove={onMove}
+        onTouchEnd={onEnd}
+        onClick={(e) => { if (swiped.current) { swiped.current = false; e.stopPropagation(); } }}
+        style={{ transform: `translateX(${offsetX}px)`, transition: offsetX === 0 ? "transform 0.2s" : "none" }}
+      >
+        {children}
+      </div>
     </div>
   );
 }
