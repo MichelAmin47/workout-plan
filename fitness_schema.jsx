@@ -653,6 +653,97 @@ const schema = {
         },
       ],
     },
+    {
+      week: 8,
+      label: "Week 30",
+      phase: "Nieuwe Prikkel",
+      days: [
+        {
+          dayId: 4,
+          spiergroep: [
+            { name: "Cable Lateral Raise", sets: "4x15", note: "+gewicht" },
+            { name: "Reverse Fly (pec deck)", sets: "4x15", note: "+gewicht" },
+            { name: "Barbell Upright Row", sets: "4x12", note: "+gewicht" },
+            { name: "Dumbbell Front Raise", sets: "4x12", note: "+gewicht" },
+            { name: "Arnold Press", sets: "3x12", note: "+gewicht", optional: true },
+          ],
+          barbell: { name: "Barbell Push Press", sets: "4x6", note: "+gewicht" },
+          kettlebell: [
+            { name: "KB Bottoms-Up Press", sets: "4x8/arm", note: "+gewicht" },
+            { name: "KB Snatch", sets: "3x8/arm", note: "+gewicht" },
+            { name: "KB Figure 8", sets: "3x12", note: "+gewicht" },
+          ],
+          core: [
+            { name: "Landmine Rotation", sets: "3x12", note: "" },
+            { name: "Stir the Pot (bosu/ball)", sets: "3x30sec", note: "" },
+            { name: "Cable Woodchop", sets: "3x12/zij", note: "" },
+          ],
+        },
+        {
+          dayId: 2,
+          spiergroep: [
+            { name: "Decline Dumbbell Press", sets: "4x10", note: "+gewicht" },
+            { name: "Pec Deck Machine", sets: "4x12", note: "+gewicht" },
+            { name: "Overhead Tricep Extension", sets: "4x12", note: "+gewicht" },
+            { name: "Cable Tricep Kickback", sets: "4x12", note: "+gewicht" },
+            { name: "Chest Dip", sets: "3x10", note: "+gewicht", optional: true },
+          ],
+          barbell: { name: "Barbell Close Grip Bench Press", sets: "4x8", note: "+gewicht" },
+          kettlebell: [
+            { name: "KB Floor Press", sets: "4x10", note: "+gewicht" },
+            { name: "KB Windmill", sets: "3x8/arm", note: "+gewicht" },
+            { name: "KB Single Arm Swing", sets: "3x12/arm", note: "+gewicht" },
+          ],
+          core: [
+            { name: "Hollow Body Hold", sets: "3x40sec", note: "" },
+            { name: "TRX/Ring Fallout", sets: "3x10", note: "" },
+            { name: "Weighted Sit-Up", sets: "3x15", note: "" },
+          ],
+        },
+        {
+          dayId: 3,
+          spiergroep: [
+            { name: "T-Bar Row", sets: "4x10", note: "+gewicht" },
+            { name: "Wide Grip Pulldown", sets: "4x12", note: "+gewicht" },
+            { name: "Hammer Curl", sets: "4x12", note: "+gewicht" },
+            { name: "Spider Curl", sets: "4x12", note: "+gewicht" },
+            { name: "Straight Arm Pulldown", sets: "3x12", note: "+gewicht", optional: true },
+          ],
+          barbell: { name: "Barbell Pendlay Row", sets: "4x6", note: "+gewicht" },
+          kettlebell: [
+            { name: "KB Sumo Deadlift", sets: "4x10", note: "+gewicht" },
+            { name: "KB High Pull", sets: "3x12", note: "+gewicht" },
+            { name: "KB Suitcase Carry", sets: "3x20m/arm", note: "+gewicht" },
+          ],
+          core: [
+            { name: "Ab Rollout (barbell)", sets: "3x10", note: "" },
+            { name: "Hanging Windshield Wiper", sets: "3x10", note: "" },
+            { name: "Farmer's Carry Core Hold", sets: "3x30sec", note: "" },
+          ],
+        },
+        {
+          dayId: 1,
+          spiergroep: [
+            { name: "Hack Squat Machine", sets: "4x10", note: "+gewicht" },
+            { name: "Bulgarian Split Squat", sets: "4x10/been", note: "+gewicht" },
+            { name: "Hip Thrust (barbell)", sets: "4x12", note: "+gewicht" },
+            { name: "Leg Extension Machine", sets: "4x12", note: "+gewicht" },
+            { name: "Standing Calf Raise", sets: "4x15", note: "+gewicht", optional: true },
+          ],
+          barbell: { name: "Barbell Front Squat", sets: "4x8", note: "+gewicht" },
+          kettlebell: [
+            { name: "KB Snatch", sets: "4x8/arm", note: "+gewicht" },
+            { name: "KB Lateral Lunge", sets: "3x10/been", note: "+gewicht" },
+            { name: "KB Swing (één arm)", sets: "3x12/arm", note: "+gewicht" },
+          ],
+          core: [
+            { name: "Dragon Flag (negatief)", sets: "3x6", note: "" },
+            { name: "Copenhagen Plank", sets: "3x30sec/zij", note: "" },
+            { name: "V-Sit Hold", sets: "3x30sec", note: "" },
+          ],
+        },
+      ],
+    },
   ],
 };
 
@@ -674,7 +765,7 @@ function getCurrentWeekIndex() {
   d.setDate(d.getDate() + 4 - dayOfWeek);
   const yearStart = new Date(d.getFullYear(), 0, 1);
   const isoWeek = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
-  return Math.min(Math.max(isoWeek - 23, 0), 6);
+  return Math.min(Math.max(isoWeek - 23, 0), 7);
 }
 
 function wKey(exercise, week) {
@@ -792,6 +883,7 @@ const HIIT_INTERVALS = {
   5: { work: 35, rest: 20 },
   6: { work: 40, rest: 20 },
   7: { work: 45, rest: 20 },
+  8: { work: 45, rest: 20 },
 };
 
 const KB_EXERCISES = [
