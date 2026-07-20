@@ -915,6 +915,8 @@ export default function FitnessSchema() {
     return saved !== null ? Number(saved) : 0;
   });
   const [weights, setWeights] = useState({});
+  const [savedIndicators, setSavedIndicators] = useState({});
+  const saveTimers = useRef({});
   const [activeTimer, setActiveTimer] = useState(null);
   const [activeSection, setActiveSection] = useState(null);
   const [timerLocked, setTimerLocked] = useState(false);
@@ -983,13 +985,23 @@ export default function FitnessSchema() {
       { exercise, week: weekNum, person, weight: Number(value) },
       { onConflict: "exercise,week,person" }
     ).then(({ error }) => {
-      if (error) console.error("[saveWeight error]", error);
+      if (error) { console.error("[saveWeight error]", error); return; }
+      const indicatorKey = `${exercise}__${weekNum}__${person}`;
+      setSavedIndicators((prev) => ({ ...prev, [indicatorKey]: true }));
+      setTimeout(() => setSavedIndicators((prev) => {
+        const next = { ...prev }; delete next[indicatorKey]; return next;
+      }), 1500);
     });
   };
 
   const flushSave = (exerciseName, weekNum) => {
     const k = wKey(exerciseName, weekNum);
     const w = weights[k] || {};
+    ["M", "Z"].forEach((person) => {
+      const timerKey = `${exerciseName}__${weekNum}__${person}`;
+      clearTimeout(saveTimers.current[timerKey]);
+      delete saveTimers.current[timerKey];
+    });
     if (w.M !== "" && w.M !== undefined) saveWeight(exerciseName, weekNum, "M", w.M);
     if (w.Z !== "" && w.Z !== undefined) saveWeight(exerciseName, weekNum, "Z", w.Z);
   };
@@ -1008,7 +1020,9 @@ export default function FitnessSchema() {
       ...prev,
       [k]: { ...(prev[k] || { M: "", Z: "" }), [person]: value },
     }));
-    saveWeight(exercise, weekNum, person, value);
+    const timerKey = `${exercise}__${weekNum}__${person}`;
+    clearTimeout(saveTimers.current[timerKey]);
+    saveTimers.current[timerKey] = setTimeout(() => saveWeight(exercise, weekNum, person, value), 500);
   };
 
   const closeAndSave = () => {
@@ -1210,6 +1224,9 @@ export default function FitnessSchema() {
                             placeholder="kg"
                             style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }}
                           />
+                          {savedIndicators[`${day.barbell.name}__${week.week}__${person}`] && (
+                            <span style={{ color: "#16a34a", fontSize: 14, fontWeight: 700, lineHeight: 1 }}>✓</span>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1257,6 +1274,8 @@ export default function FitnessSchema() {
                 prevWeightM={prevW.M}
                 prevWeightZ={prevW.Z}
                 prevWeekLabel={prevResult?.label}
+                savedM={!!savedIndicators[`${ex.name}__${week.week}__M`]}
+                savedZ={!!savedIndicators[`${ex.name}__${week.week}__Z`]}
                 completed={completedExercises.has(eKey(ex.name, week.week, dayInfo.id))}
                 onLongPress={() => toggleExerciseCompletion(ex.name, week.week, dayInfo.id)}
               />
@@ -1337,6 +1356,8 @@ export default function FitnessSchema() {
                         prevWeightM={prevW.M}
                         prevWeightZ={prevW.Z}
                         prevWeekLabel={prevResult?.label}
+                        savedM={!!savedIndicators[`${displayName}__${week.week}__M`]}
+                        savedZ={!!savedIndicators[`${displayName}__${week.week}__Z`]}
                         completed={completedExercises.has(eKey(displayName, week.week, dayInfo.id))}
                         onLongPress={() => toggleExerciseCompletion(displayName, week.week, dayInfo.id)}
                         swapped={!!swappedName}
@@ -1596,7 +1617,7 @@ function Section({ title, icon, accent, timerSeconds, timerActive, onTimerClick,
   );
 }
 
-function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange, prevWeightM, prevWeightZ, prevWeekLabel, completed, onLongPress, swapped, originalName, hiitInterval }) {
+function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange, prevWeightM, prevWeightZ, prevWeekLabel, savedM, savedZ, completed, onLongPress, swapped, originalName, hiitInterval }) {
   const isClickable = !!onToggle;
   const hasPrev = (prevWeightM !== "" && prevWeightM != null) || (prevWeightZ !== "" && prevWeightZ != null);
   return (
@@ -1648,6 +1669,9 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
                   placeholder="kg"
                   style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }}
                 />
+                {((person === "M" && savedM) || (person === "Z" && savedZ)) && (
+                  <span style={{ color: "#16a34a", fontSize: 14, fontWeight: 700, lineHeight: 1 }}>✓</span>
+                )}
               </div>
             ))}
           </div>
