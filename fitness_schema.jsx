@@ -784,6 +784,16 @@ function sKey(original, weekNum, dayId) {
   return `${original}__${weekNum}__${dayId}`;
 }
 
+function findPrevWeight(exerciseName, currentWeek, weights) {
+  for (let w = currentWeek - 1; w >= 1; w--) {
+    const entry = weights[wKey(exerciseName, w)];
+    if (entry && (entry.M !== "" && entry.M != null || entry.Z !== "" && entry.Z != null)) {
+      return { M: entry.M, Z: entry.Z, weekNum: w, label: `Laatste keer — Week ${22 + w}` };
+    }
+  }
+  return null;
+}
+
 function playBoxingBell() {
   const audio = new Audio("/boxing-bell.mp3");
   audio.volume = 1.0;
@@ -1159,8 +1169,8 @@ export default function FitnessSchema() {
           {(() => {
             const k = wKey(day.barbell.name, week.week);
             const w = weights[k] || { M: "", Z: "" };
-            const prevK = week.week > 1 ? wKey(day.barbell.name, week.week - 1) : null;
-            const prevW = prevK ? (weights[prevK] || { M: "", Z: "" }) : { M: null, Z: null };
+            const prevResult = findPrevWeight(day.barbell.name, week.week, weights);
+            const prevW = prevResult || { M: null, Z: null };
             const hasPrev = prevW.M !== "" && prevW.M != null || prevW.Z !== "" && prevW.Z != null;
             const barbellCompleted = completedExercises.has(eKey(day.barbell.name, week.week, dayInfo.id));
             return (
@@ -1205,7 +1215,7 @@ export default function FitnessSchema() {
                     </div>
                     {hasPrev && (
                       <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
-                        Vorige week  <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevW.M !== "" && prevW.M != null ? `${prevW.M}kg` : "—"}</span><span style={{ display: "none" }}> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevW.Z !== "" && prevW.Z != null ? `${prevW.Z}kg` : "—"}</span></span>
+                        {prevResult?.label}  <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevW.M !== "" && prevW.M != null ? `${prevW.M}kg` : "—"}</span><span style={{ display: "none" }}> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevW.Z !== "" && prevW.Z != null ? `${prevW.Z}kg` : "—"}</span></span>
                       </div>
                     )}
                   </div>
@@ -1227,8 +1237,8 @@ export default function FitnessSchema() {
           {day.spiergroep.map((ex, i) => {
             const k = wKey(ex.name, week.week);
             const w = weights[k] || { M: "", Z: "" };
-            const prevK = week.week > 1 ? wKey(ex.name, week.week - 1) : null;
-            const prevW = prevK ? (weights[prevK] || { M: "", Z: "" }) : { M: null, Z: null };
+            const prevResult = findPrevWeight(ex.name, week.week, weights);
+            const prevW = prevResult || { M: null, Z: null };
             return (
               <ExRow
                 key={i}
@@ -1246,6 +1256,7 @@ export default function FitnessSchema() {
                 onWeightChange={(person, value) => handleWeightChange(ex.name, week.week, person, value)}
                 prevWeightM={prevW.M}
                 prevWeightZ={prevW.Z}
+                prevWeekLabel={prevResult?.label}
                 completed={completedExercises.has(eKey(ex.name, week.week, dayInfo.id))}
                 onLongPress={() => toggleExerciseCompletion(ex.name, week.week, dayInfo.id)}
               />
@@ -1303,8 +1314,8 @@ export default function FitnessSchema() {
                   const displayName = swappedName || ex.name;
                   const k = wKey(displayName, week.week);
                   const w = weights[k] || { M: "", Z: "" };
-                  const prevK = week.week > 1 ? wKey(displayName, week.week - 1) : null;
-                  const prevW = prevK ? (weights[prevK] || { M: "", Z: "" }) : { M: null, Z: null };
+                  const prevResult = findPrevWeight(displayName, week.week, weights);
+                  const prevW = prevResult || { M: null, Z: null };
                   return (
                     <SwipeableRow
                       key={i}
@@ -1325,6 +1336,7 @@ export default function FitnessSchema() {
                         onWeightChange={(person, value) => handleWeightChange(displayName, week.week, person, value)}
                         prevWeightM={prevW.M}
                         prevWeightZ={prevW.Z}
+                        prevWeekLabel={prevResult?.label}
                         completed={completedExercises.has(eKey(displayName, week.week, dayInfo.id))}
                         onLongPress={() => toggleExerciseCompletion(displayName, week.week, dayInfo.id)}
                         swapped={!!swappedName}
@@ -1584,7 +1596,7 @@ function Section({ title, icon, accent, timerSeconds, timerActive, onTimerClick,
   );
 }
 
-function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange, prevWeightM, prevWeightZ, completed, onLongPress, swapped, originalName, hiitInterval }) {
+function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange, prevWeightM, prevWeightZ, prevWeekLabel, completed, onLongPress, swapped, originalName, hiitInterval }) {
   const isClickable = !!onToggle;
   const hasPrev = (prevWeightM !== "" && prevWeightM != null) || (prevWeightZ !== "" && prevWeightZ != null);
   return (
@@ -1641,7 +1653,7 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
           </div>
           {hasPrev && (
             <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
-              Vorige week  <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevWeightM !== "" && prevWeightM != null ? `${prevWeightM}kg` : "—"}</span><span style={{ display: "none" }}> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevWeightZ !== "" && prevWeightZ != null ? `${prevWeightZ}kg` : "—"}</span></span>
+              {prevWeekLabel || "Vorige week"}  <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevWeightM !== "" && prevWeightM != null ? `${prevWeightM}kg` : "—"}</span><span style={{ display: "none" }}> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevWeightZ !== "" && prevWeightZ != null ? `${prevWeightZ}kg` : "—"}</span></span>
             </div>
           )}
         </div>
