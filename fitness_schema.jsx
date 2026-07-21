@@ -200,19 +200,12 @@ export default function FitnessSchema() {
   const [progressieExercise, setProgressieExercise] = useState(null);
   const [schema, setSchema] = useState(null);
   const [schemaLoading, setSchemaLoading] = useState(true);
+  const [schemaOffline, setSchemaOffline] = useState(false);
 
   useEffect(() => {
-    async function loadSchema() {
-      const [{ data: schemas }, { data: schemaDays }, { data: exercises }] = await Promise.all([
-        supabase.from("schemas").select("*").order("start_week"),
-        supabase.from("schema_days").select("*"),
-        supabase.from("exercises").select("*").order("volgorde"),
-      ]);
-      if (!schemas || !schemaDays || !exercises) { setSchemaLoading(false); return; }
-
+    function buildWeeks(schemas, schemaDays, exercises) {
       const dayMap = Object.fromEntries(schemaDays.map(sd => [sd.id, sd]));
       const allWeeks = [];
-
       for (const s of schemas) {
         const numWeeks = s.eind_week - s.start_week + 1;
         const schemaDayIds = new Set(schemaDays.filter(sd => sd.schema_id === s.id).map(sd => sd.id));
@@ -241,18 +234,54 @@ export default function FitnessSchema() {
           allWeeks.push({ week: calWeek, label: `Week ${calWeek}`, phase, days });
         }
       }
-
-      setSchema({ days: SCHEMA_DAYS, weeks: allWeeks });
-
-      const d = new Date();
-      const dayOfWeek = d.getDay() || 7;
-      d.setDate(d.getDate() + 4 - dayOfWeek);
-      const yearStart = new Date(d.getFullYear(), 0, 1);
-      const isoWeek = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
-      const idx = allWeeks.findIndex(w => w.label === `Week ${isoWeek}`);
-      if (idx >= 0) setSelectedWeek(idx);
-      setSchemaLoading(false);
+      return allWeeks;
     }
+
+    function applyWeeks(allWeeks, setWeekIndex) {
+      setSchema({ days: SCHEMA_DAYS, weeks: allWeeks });
+      if (setWeekIndex) {
+        const d = new Date();
+        const dayOfWeek = d.getDay() || 7;
+        d.setDate(d.getDate() + 4 - dayOfWeek);
+        const yearStart = new Date(d.getFullYear(), 0, 1);
+        const isoWeek = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+        const idx = allWeeks.findIndex(w => w.label === `Week ${isoWeek}`);
+        if (idx >= 0) setSelectedWeek(idx);
+      }
+    }
+
+    async function loadSchema() {
+      let hasCache = false;
+      try {
+        const raw = localStorage.getItem("cached_schema");
+        if (raw) {
+          const { weeks } = JSON.parse(raw);
+          if (weeks?.length) {
+            applyWeeks(weeks, true);
+            setSchemaLoading(false);
+            hasCache = true;
+          }
+        }
+      } catch {}
+
+      try {
+        const [{ data: schemas }, { data: schemaDays }, { data: exercises }] = await Promise.all([
+          supabase.from("schemas").select("*").order("start_week"),
+          supabase.from("schema_days").select("*"),
+          supabase.from("exercises").select("*").order("volgorde"),
+        ]);
+        if (!schemas || !schemaDays || !exercises) throw new Error("empty");
+        const allWeeks = buildWeeks(schemas, schemaDays, exercises);
+        localStorage.setItem("cached_schema", JSON.stringify({ weeks: allWeeks }));
+        applyWeeks(allWeeks, !hasCache);
+        setSchemaOffline(false);
+        setSchemaLoading(false);
+      } catch {
+        if (!hasCache) setSchemaLoading(false);
+        else setSchemaOffline(true);
+      }
+    }
+
     loadSchema();
   }, []);
 
@@ -447,6 +476,14 @@ export default function FitnessSchema() {
           </span>
         </div>
       </div>
+
+      {/* Offline indicator */}
+      {schemaOffline && (
+        <div style={{ background: "#f1f5f9", borderBottom: "1px solid #e2e8f0", padding: "6px 16px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontFamily: "sans-serif", fontSize: 12, color: "#64748b" }}>
+          <span>📵</span>
+          <span>Offline — schema uit cache</span>
+        </div>
+      )}
 
       {/* Week selector */}
       <div style={{ background: "#fff", borderBottom: "1px solid #eee", padding: "14px 16px", overflowX: "auto" }}>
