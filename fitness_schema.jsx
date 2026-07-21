@@ -1400,8 +1400,8 @@ function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPr
         {isToday && <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#f37121" }} />}
       </div>
 
-      {/* Day label — fixed 12px */}
-      <div style={{ height: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: isSelected ? tileColor : "#aaa", letterSpacing: 0.5, fontFamily: "sans-serif" }}>
+      {/* Day label — fixed 16px */}
+      <div style={{ height: 16, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: isSelected ? tileColor : "#aaa", letterSpacing: 0.5, fontFamily: "sans-serif" }}>
         {day.dag_label}
       </div>
 
@@ -1418,8 +1418,8 @@ function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPr
         {isRust && <div style={{ width: 4, height: 4, borderRadius: "50%", background: "#94a3b8" }} />}
       </div>
 
-      {/* Name zone — fixed 27px (3 × 9px lines), always 3 rows so all tiles align */}
-      <div style={{ height: 27, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", overflow: "hidden", fontSize: 7, fontWeight: 700, lineHeight: "9px", fontFamily: "sans-serif", color: isCardio ? "#f97316" : isRust ? "#94a3b8" : tileColor }}>
+      {/* Name zone — fixed 30px (3 × 10px lines), always 3 rows so all tiles align */}
+      <div style={{ height: 30, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", overflow: "hidden", fontSize: 10, fontWeight: 700, lineHeight: "10px", fontFamily: "sans-serif", color: isCardio ? "#f97316" : isRust ? "#94a3b8" : tileColor }}>
         {(() => { const words = (day.naam || "").split(" "); while (words.length < 3) words.push(" "); return words.map((w, i) => <div key={i}>{w}</div>); })()}
       </div>
     </button>
