@@ -167,6 +167,48 @@ const KB_EXERCISES = [
   "KB Thruster", "KB Turkish Get-Up", "KB Windmill", "KB Wood Chop",
 ];
 
+function buildWeeks(schemas, schemaDays, exercises) {
+  const dayMap = Object.fromEntries(schemaDays.map(sd => [sd.id, sd]));
+  const allWeeks = [];
+  for (const s of schemas) {
+    const numWeeks = s.eind_week - s.start_week + 1;
+    const schemaDayIds = new Set(schemaDays.filter(sd => sd.schema_id === s.id).map(sd => sd.id));
+    for (let relWeek = 1; relWeek <= numWeeks; relWeek++) {
+      const calWeek = s.start_week + relWeek - 1;
+      const phase = relWeek <= 3 ? "Opbouw" : "Nieuwe Prikkel";
+      const weekExs = exercises.filter(e => schemaDayIds.has(e.schema_day_id) && e.week_nummer === relWeek);
+      const days = [4, 2, 3, 1].map(dagNr => {
+        const dayExs = weekExs.filter(e => dayMap[e.schema_day_id]?.dag_nummer === dagNr);
+        const toEx = (e) => ({
+          name: e.naam,
+          sets: e.sets || "",
+          note: e.note || "",
+          ...(e.optioneel ? { optional: true } : {}),
+          ...(e.hiit_work != null ? { hiitInterval: { work: e.hiit_work, rest: e.hiit_rest } } : {}),
+        });
+        const barEx = dayExs.find(e => e.categorie === "barbell");
+        return {
+          dayId: dagNr,
+          barbell: barEx ? toEx(barEx) : { name: "", sets: "", note: "" },
+          spiergroep: dayExs.filter(e => e.categorie === "spiergroep").map(toEx),
+          kettlebell: dayExs.filter(e => e.categorie === "kettlebell").map(toEx),
+          core: dayExs.filter(e => e.categorie === "core").map(toEx),
+        };
+      });
+      allWeeks.push({ week: calWeek, label: `Week ${calWeek}`, phase, days });
+    }
+  }
+  return allWeeks;
+}
+
+function currentWeekIndex(allWeeks) {
+  const d = new Date();
+  const dow = d.getDay() || 7;
+  d.setDate(d.getDate() + 4 - dow);
+  const isoWeek = Math.ceil(((d - new Date(d.getFullYear(), 0, 1)) / 86400000 + 1) / 7);
+  return allWeeks.findIndex(w => w.label === `Week ${isoWeek}`);
+}
+
 export default function FitnessSchema() {
   const [selectedWeek, setSelectedWeek] = useState(0);
   const [selectedDay, setSelectedDay] = useState(() => {
@@ -201,121 +243,124 @@ export default function FitnessSchema() {
   const [schema, setSchema] = useState(null);
   const [schemaLoading, setSchemaLoading] = useState(true);
   const [schemaOffline, setSchemaOffline] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [pullY, setPullY] = useState(0);
+  const pullStartY = useRef(null);
+  const rawPullDist = useRef(0);
 
-  useEffect(() => {
-    function buildWeeks(schemas, schemaDays, exercises) {
-      const dayMap = Object.fromEntries(schemaDays.map(sd => [sd.id, sd]));
-      const allWeeks = [];
-      for (const s of schemas) {
-        const numWeeks = s.eind_week - s.start_week + 1;
-        const schemaDayIds = new Set(schemaDays.filter(sd => sd.schema_id === s.id).map(sd => sd.id));
-        for (let relWeek = 1; relWeek <= numWeeks; relWeek++) {
-          const calWeek = s.start_week + relWeek - 1;
-          const phase = relWeek <= 3 ? "Opbouw" : "Nieuwe Prikkel";
-          const weekExs = exercises.filter(e => schemaDayIds.has(e.schema_day_id) && e.week_nummer === relWeek);
-          const days = [4, 2, 3, 1].map(dagNr => {
-            const dayExs = weekExs.filter(e => dayMap[e.schema_day_id]?.dag_nummer === dagNr);
-            const toEx = (e) => ({
-              name: e.naam,
-              sets: e.sets || "",
-              note: e.note || "",
-              ...(e.optioneel ? { optional: true } : {}),
-              ...(e.hiit_work != null ? { hiitInterval: { work: e.hiit_work, rest: e.hiit_rest } } : {}),
-            });
-            const barEx = dayExs.find(e => e.categorie === "barbell");
-            return {
-              dayId: dagNr,
-              barbell: barEx ? toEx(barEx) : { name: "", sets: "", note: "" },
-              spiergroep: dayExs.filter(e => e.categorie === "spiergroep").map(toEx),
-              kettlebell: dayExs.filter(e => e.categorie === "kettlebell").map(toEx),
-              core: dayExs.filter(e => e.categorie === "core").map(toEx),
-            };
-          });
-          allWeeks.push({ week: calWeek, label: `Week ${calWeek}`, phase, days });
-        }
-      }
-      return allWeeks;
-    }
+  const fetchSchemaData = async () => {
+    const [{ data: schemas }, { data: schemaDays }, { data: exercises }] = await Promise.all([
+      supabase.from("schemas").select("*").order("start_week"),
+      supabase.from("schema_days").select("*"),
+      supabase.from("exercises").select("*").order("volgorde"),
+    ]);
+    if (!schemas || !schemaDays || !exercises) throw new Error("empty");
+    return buildWeeks(schemas, schemaDays, exercises);
+  };
 
-    function applyWeeks(allWeeks, setWeekIndex) {
-      setSchema({ days: SCHEMA_DAYS, weeks: allWeeks });
-      if (setWeekIndex) {
-        const d = new Date();
-        const dayOfWeek = d.getDay() || 7;
-        d.setDate(d.getDate() + 4 - dayOfWeek);
-        const yearStart = new Date(d.getFullYear(), 0, 1);
-        const isoWeek = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
-        const idx = allWeeks.findIndex(w => w.label === `Week ${isoWeek}`);
-        if (idx >= 0) setSelectedWeek(idx);
-      }
-    }
-
-    async function loadSchema() {
-      let hasCache = false;
-      try {
-        const raw = localStorage.getItem("cached_schema");
-        if (raw) {
-          const { weeks } = JSON.parse(raw);
-          if (weeks?.length) {
-            applyWeeks(weeks, true);
-            setSchemaLoading(false);
-            hasCache = true;
-          }
-        }
-      } catch {}
-
-      try {
-        const [{ data: schemas }, { data: schemaDays }, { data: exercises }] = await Promise.all([
-          supabase.from("schemas").select("*").order("start_week"),
-          supabase.from("schema_days").select("*"),
-          supabase.from("exercises").select("*").order("volgorde"),
-        ]);
-        if (!schemas || !schemaDays || !exercises) throw new Error("empty");
-        const allWeeks = buildWeeks(schemas, schemaDays, exercises);
-        localStorage.setItem("cached_schema", JSON.stringify({ weeks: allWeeks }));
-        applyWeeks(allWeeks, !hasCache);
-        setSchemaOffline(false);
-        setSchemaLoading(false);
-      } catch {
-        if (!hasCache) setSchemaLoading(false);
-        else setSchemaOffline(true);
-      }
-    }
-
-    loadSchema();
-  }, []);
-
-
-  useEffect(() => {
-    weekButtonRefs.current[selectedWeek]?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
-  }, [selectedWeek]);
-
-  useEffect(() => {
-    supabase.from("weights").select("*").then(({ data }) => {
-      if (!data) return;
+  const fetchUserData = async () => {
+    const [wRes, cdRes, ceRes, swRes] = await Promise.all([
+      supabase.from("weights").select("*"),
+      supabase.from("completed_days").select("*"),
+      supabase.from("completed_exercises").select("*"),
+      supabase.from("exercise_swaps").select("*"),
+    ]);
+    if (wRes.data) {
       const map = {};
-      for (const row of data) {
+      for (const row of wRes.data) {
         const k = wKey(row.exercise, row.week);
         if (!map[k]) map[k] = { M: "", Z: "" };
         map[k][row.person] = row.weight ?? "";
       }
       setWeights(map);
-    });
-    supabase.from("completed_days").select("*").then(({ data }) => {
-      if (!data) return;
-      setCompletedDays(new Set(data.map((r) => dKey(r.week, r.day))));
-    });
-    supabase.from("completed_exercises").select("*").then(({ data }) => {
-      if (!data) return;
-      setCompletedExercises(new Set(data.map((r) => eKey(r.exercise, r.week, r.day))));
-    });
-    supabase.from("exercise_swaps").select("*").then(({ data }) => {
-      if (!data) return;
+    }
+    if (cdRes.data) setCompletedDays(new Set(cdRes.data.map(r => dKey(r.week, r.day))));
+    if (ceRes.data) setCompletedExercises(new Set(ceRes.data.map(r => eKey(r.exercise, r.week, r.day))));
+    if (swRes.data) {
       const map = {};
-      for (const row of data) map[sKey(row.original_exercise, row.week, row.day)] = row.new_exercise;
+      for (const row of swRes.data) map[sKey(row.original_exercise, row.week, row.day)] = row.new_exercise;
       setSwaps(map);
-    });
+    }
+  };
+
+  const refreshAll = async () => {
+    try {
+      const allWeeks = await fetchSchemaData();
+      localStorage.setItem("cached_schema", JSON.stringify({ weeks: allWeeks }));
+      setSchema({ days: SCHEMA_DAYS, weeks: allWeeks });
+      setSchemaOffline(false);
+    } catch {
+      setSchemaOffline(true);
+    }
+    try { await fetchUserData(); } catch {}
+  };
+
+  useEffect(() => {
+    let hasCache = false;
+    try {
+      const raw = localStorage.getItem("cached_schema");
+      if (raw) {
+        const { weeks } = JSON.parse(raw);
+        if (weeks?.length) {
+          setSchema({ days: SCHEMA_DAYS, weeks });
+          const idx = currentWeekIndex(weeks);
+          if (idx >= 0) setSelectedWeek(idx);
+          setSchemaLoading(false);
+          hasCache = true;
+        }
+      }
+    } catch {}
+
+    fetchSchemaData()
+      .then(allWeeks => {
+        localStorage.setItem("cached_schema", JSON.stringify({ weeks: allWeeks }));
+        setSchema({ days: SCHEMA_DAYS, weeks: allWeeks });
+        if (!hasCache) {
+          const idx = currentWeekIndex(allWeeks);
+          if (idx >= 0) setSelectedWeek(idx);
+        }
+        setSchemaOffline(false);
+        setSchemaLoading(false);
+      })
+      .catch(() => {
+        if (!hasCache) setSchemaLoading(false);
+        else setSchemaOffline(true);
+      });
+
+    fetchUserData().catch(() => {});
   }, []);
+
+  useEffect(() => {
+    weekButtonRefs.current[selectedWeek]?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }, [selectedWeek]);
+
+  const handlePullStart = (e) => {
+    if (window.scrollY === 0 && !refreshing && e.touches?.length) {
+      pullStartY.current = e.touches[0].clientY;
+      rawPullDist.current = 0;
+    }
+  };
+
+  const handlePullMove = (e) => {
+    if (pullStartY.current === null) return;
+    const dy = e.touches[0].clientY - pullStartY.current;
+    if (dy <= 0) { pullStartY.current = null; setPullY(0); return; }
+    rawPullDist.current = dy;
+    setPullY(Math.min(60, Math.sqrt(dy) * 5));
+  };
+
+  const handlePullEnd = async () => {
+    if (pullStartY.current === null) return;
+    const dist = rawPullDist.current;
+    pullStartY.current = null;
+    rawPullDist.current = 0;
+    if (dist < 70) { setPullY(0); return; }
+    setRefreshing(true);
+    setPullY(44);
+    await refreshAll();
+    setRefreshing(false);
+    setPullY(0);
+  };
 
   useEffect(() => { localStorage.setItem("selectedDay", selectedDay); }, [selectedDay]);
 
@@ -465,7 +510,32 @@ export default function FitnessSchema() {
   };
 
   return (
-    <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#f8f7f4", color: "#1a1a1a", userSelect: "none", WebkitUserSelect: "none", paddingBottom: activeTimer ? 100 : 0 }}>
+    <div
+      onTouchStart={handlePullStart}
+      onTouchMove={handlePullMove}
+      onTouchEnd={handlePullEnd}
+      style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#f8f7f4", color: "#1a1a1a", userSelect: "none", WebkitUserSelect: "none", paddingBottom: activeTimer ? 100 : 0, overscrollBehaviorY: "contain" }}
+    >
+      {/* Pull-to-refresh indicator */}
+      {(pullY > 0 || refreshing) && (
+        <>
+          <style>{`@keyframes ptr-spin { to { transform: rotate(360deg) } }`}</style>
+          <div style={{ position: "fixed", top: 10, left: 0, right: 0, display: "flex", justifyContent: "center", zIndex: 300, pointerEvents: "none" }}>
+            <div style={{
+              width: 40, height: 40, borderRadius: "50%", background: "#fff",
+              boxShadow: "0 2px 12px rgba(0,0,0,0.12)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              transform: `scale(${refreshing ? 1 : Math.min(1, pullY / 40)})`,
+              opacity: refreshing ? 1 : Math.min(1, pullY / 30),
+            }}>
+              <svg width="22" height="22" viewBox="0 0 22 22" style={{ animation: refreshing ? "ptr-spin 0.8s linear infinite" : "none", transformOrigin: "center" }}>
+                <circle cx="11" cy="11" r="9" fill="none" stroke="#f37121" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="32 20" />
+              </svg>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Header */}
       <div style={{ background: "#f37121", color: "#fff", padding: "24px 20px 20px", textAlign: "center" }}>
         <div style={{ fontSize: 11, letterSpacing: 4, textTransform: "uppercase", color: "#888", marginBottom: 6 }}>Basic Fit · Gevorderd</div>
