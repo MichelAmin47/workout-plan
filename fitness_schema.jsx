@@ -346,7 +346,7 @@ export default function FitnessSchema() {
     const dy = e.touches[0].clientY - pullStartY.current;
     if (dy <= 0) { pullStartY.current = null; setPullY(0); return; }
     rawPullDist.current = dy;
-    setPullY(Math.min(60, Math.sqrt(dy) * 3.5));
+    setPullY(dy);
   };
 
   const handlePullEnd = async () => {
@@ -354,12 +354,11 @@ export default function FitnessSchema() {
     const dist = rawPullDist.current;
     pullStartY.current = null;
     rawPullDist.current = 0;
-    if (dist < 130) { setPullY(0); return; }
+    setPullY(0);
+    if (dist < 130) return;
     setRefreshing(true);
-    setPullY(44);
     await refreshAll();
     setRefreshing(false);
-    setPullY(0);
   };
 
   useEffect(() => { localStorage.setItem("selectedDay", selectedDay); }, [selectedDay]);
@@ -517,24 +516,40 @@ export default function FitnessSchema() {
       style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#f8f7f4", color: "#1a1a1a", userSelect: "none", WebkitUserSelect: "none", paddingBottom: activeTimer ? 100 : 0, overscrollBehaviorY: "contain" }}
     >
       {/* Pull-to-refresh indicator */}
-      {(pullY > 0 || refreshing) && (
-        <>
-          <style>{`@keyframes ptr-spin { to { transform: rotate(360deg) } }`}</style>
-          <div style={{ position: "fixed", top: 10, left: 0, right: 0, display: "flex", justifyContent: "center", zIndex: 300, pointerEvents: "none" }}>
-            <div style={{
-              width: 40, height: 40, borderRadius: "50%", background: "#fff",
-              boxShadow: "0 2px 12px rgba(0,0,0,0.12)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              transform: `scale(${refreshing ? 1 : Math.min(1, pullY / 40)})`,
-              opacity: refreshing ? 1 : Math.min(1, pullY / 30),
-            }}>
-              <svg width="22" height="22" viewBox="0 0 22 22" style={{ animation: refreshing ? "ptr-spin 0.8s linear infinite" : "none", transformOrigin: "center" }}>
-                <circle cx="11" cy="11" r="9" fill="none" stroke="#f37121" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="32 20" />
+      {(() => {
+        const SHOW_AT = 75;
+        const TRIGGER = 130;
+        const r = 15;
+        const circ = 2 * Math.PI * r;
+        const progress = Math.max(0, Math.min(1, (pullY - SHOW_AT) / (TRIGGER - SHOW_AT)));
+        const show = pullY >= SHOW_AT || refreshing;
+        if (!show) return null;
+        const arcLen = refreshing ? circ * 0.75 : progress * circ;
+        return (
+          <>
+            <style>{`@keyframes ptr-spin { to { transform: rotate(360deg) } }`}</style>
+            <div style={{ position: "fixed", top: 10, left: 0, right: 0, display: "flex", justifyContent: "center", zIndex: 300, pointerEvents: "none" }}>
+              <svg
+                width="44" height="44" viewBox="0 0 44 44"
+                style={{
+                  filter: "drop-shadow(0 2px 8px rgba(0,0,0,0.15))",
+                  animation: refreshing ? "ptr-spin 0.8s linear infinite" : "none",
+                  transformOrigin: "22px 22px",
+                }}
+              >
+                <circle cx="22" cy="22" r="21" fill="white" />
+                <circle cx="22" cy="22" r={r} fill="none" stroke="#e5e7eb" strokeWidth="3" />
+                <circle
+                  cx="22" cy="22" r={r}
+                  fill="none" stroke="#f37121" strokeWidth="3" strokeLinecap="round"
+                  strokeDasharray={`${arcLen} ${circ}`}
+                  transform="rotate(-90 22 22)"
+                />
               </svg>
             </div>
-          </div>
-        </>
-      )}
+          </>
+        );
+      })()}
 
       {/* Header */}
       <div style={{ background: "#f37121", color: "#fff", padding: "24px 20px 20px", textAlign: "center" }}>
