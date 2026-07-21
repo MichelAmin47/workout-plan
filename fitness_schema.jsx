@@ -378,7 +378,9 @@ export default function FitnessSchema() {
   const todayDayIdx = (new Date().getDay() + 6) % 7;
   const week = schema.weeks[selectedWeek];
   const day = week.days[selectedDay] ?? week.days.find(d => d.type === "training") ?? week.days[0];
-  const colors = day.dag_nummer ? dayColors[day.dag_nummer] : { bg: "#f1f5f9", accent: "#94a3b8", light: "#e2e8f0" };
+  const colors = day.dag_nummer
+    ? { ...dayColors[day.dag_nummer], accent: day.kleur || dayColors[day.dag_nummer].accent }
+    : { bg: "#f1f5f9", accent: "#94a3b8", light: "#e2e8f0" };
   const phase = phaseColors[week.phase];
 
   const saveWeight = (exercise, weekNum, person, value) => {
@@ -1360,7 +1362,7 @@ function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPr
   const startPos = useRef({ x: 0, y: 0 });
   const isRust = day.type === "rust";
   const isCardio = day.type === "cardio_fitness";
-  const tileColor = day.dag_nummer ? dayColors[day.dag_nummer].accent : (isCardio ? "#f97316" : "#94a3b8");
+  const tileColor = day.kleur || (day.dag_nummer ? dayColors[day.dag_nummer].accent : null) || (isCardio ? "#f97316" : "#94a3b8");
 
   const startPress = (e) => {
     if (isRust || isCardio) return;
