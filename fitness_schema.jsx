@@ -346,7 +346,7 @@ export default function FitnessSchema() {
     const dy = e.touches[0].clientY - pullStartY.current;
     if (dy <= 0) { pullStartY.current = null; setPullY(0); return; }
     rawPullDist.current = dy;
-    setPullY(Math.min(60, Math.sqrt(dy) * 5));
+    setPullY(Math.min(60, Math.sqrt(dy) * 3.5));
   };
 
   const handlePullEnd = async () => {
@@ -354,7 +354,7 @@ export default function FitnessSchema() {
     const dist = rawPullDist.current;
     pullStartY.current = null;
     rawPullDist.current = 0;
-    if (dist < 70) { setPullY(0); return; }
+    if (dist < 130) { setPullY(0); return; }
     setRefreshing(true);
     setPullY(44);
     await refreshAll();
