@@ -1412,9 +1412,9 @@ function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPr
         {isRust && <div style={{ width: 4, height: 4, borderRadius: "50%", background: "#94a3b8" }} />}
       </div>
 
-      {/* Name zone — fixed 27px, top-aligned, overflow hidden */}
+      {/* Name zone — fixed 27px (3 × 9px lines), always 3 rows so all tiles align */}
       <div style={{ height: 27, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", overflow: "hidden", fontSize: 7, fontWeight: 700, lineHeight: "9px", fontFamily: "sans-serif", color: isCardio ? "#f97316" : isRust ? "#94a3b8" : tileColor }}>
-        {(day.naam || "").split(" ").map((w, i) => <div key={i}>{w}</div>)}
+        {(() => { const words = (day.naam || "").split(" "); while (words.length < 3) words.push(" "); return words.map((w, i) => <div key={i}>{w}</div>); })()}
       </div>
     </button>
   );
