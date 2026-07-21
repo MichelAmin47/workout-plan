@@ -355,7 +355,7 @@ export default function FitnessSchema() {
     pullStartY.current = null;
     rawPullDist.current = 0;
     setPullY(0);
-    if (dist < 130) return;
+    if (dist < 260) return;
     setRefreshing(true);
     await refreshAll();
     setRefreshing(false);
@@ -517,8 +517,8 @@ export default function FitnessSchema() {
     >
       {/* Pull-to-refresh indicator */}
       {(() => {
-        const SHOW_AT = 75;
-        const TRIGGER = 130;
+        const SHOW_AT = 150;
+        const TRIGGER = 260;
         const r = 15;
         const circ = 2 * Math.PI * r;
         const progress = Math.max(0, Math.min(1, (pullY - SHOW_AT) / (TRIGGER - SHOW_AT)));
