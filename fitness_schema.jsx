@@ -1382,25 +1382,38 @@ function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPr
       onTouchStart={startPress} onTouchEnd={cancelPress} onTouchMove={handleMove}
       onClick={() => { if (longPressed.current) { longPressed.current = false; return; } onSelect(); }}
       style={{
-        padding: "7px 2px 6px", borderRadius: 10, border: isSelected ? `2px solid ${tileColor}` : isToday ? "2px solid #ddd" : "2px solid transparent",
+        display: "flex", flexDirection: "column", alignItems: "center",
+        padding: "0 2px 6px", borderRadius: 10,
+        border: isSelected ? `2px solid ${tileColor}` : isToday ? "2px solid #ddd" : "2px solid transparent",
         cursor: "pointer", background: isSelected ? tileColor + "18" : "#fafafa",
-        textAlign: "center", position: "relative", userSelect: "none",
+        userSelect: "none", minWidth: 0,
       }}
     >
-      {isToday && (
-        <div style={{ position: "absolute", top: -4, left: "50%", transform: "translateX(-50%)", width: 5, height: 5, borderRadius: "50%", background: "#f37121" }} />
-      )}
-      <div style={{ fontSize: 9, fontWeight: 700, color: isSelected ? tileColor : "#aaa", marginBottom: 2, letterSpacing: 0.5, fontFamily: "sans-serif" }}>
+      {/* Today dot zone — fixed 8px, always present */}
+      <div style={{ height: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {isToday && <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#f37121" }} />}
+      </div>
+
+      {/* Day label — fixed 12px */}
+      <div style={{ height: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: isSelected ? tileColor : "#aaa", letterSpacing: 0.5, fontFamily: "sans-serif" }}>
         {day.dag_label}
       </div>
-      <div style={{ fontSize: isCompleted ? 11 : 16, lineHeight: 1, opacity: isRust ? 0.45 : 1, color: isCompleted ? "#16a34a" : "inherit", fontWeight: isCompleted ? 900 : "normal" }}>
-        {isCompleted ? "✓" : day.emoji}
+
+      {/* Emoji / checkmark — fixed 24px */}
+      <div style={{ height: 24, display: "flex", alignItems: "center", justifyContent: "center", opacity: isRust ? 0.45 : 1 }}>
+        {isCompleted
+          ? <span style={{ fontSize: 14, fontWeight: 900, color: "#16a34a", lineHeight: 1 }}>✓</span>
+          : <span style={{ fontSize: 16, lineHeight: 1 }}>{day.emoji}</span>
+        }
       </div>
-      {isRust
-        ? <div style={{ width: 4, height: 4, borderRadius: "50%", background: "#94a3b8", margin: "3px auto 1px" }} />
-        : <div style={{ height: 7 }} />
-      }
-      <div style={{ fontSize: 7, fontWeight: 700, lineHeight: 1.3, fontFamily: "sans-serif", color: isCardio ? "#f97316" : isRust ? "#94a3b8" : tileColor }}>
+
+      {/* Separator zone — fixed 7px, rust dot centered inside */}
+      <div style={{ height: 7, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {isRust && <div style={{ width: 4, height: 4, borderRadius: "50%", background: "#94a3b8" }} />}
+      </div>
+
+      {/* Name zone — fixed 27px, top-aligned, overflow hidden */}
+      <div style={{ height: 27, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", overflow: "hidden", fontSize: 7, fontWeight: 700, lineHeight: "9px", fontFamily: "sans-serif", color: isCardio ? "#f97316" : isRust ? "#94a3b8" : tileColor }}>
         {(day.naam || "").split(" ").map((w, i) => <div key={i}>{w}</div>)}
       </div>
     </button>
