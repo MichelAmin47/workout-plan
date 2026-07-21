@@ -52,6 +52,14 @@ function findPrevWeight(exerciseName, currentWeek, weights) {
   return null;
 }
 
+function inferExerciseType(name, categorie) {
+  if (categorie === "barbell" || /^(Barbell |T-Bar )/.test(name) || name.includes("(barbell)")) return "barbell";
+  if (/^(DB |Incline DB )/.test(name) || name.includes("Dumbbell") || name === "Hammer Curl") return "dumbbell";
+  if (/Cable|Pulldown/.test(name)) return "cable";
+  if (/Machine|Leg Press|Hack Squat|Pec Deck/.test(name)) return "machine";
+  return null;
+}
+
 function playBoxingBell() {
   const audio = new Audio("/boxing-bell.mp3");
   audio.volume = 1.0;
@@ -487,14 +495,77 @@ export default function FitnessSchema() {
       <div style={{ padding: "16px", maxWidth: 600, margin: "0 auto" }}>
 
         {/* Barbell */}
-        <Section
-          title="Barbell Hoofdoefening"
-          icon="🏋️"
-          accent="#f37121"
-          timerSeconds={120}
-          timerActive={activeTimer === "barbell"}
-          onTimerClick={() => handleTimerClick("barbell", "Barbell Hoofdoefening", "🏋️", 120, "#f37121")}
-        >
+        {week.week >= 31 ? (() => {
+          const superset1 = [
+            { ...day.barbell, categorie: "barbell" },
+            ...day.spiergroep.filter(ex => ex.note === "Superset 1"),
+          ];
+          const superset2 = day.spiergroep.filter(ex => ex.note === "Superset 2");
+          const los = day.spiergroep.filter(ex => !ex.note || (ex.note !== "Superset 1" && ex.note !== "Superset 2"));
+          const ssProps = {
+            expandedExercise,
+            onToggle: handleExerciseClick,
+            weekNum: week.week,
+            dayId: dayInfo.id,
+            weights,
+            savedIndicators,
+            completedExercises,
+            onWeightChange: (name, wk, person, val) => handleWeightChange(name, wk, person, val),
+            toggleCompletion: toggleExerciseCompletion,
+          };
+          return (
+            <Section title="Supersets" icon="⚡" accent={colors.accent} timerSeconds={90} timerActive={activeTimer === "spiergroep"} onTimerClick={() => handleTimerClick("spiergroep", "Supersets", "⚡", 90, colors.accent)}>
+              <SupersetBlock title="SUPERSET 1" exercises={superset1} accentColor={colors.accent} {...ssProps} />
+              <SupersetBlock title="SUPERSET 2" exercises={superset2} accentColor={colors.accent} {...ssProps} />
+              {los.length > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  <div style={{ fontSize: 10, color: "#aaa", fontWeight: 700, letterSpacing: 1, paddingLeft: 4, marginBottom: 6, fontFamily: "sans-serif" }}>LOSSE OEFENINGEN</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {los.map((ex, i) => {
+                      const k = wKey(ex.name, week.week);
+                      const w = weights[k] || { M: "", Z: "" };
+                      const prevResult = findPrevWeight(ex.name, week.week, weights);
+                      const prevW = prevResult || { M: null, Z: null };
+                      return (
+                        <ExRow
+                          key={i}
+                          num={superset1.length + superset2.length + i + 1}
+                          name={ex.name}
+                          sets={ex.sets}
+                          note=""
+                          accent={colors.accent}
+                          light={colors.light}
+                          optional={ex.optional}
+                          expanded={expandedExercise === ex.name}
+                          onToggle={() => handleExerciseClick(ex.name)}
+                          weightM={w.M}
+                          weightZ={w.Z}
+                          onWeightChange={(person, value) => handleWeightChange(ex.name, week.week, person, value)}
+                          prevWeightM={prevW.M}
+                          prevWeightZ={prevW.Z}
+                          prevWeekLabel={prevResult?.label}
+                          savedM={!!savedIndicators[`${ex.name}__${week.week}__M`]}
+                          savedZ={!!savedIndicators[`${ex.name}__${week.week}__Z`]}
+                          completed={completedExercises.has(eKey(ex.name, week.week, dayInfo.id))}
+                          onLongPress={() => toggleExerciseCompletion(ex.name, week.week, dayInfo.id)}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </Section>
+          );
+        })() : (
+          <>
+            <Section
+              title="Barbell Hoofdoefening"
+              icon="🏋️"
+              accent="#f37121"
+              timerSeconds={120}
+              timerActive={activeTimer === "barbell"}
+              onTimerClick={() => handleTimerClick("barbell", "Barbell Hoofdoefening", "🏋️", 120, "#f37121")}
+            >
           {(() => {
             const k = wKey(day.barbell.name, week.week);
             const w = weights[k] || { M: "", Z: "" };
@@ -598,7 +669,10 @@ export default function FitnessSchema() {
           })}
         </Section>
 
-        {/* Kettlebell */}
+          </>
+        )}
+
+                {/* Kettlebell */}
         <Section
           title="Kettlebell (Full Body)"
           icon="🔔"
@@ -997,6 +1071,89 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+
+function TypeBadge({ type }) {
+  const cfg = {
+    barbell:  { bg: "#1a1a1a", label: "BB" },
+    dumbbell: { bg: "#3b82f6", label: "DB" },
+    cable:    { bg: "#8b5cf6", label: "cable" },
+    machine:  { bg: "#059669", label: "machine" },
+  };
+  const c = cfg[type];
+  if (!c) return null;
+  return (
+    <span style={{ fontSize: 9, background: c.bg, color: "#fff", padding: "2px 6px", borderRadius: 10, fontFamily: "sans-serif", fontWeight: 700, flexShrink: 0 }}>
+      {c.label}
+    </span>
+  );
+}
+
+function SupersetBlock({ title, exercises, accentColor, expandedExercise, onToggle, weekNum, dayId, weights, savedIndicators, completedExercises, onWeightChange, toggleCompletion }) {
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, paddingLeft: 4 }}>
+        <div style={{ background: accentColor, color: "#fff", fontSize: 10, fontWeight: 800, letterSpacing: 1, padding: "3px 8px", borderRadius: 20, fontFamily: "sans-serif" }}>
+          {title}
+        </div>
+        <div style={{ flex: 1, height: 1, background: accentColor + "40" }} />
+      </div>
+      <div style={{ background: "#fff", borderRadius: 12, overflow: "hidden", border: `2px solid ${accentColor}33` }}>
+        {exercises.map((ex, i) => {
+          const type = inferExerciseType(ex.name, ex.categorie);
+          const k = wKey(ex.name, weekNum);
+          const w = weights[k] || { M: "", Z: "" };
+          const prevResult = findPrevWeight(ex.name, weekNum, weights);
+          const prevW = prevResult || { M: null, Z: null };
+          const hasPrev = (prevW.M !== "" && prevW.M != null) || (prevW.Z !== "" && prevW.Z != null);
+          const isExpanded = expandedExercise === ex.name;
+          const isCompleted = completedExercises.has(eKey(ex.name, weekNum, dayId));
+          return (
+            <div key={i}>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", background: accentColor + "0a", cursor: "pointer" }}
+                onClick={() => onToggle(ex.name)}
+              >
+                <ExCircle num={i + 1} completed={isCompleted} accent={accentColor} onLongPress={() => toggleCompletion(ex.name, weekNum, dayId)} />
+                <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", fontFamily: "sans-serif" }}>{ex.name}</span>
+                  <TypeBadge type={type} />
+                </div>
+                <div style={{ background: accentColor, color: "#fff", padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap", flexShrink: 0 }}>
+                  {ex.sets}
+                </div>
+              </div>
+              {isExpanded && (
+                <div style={{ background: "#fff8f5", borderTop: "1px solid #f0d0b8", padding: "10px 12px 10px 52px", display: "flex", flexDirection: "column", gap: 8 }} onClick={e => e.stopPropagation()}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <label style={{ fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#888" }}>M:</label>
+                    <input type="number" step="any" min={0} value={w.M} onChange={e => onWeightChange(ex.name, weekNum, "M", e.target.value)} placeholder="kg" style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }} />
+                    {savedIndicators[`${ex.name}__${weekNum}__M`] && <span style={{ color: "#16a34a", fontSize: 14, fontWeight: 700 }}>✓</span>}
+                  </div>
+                  {hasPrev && (
+                    <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
+                      {prevResult?.label} <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevW.M !== "" && prevW.M != null ? `${prevW.M}kg` : "—"}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {i < exercises.length - 1 && !isExpanded && (
+                <div style={{ display: "flex", alignItems: "center", padding: "0 14px", background: "#fff" }}>
+                  <div style={{ width: 28, display: "flex", justifyContent: "center" }}>
+                    <div style={{ width: 2, height: 16, background: accentColor + "60", borderRadius: 1 }} />
+                  </div>
+                  <div style={{ flex: 1, paddingLeft: 10 }}>
+                    <span style={{ fontSize: 9, color: accentColor, fontFamily: "sans-serif", fontWeight: 700, letterSpacing: 1 }}>GEEN RUST →</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
