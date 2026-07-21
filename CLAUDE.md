@@ -70,6 +70,7 @@ android/                  ← Capacitor Android project (generated, do not edit 
 - recharts (latest) — progress chart
 - @capacitor/core, @capacitor/android — Capacitor 8 Android bridge
 - @capacitor/haptics@8.0.2 — `Haptics.impact()` for long-press feedback
+- vite-plugin-pwa@1.3.0 — service worker for offline app-shell caching
 - No routing, no state management, no CSS framework
 
 ## Environment variables
@@ -84,12 +85,14 @@ VITE_SUPABASE_ANON_KEY=...
 
 Everything lives in `fitness_schema.jsx`:
 
-- **`schema`** — static data object containing the full 7-week program. Two phases: `"Opbouw"` (weeks 1–3, same exercises with progressive overload) and `"Nieuwe Prikkel"` (weeks 4–7, one set of new exercises across all four weeks with an intro→peak→continuation→final-peak progression: week 26 intro, week 27 peak, week 28 same exercises +gewicht, week 29 same exercises +gewicht piek).
-- **`FitnessSchema`** (default export) — top-level component. Manages state: `selectedWeek`, `selectedDay` (persisted to `localStorage` under key `"selectedDay"`), `weights` (map of fetched weights from Supabase), `expandedExercise` (name of the currently open weight panel), `completedDays` (Set of completed day keys), `completedExercises` (Set of completed exercise keys), `swaps` (map of swapped KB exercises keyed by `sKey`), `swapModal` (null or `{original, week, day}` for the open bottom sheet), `activeTimer` (section key or null), `activeSection` (object with key/label/icon/seconds/accent or null), and `timerLocked` (bool). Calls `useTimer` for the rest timer. Barbell long-press uses component-level refs `bbTimerRef`, `bbLongPressed`, `bbStartPos`. Derives all display data from `schema` by indexing with those state values. The app header shows the title "7-Weken Trainingsschema" and a phase badge (e.g. "Opbouw" / "Nieuwe Prikkel") — no other controls.
+- **`schema`** — dynamic object built from Supabase (`schemas`, `schema_days`, `exercises` tables). Cached in `localStorage["cached_schema_v2"]` for offline use. Two phases: `"Opbouw"` (weeks 1–3) and `"Nieuwe Prikkel"` (weeks 4+). Built by `buildWeeks()` at module scope.
+- **`buildWeeks(schemas, schemaDays, exercises)`** — module-scope pure function. Transforms raw Supabase rows into week/day structures. Each week has 7 days sorted by `dag_volgorde`. Training days have `barbell/spiergroep/kettlebell/core`; non-training days have only metadata (`type`, `dag_label`, `emoji`, `naam`).
+- **`FitnessSchema`** (default export) — top-level component. Manages state: `selectedWeek`, `selectedDay` (index 0–6 into `week.days`, persisted to `localStorage["selectedDay"]`), `weights`, `expandedExercise`, `completedDays`, `completedExercises`, `swaps`, `swapModal`, `activeTimer`, `activeSection`, `timerLocked`, `schemaOffline` (bool — true when Supabase unreachable and serving from cache), `refreshing` (bool — pull-to-refresh in progress), `pullY` (raw px pulled). Also: `progressieOpen`, `progressieExercise`. Calls `useTimer`. The app header shows title + phase badge. Offline shows a gray banner below the header.
 - **`Section`** — always-expanded card wrapper used for each exercise category. Header shows section title + a timer button (⏱ label). Timer button uses section accent when active. Props: `title`, `icon`, `accent`, `timerSeconds`, `timerActive`, `onTimerClick`.
 - **`ExRow`** — single exercise row (number badge, name, optional note, sets pill). When `onToggle` is provided (spiergroep, kettlebell), the row is clickable and renders a weight input panel below it when `expanded` is true. The panel contains M: and Z: number inputs that save to Supabase on change, plus a previous-week reference line. The number badge is rendered by `ExCircle`. Accepts `swapped` (bool) and `originalName` (string) props — when `swapped` is true, shows a purple "GEWIJZIGD" badge next to the name and renders `↩ originalName` below in gray. Accepts `hiitInterval` (`{ work, rest }` or null) — when set, renders a split badge (`Xs | Ys`) instead of the regular sets pill.
 - **`ExCircle`** — the circular number badge inside `ExRow`. Supports a 1000ms long press (`onLongPress`) to toggle exercise completion. Shows a green ✓ when completed. Long press works on both mouse and touch; suppresses the subsequent click to prevent the weight panel from toggling.
-- **`DayButton`** — day selector button. Short click selects the day; 1000ms long press toggles completion for that day in the current week. Shows a small green ✓ badge overlaid on the emoji when completed.
+- **`WeekDayTile`** — 7-day week selector tile. Shows day abbreviation (`dag_label`), emoji, multi-line name split per word, an orange dot above today's tile, and a gray dot for rest days. 1000ms long press on training days toggles day completion. Non-training days (rust/cardio_fitness) ignore long press. Props: `day`, `isSelected`, `isToday`, `isCompleted`, `onSelect`, `onLongPress`.
+- **`DayButton`** — legacy 4-day selector button (still present in code but no longer rendered; superseded by `WeekDayTile`).
 - **`SwipeableRow`** — wrapper component around each KB exercise row. Detects a horizontal swipe of ≥60px with <30px vertical drift (mouse and touch) and fires `onSwipeRight`. Translates the row during swipe and snaps back. Suppresses the click event after a completed swipe via a `swiped` ref.
 - **`BottomSheet`** — modal slide-up panel rendered when `swapModal` is set. Fixed overlay (zIndex 100) + fixed sheet (zIndex 101). Lists all KB exercises except the currently displayed one. Selecting an exercise calls `saveSwap()`, updates the `swaps` map, and closes the sheet.
 - **`KB_EXERCISES`** — constant array of 30 KB exercise names defined outside the component, used to populate the bottom sheet list.
@@ -103,7 +106,16 @@ Everything lives in `fitness_schema.jsx`:
 
 ## Data shape
 
-Each `week.days[n]` entry has four exercise categories:
+`week.days` is a 7-element array sorted by `dag_volgorde` (Mon–Sun). Each entry has:
+- `dayId` — `schema_days.id` (UUID)
+- `dag_nummer` — muscle-group ID 1–4 (nullable; null for non-training days)
+- `type` — `"training"` | `"rust"` | `"cardio_fitness"`
+- `dag_label` — abbreviated day name (`"Ma"`, `"Di"`, …)
+- `dag_volgorde` — sort order 1–7
+- `emoji` — day emoji from DB
+- `naam` — day name (e.g. `"Rug & Biceps"`, `"Anti-zit dag"`)
+
+Training days additionally have:
 - `spiergroep` — muscle-group isolation exercises (array of exercise objects)
 - `barbell` — single compound barbell lift (plain object, not array)
 - `kettlebell` — full-body KB movements (array of exercise objects)
@@ -115,7 +127,9 @@ Exercise object fields:
 ```
 `optional: true` renders the row with a dashed orange border and "OPTIONEEL" badge. Only appears on `spiergroep` exercises (last item per day). Kettlebell and core exercises never have `optional`.
 
-`schema.days` (the 4-day split labels/colors) and `week.days` (the actual exercises) are both indexed by position — `schema.days[i].id` maps to `week.days[i].dayId`. The render order in `schema.days` is: Schouders (id 4), Borst & Triceps (id 2), Rug & Biceps (id 3), Benen & Billen (id 1).
+**Content area for non-training days**: When `day.type === "rust"`, a white "Rustdag" card is shown. When `day.type === "cardio_fitness"`, an orange "Cardio & Fitness" card is shown. The Progressie chart is shown in both cases (it reads all exercise weights globally). Training sections (Barbell/Spiergroep/KB/Core) are guarded by `{day.type === "training" && ...}`.
+
+**Supabase `schema_days` columns**: `dag_label` TEXT, `dag_volgorde` INTEGER, `dag_nummer` INTEGER (nullable), `type` CHECK in ('training','rust','cardio_fitness'), `emoji` TEXT, `spiergroep_naam` (→ `naam` in JS).
 
 ## Color tokens
 
@@ -147,7 +161,7 @@ The chart reads from the existing `weights` state — no additional Supabase fet
 
 A 2000ms long press toggles completion state, persisted to Supabase. Long press is implemented inline per component using a `useRef` timer (not a custom hook, to avoid hook-in-loop issues). `triggerImpact()` fires on mobile when the long press triggers.
 
-**Day completion** — long press on a `DayButton` toggles the day's completion for the currently selected week. Stored in `completedDays` (Set, keyed by `dKey`). The green ✓ badge overlays the emoji.
+**Day completion** — long press on a `WeekDayTile` (training days only) toggles the day's completion for the currently selected week. Stored in `completedDays` (Set, keyed by `dKey`). The green ✓ replaces the emoji in the tile.
 
 **Exercise completion** — long press on an `ExCircle` toggles that exercise's completion for the current week and day. Stored in `completedExercises` (Set, keyed by `eKey`). The circle turns solid green with ✓. The click event after a long press is suppressed via `e.stopPropagation()` to prevent the weight panel from opening.
 
@@ -221,6 +235,14 @@ unique constraint on (exercise, week, person)
 ```
 
 Important: Supabase `PostgrestBuilder` is a lazy promise — the HTTP request only fires when `.then()` is called or the result is awaited. Always chain `.then()` on upsert/insert calls, otherwise the request is silently dropped.
+
+## Offline support & pull-to-refresh
+
+**Schema caching** — on successful Supabase fetch, the full schema is stored in `localStorage["cached_schema_v2"]` as JSON. On load, the app serves cached data immediately (cache-first), then fetches fresh data in the background and updates the cache. If Supabase is unreachable and a cache exists, a gray "offline" banner appears below the header (`schemaOffline` state). Cache key is `cached_schema_v2` (versioned to avoid stale structure issues).
+
+**Service worker** — `vite-plugin-pwa` generates a Workbox service worker that precaches all build assets (JS/CSS/HTML). This lets the Capacitor WebView load the app shell offline after the first online visit, before localStorage can even be read. Configured in `vite.config.js` with `registerType: 'autoUpdate'`.
+
+**Pull-to-refresh** — touch events on the root div: `handlePullStart` / `handlePullMove` / `handlePullEnd`. A raw pull distance (`rawPullDist`) is tracked starting from `touchstart`. The visible pull distance (`pullY`) uses damped mapping. A progress ring SVG indicator appears after 150px raw pull and fills as you pull toward the 260px trigger threshold. On release at ≥260px (or immediately when `refreshing` is true), it triggers `refreshAll()` — re-fetches schema + user data from Supabase and updates the cache. The root div has `overscrollBehaviorY: "contain"` to prevent the browser's native overscroll. The indicator shows an orange arc (`strokeDasharray`) that rotates when refreshing (`@keyframes ptr-spin` injected via `<style>` tag).
 
 ## Rest timer
 

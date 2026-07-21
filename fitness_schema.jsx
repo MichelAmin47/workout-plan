@@ -6,12 +6,6 @@ import { registerPlugin } from "@capacitor/core";
 const BatteryOptimization = registerPlugin("BatteryOptimization");
 const NativeTimer = registerPlugin("NativeTimer");
 
-const SCHEMA_DAYS = [
-  { id: 4, name: "Schouders", emoji: "🪨", color: "#e9c46a" },
-  { id: 2, name: "Borst & Triceps", emoji: "💪", color: "#457b9d" },
-  { id: 3, name: "Rug & Biceps", emoji: "🏋️", color: "#7c3aed" },
-  { id: 1, name: "Benen & Billen", emoji: "🦵", color: "#e63946" },
-];
 
 const dayColors = {
   1: { bg: "#fff1f2", accent: "#e63946", light: "#fecdd3" },
@@ -168,17 +162,28 @@ const KB_EXERCISES = [
 ];
 
 function buildWeeks(schemas, schemaDays, exercises) {
-  const dayMap = Object.fromEntries(schemaDays.map(sd => [sd.id, sd]));
   const allWeeks = [];
   for (const s of schemas) {
     const numWeeks = s.eind_week - s.start_week + 1;
-    const schemaDayIds = new Set(schemaDays.filter(sd => sd.schema_id === s.id).map(sd => sd.id));
+    const schDays = schemaDays
+      .filter(sd => sd.schema_id === s.id)
+      .sort((a, b) => a.dag_volgorde - b.dag_volgorde);
     for (let relWeek = 1; relWeek <= numWeeks; relWeek++) {
       const calWeek = s.start_week + relWeek - 1;
       const phase = relWeek <= 3 ? "Opbouw" : "Nieuwe Prikkel";
-      const weekExs = exercises.filter(e => schemaDayIds.has(e.schema_day_id) && e.week_nummer === relWeek);
-      const days = [4, 2, 3, 1].map(dagNr => {
-        const dayExs = weekExs.filter(e => dayMap[e.schema_day_id]?.dag_nummer === dagNr);
+      const days = schDays.map(sd => {
+        const base = {
+          dayId: sd.id,
+          dag_nummer: sd.dag_nummer,
+          type: sd.type || "training",
+          dag_label: sd.dag_label,
+          dag_volgorde: sd.dag_volgorde,
+          emoji: sd.emoji,
+          naam: sd.spiergroep_naam,
+          kleur: sd.kleur,
+        };
+        if (sd.type !== "training") return base;
+        const dayExs = exercises.filter(e => e.schema_day_id === sd.id && e.week_nummer === relWeek);
         const toEx = (e) => ({
           name: e.naam,
           sets: e.sets || "",
@@ -188,7 +193,7 @@ function buildWeeks(schemas, schemaDays, exercises) {
         });
         const barEx = dayExs.find(e => e.categorie === "barbell");
         return {
-          dayId: dagNr,
+          ...base,
           barbell: barEx ? toEx(barEx) : { name: "", sets: "", note: "" },
           spiergroep: dayExs.filter(e => e.categorie === "spiergroep").map(toEx),
           kettlebell: dayExs.filter(e => e.categorie === "kettlebell").map(toEx),
@@ -213,7 +218,8 @@ export default function FitnessSchema() {
   const [selectedWeek, setSelectedWeek] = useState(0);
   const [selectedDay, setSelectedDay] = useState(() => {
     const saved = localStorage.getItem("selectedDay");
-    return saved !== null ? Number(saved) : 0;
+    if (saved !== null) { const n = Number(saved); if (n >= 0 && n <= 6) return n; }
+    return (new Date().getDay() + 6) % 7; // Mon=0, Sun=6
   });
   const [weights, setWeights] = useState({});
   const [savedIndicators, setSavedIndicators] = useState({});
@@ -286,8 +292,8 @@ export default function FitnessSchema() {
   const refreshAll = async () => {
     try {
       const allWeeks = await fetchSchemaData();
-      localStorage.setItem("cached_schema", JSON.stringify({ weeks: allWeeks }));
-      setSchema({ days: SCHEMA_DAYS, weeks: allWeeks });
+      localStorage.setItem("cached_schema_v2", JSON.stringify({ weeks: allWeeks }));
+      setSchema({ weeks: allWeeks });
       setSchemaOffline(false);
     } catch {
       setSchemaOffline(true);
@@ -298,11 +304,11 @@ export default function FitnessSchema() {
   useEffect(() => {
     let hasCache = false;
     try {
-      const raw = localStorage.getItem("cached_schema");
+      const raw = localStorage.getItem("cached_schema_v2");
       if (raw) {
         const { weeks } = JSON.parse(raw);
         if (weeks?.length) {
-          setSchema({ days: SCHEMA_DAYS, weeks });
+          setSchema({ weeks });
           const idx = currentWeekIndex(weeks);
           if (idx >= 0) setSelectedWeek(idx);
           setSchemaLoading(false);
@@ -313,8 +319,8 @@ export default function FitnessSchema() {
 
     fetchSchemaData()
       .then(allWeeks => {
-        localStorage.setItem("cached_schema", JSON.stringify({ weeks: allWeeks }));
-        setSchema({ days: SCHEMA_DAYS, weeks: allWeeks });
+        localStorage.setItem("cached_schema_v2", JSON.stringify({ weeks: allWeeks }));
+        setSchema({ weeks: allWeeks });
         if (!hasCache) {
           const idx = currentWeekIndex(allWeeks);
           if (idx >= 0) setSelectedWeek(idx);
@@ -369,10 +375,10 @@ export default function FitnessSchema() {
     </div>
   );
 
+  const todayDayIdx = (new Date().getDay() + 6) % 7;
   const week = schema.weeks[selectedWeek];
-  const day = week.days[selectedDay];
-  const dayInfo = schema.days[selectedDay];
-  const colors = dayColors[dayInfo.id];
+  const day = week.days[selectedDay] ?? week.days.find(d => d.type === "training") ?? week.days[0];
+  const colors = day.dag_nummer ? dayColors[day.dag_nummer] : { bg: "#f1f5f9", accent: "#94a3b8", light: "#e2e8f0" };
   const phase = phaseColors[week.phase];
 
   const saveWeight = (exercise, weekNum, person, value) => {
@@ -476,7 +482,7 @@ export default function FitnessSchema() {
     bbTimerRef.current = setTimeout(() => {
       bbLongPressed.current = true;
       triggerImpact();
-      toggleExerciseCompletion(day.barbell.name, week.week, dayInfo.id);
+      toggleExerciseCompletion(day.barbell.name, week.week, day.dag_nummer);
     }, 1000);
   };
   const bbCancelPress = () => clearTimeout(bbTimerRef.current);
@@ -599,22 +605,40 @@ export default function FitnessSchema() {
       </div>
 
       {/* Day selector */}
-      <div style={{ padding: "16px 16px 0", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, maxWidth: 600, margin: "0 auto" }}>
-        {schema.days.map((d, i) => (
-          <DayButton
+      <div style={{ padding: "12px 12px 0", display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 5, maxWidth: 600, margin: "0 auto" }}>
+        {week.days.map((d, i) => (
+          <WeekDayTile
             key={i}
             day={d}
             isSelected={selectedDay === i}
-            isCompleted={completedDays.has(dKey(week.week, d.id))}
-            colors={dayColors[d.id]}
+            isToday={todayDayIdx === i}
+            isCompleted={d.type === "training" && d.dag_nummer != null && completedDays.has(dKey(week.week, d.dag_nummer))}
             onSelect={() => { closeAndSave(); setSelectedDay(i); }}
-            onLongPress={() => toggleDayCompletion(week.week, d.id)}
+            onLongPress={() => d.type === "training" && d.dag_nummer != null && toggleDayCompletion(week.week, d.dag_nummer)}
           />
         ))}
       </div>
 
       {/* Content */}
       <div style={{ padding: "16px", maxWidth: 600, margin: "0 auto" }}>
+
+        {day.type === "rust" && (
+          <div style={{ background: "#fff", borderRadius: 14, padding: "28px 20px", textAlign: "center", boxShadow: "0 1px 4px #0001", marginBottom: 12 }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>{day.emoji}</div>
+            <div style={{ fontWeight: 700, fontSize: 18, color: "#1a1a1a", marginBottom: 6, fontFamily: "sans-serif" }}>Rustdag</div>
+            <div style={{ fontSize: 14, color: "#64748b", fontFamily: "sans-serif", lineHeight: 1.5 }}>Geen training vandaag — herstel en rust zodat je morgen weer vol gas kunt geven.</div>
+          </div>
+        )}
+
+        {day.type === "cardio_fitness" && (
+          <div style={{ background: "#fff7ed", border: "2px solid #fed7aa", borderRadius: 14, padding: "28px 20px", textAlign: "center", boxShadow: "0 1px 4px #0001", marginBottom: 12 }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>{day.emoji}</div>
+            <div style={{ fontWeight: 700, fontSize: 18, color: "#ea580c", marginBottom: 6, fontFamily: "sans-serif" }}>Cardio & Fitness</div>
+            <div style={{ fontSize: 14, color: "#7c2d12", fontFamily: "sans-serif", lineHeight: 1.5 }}>Externe sportzaal — cardio en vrij trainen. Focus op uithoudingsvermogen en herstel.</div>
+          </div>
+        )}
+
+        {day.type === "training" && (<>
 
         {/* Barbell */}
         {week.week >= 31 ? (() => {
@@ -628,7 +652,7 @@ export default function FitnessSchema() {
             expandedExercise,
             onToggle: handleExerciseClick,
             weekNum: week.week,
-            dayId: dayInfo.id,
+            dayId: day.dag_nummer,
             weights,
             savedIndicators,
             completedExercises,
@@ -668,8 +692,8 @@ export default function FitnessSchema() {
                           prevWeekLabel={prevResult?.label}
                           savedM={!!savedIndicators[`${ex.name}__${week.week}__M`]}
                           savedZ={!!savedIndicators[`${ex.name}__${week.week}__Z`]}
-                          completed={completedExercises.has(eKey(ex.name, week.week, dayInfo.id))}
-                          onLongPress={() => toggleExerciseCompletion(ex.name, week.week, dayInfo.id)}
+                          completed={completedExercises.has(eKey(ex.name, week.week, day.dag_nummer))}
+                          onLongPress={() => toggleExerciseCompletion(ex.name, week.week, day.dag_nummer)}
                         />
                       );
                     })}
@@ -694,7 +718,7 @@ export default function FitnessSchema() {
             const prevResult = findPrevWeight(day.barbell.name, week.week, weights);
             const prevW = prevResult || { M: null, Z: null };
             const hasPrev = prevW.M !== "" && prevW.M != null || prevW.Z !== "" && prevW.Z != null;
-            const barbellCompleted = completedExercises.has(eKey(day.barbell.name, week.week, dayInfo.id));
+            const barbellCompleted = completedExercises.has(eKey(day.barbell.name, week.week, day.dag_nummer));
             return (
               <div style={{ borderRadius: 10, overflow: "hidden" }}>
                 <div
@@ -784,8 +808,8 @@ export default function FitnessSchema() {
                 prevWeekLabel={prevResult?.label}
                 savedM={!!savedIndicators[`${ex.name}__${week.week}__M`]}
                 savedZ={!!savedIndicators[`${ex.name}__${week.week}__Z`]}
-                completed={completedExercises.has(eKey(ex.name, week.week, dayInfo.id))}
-                onLongPress={() => toggleExerciseCompletion(ex.name, week.week, dayInfo.id)}
+                completed={completedExercises.has(eKey(ex.name, week.week, day.dag_nummer))}
+                onLongPress={() => toggleExerciseCompletion(ex.name, week.week, day.dag_nummer)}
               />
             );
           })}
@@ -839,7 +863,7 @@ export default function FitnessSchema() {
                   </div>
                 )}
                 {day.kettlebell.map((ex, i) => {
-                  const sk = sKey(ex.name, week.week, dayInfo.id);
+                  const sk = sKey(ex.name, week.week, day.dag_nummer);
                   const swappedName = swaps[sk];
                   const displayName = swappedName || ex.name;
                   const k = wKey(displayName, week.week);
@@ -849,8 +873,8 @@ export default function FitnessSchema() {
                   return (
                     <SwipeableRow
                       key={i}
-                      onSwipeRight={() => { closeAndSave(); setSwapModal({ original: ex.name, week: week.week, day: dayInfo.id }); }}
-                      onSwipeLeft={swappedName ? () => revertSwap(ex.name, week.week, dayInfo.id) : undefined}
+                      onSwipeRight={() => { closeAndSave(); setSwapModal({ original: ex.name, week: week.week, day: day.dag_nummer }); }}
+                      onSwipeLeft={swappedName ? () => revertSwap(ex.name, week.week, day.dag_nummer) : undefined}
                     >
                       <ExRow
                         num={i + 1}
@@ -869,8 +893,8 @@ export default function FitnessSchema() {
                         prevWeekLabel={prevResult?.label}
                         savedM={!!savedIndicators[`${displayName}__${week.week}__M`]}
                         savedZ={!!savedIndicators[`${displayName}__${week.week}__Z`]}
-                        completed={completedExercises.has(eKey(displayName, week.week, dayInfo.id))}
-                        onLongPress={() => toggleExerciseCompletion(displayName, week.week, dayInfo.id)}
+                        completed={completedExercises.has(eKey(displayName, week.week, day.dag_nummer))}
+                        onLongPress={() => toggleExerciseCompletion(displayName, week.week, day.dag_nummer)}
                         swapped={!!swappedName}
                         originalName={swappedName ? ex.name : undefined}
                         hiitInterval={ex.hiitInterval || hiitInterval}
@@ -902,8 +926,8 @@ export default function FitnessSchema() {
                 note={ex.note}
                 accent="#7c3aed"
                 light="#ede9fe"
-                completed={completedExercises.has(eKey(ex.name, week.week, dayInfo.id))}
-                onLongPress={() => toggleExerciseCompletion(ex.name, week.week, dayInfo.id)}
+                completed={completedExercises.has(eKey(ex.name, week.week, day.dag_nummer))}
+                onLongPress={() => toggleExerciseCompletion(ex.name, week.week, day.dag_nummer)}
               />
             );
           })}
@@ -928,18 +952,21 @@ export default function FitnessSchema() {
           Core dagelijks herhalen · Rust: 60–90 sec tussen sets
         </div>
 
+        </>)}
+
         {/* Progressie */}
         {(() => {
-          const dayExercises = [
+          const trainingDays = day.type === "training" ? [day] : [];
+          const dayExercises = trainingDays.length > 0 ? [
             day.barbell.name,
             ...day.spiergroep.map(e => e.name),
             ...day.kettlebell.map(e => e.name),
-          ];
-          const uniq = (arr) => [...new Set(arr)].filter(e => !dayExercises.includes(e));
-          const allBarbell = uniq(schema.weeks.flatMap(w => w.days.map(d => d.barbell.name)));
-          const allSpiergroep = uniq(schema.weeks.flatMap(w => w.days.flatMap(d => d.spiergroep.map(e => e.name))));
-          const allKettlebell = uniq(schema.weeks.flatMap(w => w.days.flatMap(d => d.kettlebell.map(e => e.name))));
-          const allCore = uniq(schema.weeks.flatMap(w => w.days.flatMap(d => d.core.map(e => e.name))));
+          ] : [];
+          const uniq = (arr) => [...new Set(arr)].filter(Boolean).filter(e => !dayExercises.includes(e));
+          const allBarbell = uniq(schema.weeks.flatMap(w => w.days.filter(d => d.type === "training").map(d => d.barbell.name)));
+          const allSpiergroep = uniq(schema.weeks.flatMap(w => w.days.filter(d => d.type === "training").flatMap(d => d.spiergroep.map(e => e.name))));
+          const allKettlebell = uniq(schema.weeks.flatMap(w => w.days.filter(d => d.type === "training").flatMap(d => d.kettlebell.map(e => e.name))));
+          const allCore = uniq(schema.weeks.flatMap(w => w.days.filter(d => d.type === "training").flatMap(d => d.core.map(e => e.name))));
           const allExercises = [...dayExercises, ...allBarbell, ...allSpiergroep, ...allKettlebell, ...allCore];
           const selEx = progressieExercise ?? allExercises[0];
           const chartData = schema.weeks.map(w => {
@@ -1324,6 +1351,59 @@ function ExCircle({ num, completed, accent, optional, onLongPress }) {
     >
       {completed ? "✓" : num}
     </div>
+  );
+}
+
+function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPress }) {
+  const timer = useRef(null);
+  const longPressed = useRef(false);
+  const startPos = useRef({ x: 0, y: 0 });
+  const isRust = day.type === "rust";
+  const isCardio = day.type === "cardio_fitness";
+  const tileColor = day.dag_nummer ? dayColors[day.dag_nummer].accent : (isCardio ? "#f97316" : "#94a3b8");
+
+  const startPress = (e) => {
+    if (isRust || isCardio) return;
+    longPressed.current = false;
+    const t = e.touches?.[0];
+    if (t) startPos.current = { x: t.clientX, y: t.clientY };
+    timer.current = setTimeout(() => { longPressed.current = true; triggerImpact(); onLongPress(); }, 1000);
+  };
+  const cancelPress = () => clearTimeout(timer.current);
+  const handleMove = (e) => {
+    const t = e.touches?.[0];
+    if (!t) return;
+    if (Math.abs(t.clientX - startPos.current.x) > 10 || Math.abs(t.clientY - startPos.current.y) > 10) cancelPress();
+  };
+
+  return (
+    <button
+      onMouseDown={startPress} onMouseUp={cancelPress}
+      onTouchStart={startPress} onTouchEnd={cancelPress} onTouchMove={handleMove}
+      onClick={() => { if (longPressed.current) { longPressed.current = false; return; } onSelect(); }}
+      style={{
+        padding: "7px 2px 6px", borderRadius: 10, border: isSelected ? `2px solid ${tileColor}` : isToday ? "2px solid #ddd" : "2px solid transparent",
+        cursor: "pointer", background: isSelected ? tileColor + "18" : "#fafafa",
+        textAlign: "center", position: "relative", userSelect: "none",
+      }}
+    >
+      {isToday && (
+        <div style={{ position: "absolute", top: -4, left: "50%", transform: "translateX(-50%)", width: 5, height: 5, borderRadius: "50%", background: "#f37121" }} />
+      )}
+      <div style={{ fontSize: 9, fontWeight: 700, color: isSelected ? tileColor : "#aaa", marginBottom: 2, letterSpacing: 0.5, fontFamily: "sans-serif" }}>
+        {day.dag_label}
+      </div>
+      <div style={{ fontSize: isCompleted ? 11 : 16, lineHeight: 1, opacity: isRust ? 0.45 : 1, color: isCompleted ? "#16a34a" : "inherit", fontWeight: isCompleted ? 900 : "normal" }}>
+        {isCompleted ? "✓" : day.emoji}
+      </div>
+      {isRust
+        ? <div style={{ width: 4, height: 4, borderRadius: "50%", background: "#94a3b8", margin: "3px auto 1px" }} />
+        : <div style={{ height: 7 }} />
+      }
+      <div style={{ fontSize: 7, fontWeight: 700, lineHeight: 1.3, fontFamily: "sans-serif", color: isCardio ? "#f97316" : isRust ? "#94a3b8" : tileColor }}>
+        {(day.naam || "").split(" ").map((w, i) => <div key={i}>{w}</div>)}
+      </div>
+    </button>
   );
 }
 
