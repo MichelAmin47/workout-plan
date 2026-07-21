@@ -46,7 +46,7 @@ function findPrevWeight(exerciseName, currentWeek, weights) {
   for (let w = currentWeek - 1; w >= 1; w--) {
     const entry = weights[wKey(exerciseName, w)];
     if (entry && (entry.M !== "" && entry.M != null || entry.Z !== "" && entry.Z != null)) {
-      return { M: entry.M, Z: entry.Z, weekNum: w, label: `Laatste keer — Week ${22 + w}` };
+      return { M: entry.M, Z: entry.Z, weekNum: w, label: `Laatste keer — Week ${w}` };
     }
   }
   return null;
@@ -230,7 +230,7 @@ export default function FitnessSchema() {
               core: dayExs.filter(e => e.categorie === "core").map(toEx),
             };
           });
-          allWeeks.push({ week: relWeek, label: `Week ${calWeek}`, phase, days });
+          allWeeks.push({ week: calWeek, label: `Week ${calWeek}`, phase, days });
         }
       }
 
