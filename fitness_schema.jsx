@@ -379,7 +379,11 @@ export default function FitnessSchema() {
   const week = schema.weeks[selectedWeek];
   const day = week.days[selectedDay] ?? week.days.find(d => d.type === "training") ?? week.days[0];
   const colors = day.dag_nummer
-    ? { ...dayColors[day.dag_nummer], accent: day.kleur || dayColors[day.dag_nummer].accent }
+    ? {
+        ...dayColors[day.dag_nummer],
+        accent: day.kleur || dayColors[day.dag_nummer].accent,
+        light:  day.kleur || dayColors[day.dag_nummer].light,
+      }
     : { bg: "#f1f5f9", accent: "#94a3b8", light: "#e2e8f0" };
   const phase = phaseColors[week.phase];
 
