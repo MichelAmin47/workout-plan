@@ -382,7 +382,7 @@ export default function FitnessSchema() {
     ? {
         ...dayColors[day.dag_nummer],
         accent: day.kleur || dayColors[day.dag_nummer].accent,
-        light:  day.kleur || dayColors[day.dag_nummer].light,
+        light:  day.kleur ? day.kleur + "22" : dayColors[day.dag_nummer].light,
       }
     : { bg: "#f1f5f9", accent: "#94a3b8", light: "#e2e8f0" };
   const phase = phaseColors[week.phase];
