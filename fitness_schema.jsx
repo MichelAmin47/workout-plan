@@ -370,6 +370,16 @@ export default function FitnessSchema() {
     setPullY(0);
     if (dist < 260) return;
     setRefreshing(true);
+    // If a new SW is waiting (new Vercel deployment), activate it then reload to get fresh JS.
+    if ('serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) {
+          navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload(), { once: true });
+          reg.update(); // non-blocking; if new SW installs + skipWaiting fires, controllerchange → reload
+        }
+      } catch (_) {}
+    }
     await refreshAll();
     setRefreshing(false);
   };
