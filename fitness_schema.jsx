@@ -20,6 +20,13 @@ const phaseColors = {
 };
 
 
+function hexA(hex, alpha) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 function wKey(exercise, week) {
   return `${exercise}__${week}`;
 }
@@ -1173,7 +1180,7 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
   return (
     <div style={{ borderRadius: 8, overflow: "hidden", border: optional ? "1.5px dashed #f37121" : "none" }}>
       <div
-        style={{ display: "flex", alignItems: "center", gap: 10, background: light + "55", padding: "10px 12px", cursor: isClickable ? "pointer" : "default" }}
+        style={{ display: "flex", alignItems: "center", gap: 10, background: hexA(light, 0.33), padding: "10px 12px", cursor: isClickable ? "pointer" : "default" }}
         onClick={onToggle}
       >
         <ExCircle num={num} completed={completed} accent={accent} optional={optional} onLongPress={onLongPress} />
@@ -1260,7 +1267,7 @@ function SupersetBlock({ title, exercises, accentColor, expandedExercise, onTogg
         <div style={{ background: accentColor, color: "#fff", fontSize: 10, fontWeight: 800, letterSpacing: 1, padding: "3px 8px", borderRadius: 20, fontFamily: "sans-serif" }}>
           {title}
         </div>
-        <div style={{ flex: 1, height: 1, background: accentColor + "40" }} />
+        <div style={{ flex: 1, height: 1, background: hexA(accentColor, 0.25) }} />
       </div>
       <div style={{ background: "#fff", borderRadius: 12, overflow: "hidden", border: `2px solid ${accentColor}33` }}>
         {exercises.map((ex, i) => {
@@ -1275,7 +1282,7 @@ function SupersetBlock({ title, exercises, accentColor, expandedExercise, onTogg
           return (
             <div key={i}>
               <div
-                style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", background: accentColor + "0a", cursor: "pointer" }}
+                style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", background: hexA(accentColor, 0.04), cursor: "pointer" }}
                 onClick={() => onToggle(ex.name)}
               >
                 <ExCircle num={i + 1} completed={isCompleted} accent={accentColor} onLongPress={() => toggleCompletion(ex.name, weekNum, dayId)} />
@@ -1304,7 +1311,7 @@ function SupersetBlock({ title, exercises, accentColor, expandedExercise, onTogg
               {i < exercises.length - 1 && !isExpanded && (
                 <div style={{ display: "flex", alignItems: "center", padding: "0 14px", background: "#fff" }}>
                   <div style={{ width: 28, display: "flex", justifyContent: "center" }}>
-                    <div style={{ width: 2, height: 16, background: accentColor + "60", borderRadius: 1 }} />
+                    <div style={{ width: 2, height: 16, background: hexA(accentColor, 0.38), borderRadius: 1 }} />
                   </div>
                   <div style={{ flex: 1, paddingLeft: 10 }}>
                     <span style={{ fontSize: 9, color: accentColor, fontFamily: "sans-serif", fontWeight: 700, letterSpacing: 1 }}>GEEN RUST →</span>
@@ -1397,7 +1404,7 @@ function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPr
         display: "flex", flexDirection: "column", alignItems: "center",
         padding: "0 2px 6px", borderRadius: 10,
         border: isSelected ? `2px solid ${tileColor}` : isToday ? "2px solid #ddd" : "2px solid transparent",
-        cursor: "pointer", background: isSelected ? tileColor + "18" : "#fafafa",
+        cursor: "pointer", background: isSelected ? hexA(tileColor, 0.09) : "#fafafa",
         userSelect: "none", minWidth: 0,
       }}
     >
