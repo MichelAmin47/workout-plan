@@ -194,8 +194,8 @@ function buildWeeks(schemas, schemaDays, exercises, weekOverrides = []) {
           type: effectiveType,
           dag_label: sd.dag_label,
           dag_volgorde: sd.dag_volgorde,
-          emoji: ov ? (ov.emoji || (isCardio ? "🚴" : isTraining ? sd.emoji : "😴")) : sd.emoji,
-          naam: ov ? (ov.naam || (isCardio ? "Cardio" : isTraining ? sd.spiergroep_naam : "Rustdag")) : sd.spiergroep_naam,
+          emoji: ov ? (ov.emoji || (isCardio ? "🥊" : isTraining ? sd.emoji : "😴")) : sd.emoji,
+          naam: ov ? (ov.naam || (isCardio ? "Cardio Fitness" : isTraining ? sd.spiergroep_naam : "Rustdag")) : sd.spiergroep_naam,
           kleur: isTraining ? sd.kleur : null,
         };
         if (!isTraining) return base;
