@@ -241,6 +241,7 @@ export default function FitnessSchema() {
     if (saved !== null) { const n = Number(saved); if (n >= 0 && n <= 6) return n; }
     return (new Date().getDay() + 6) % 7; // Mon=0, Sun=6
   });
+  const [schemaGen, setSchemaGen] = useState(0);
   const [weights, setWeights] = useState({});
   const [savedIndicators, setSavedIndicators] = useState({});
   const saveTimers = useRef({});
@@ -315,6 +316,7 @@ export default function FitnessSchema() {
       const allWeeks = await fetchSchemaData();
       localStorage.setItem("cached_schema_v2", JSON.stringify({ weeks: allWeeks }));
       setSchema({ weeks: allWeeks });
+      setSchemaGen(g => g + 1);
       setSchemaOffline(false);
     } catch {
       setSchemaOffline(true);
@@ -645,7 +647,7 @@ export default function FitnessSchema() {
       <div style={{ padding: "12px 12px 0", display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 5, maxWidth: 600, margin: "0 auto" }}>
         {week.days.map((d, i) => (
           <WeekDayTile
-            key={i}
+            key={`${schemaGen}-${i}`}
             day={d}
             isSelected={selectedDay === i}
             isToday={todayDayIdx === i}
