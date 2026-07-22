@@ -188,18 +188,22 @@ function buildWeeks(schemas, schemaDays, exercises, weekOverrides = []) {
         const effectiveType = ov?.dag_van_week || sd.type || "training";
         const isTraining = effectiveType === "training";
         const isCardio = effectiveType === "cardio_fitness";
+        // For training overrides with a naam, source exercises/colours from the matching schema_day
+        const sourceSd = (ov && isTraining && ov.naam)
+          ? (schDays.find(d => d.spiergroep_naam === ov.naam && d.type === "training") || sd)
+          : sd;
         const base = {
           dayId: sd.id,
-          dag_nummer: isTraining ? sd.dag_nummer : null,
+          dag_nummer: isTraining ? sourceSd.dag_nummer : null,
           type: effectiveType,
           dag_label: sd.dag_label,
           dag_volgorde: sd.dag_volgorde,
-          emoji: ov ? (ov.emoji || (isCardio ? "🥊" : isTraining ? (sd.type === "training" ? sd.emoji : "🏋️") : "🏖️")) : sd.emoji,
-          naam: ov ? (ov.naam || (isCardio ? "Cardio Fitness" : isTraining ? (sd.type === "training" ? sd.spiergroep_naam : "Training") : "Vrije dag")) : sd.spiergroep_naam,
-          kleur: isTraining ? sd.kleur : null,
+          emoji: ov ? (ov.emoji || (isCardio ? "🥊" : isTraining ? (sourceSd.type === "training" ? sourceSd.emoji : "🏋️") : "🏖️")) : sd.emoji,
+          naam: ov ? (ov.naam || (isCardio ? "Cardio Fitness" : isTraining ? (sourceSd.type === "training" ? sourceSd.spiergroep_naam : "Training") : "Vrije dag")) : sd.spiergroep_naam,
+          kleur: isTraining ? sourceSd.kleur : null,
         };
         if (!isTraining) return base;
-        const dayExs = exercises.filter(e => e.schema_day_id === sd.id && e.week_nummer === relWeek);
+        const dayExs = exercises.filter(e => e.schema_day_id === sourceSd.id && e.week_nummer === relWeek);
         const toEx = (e) => ({
           name: e.naam,
           sets: e.sets || "",
