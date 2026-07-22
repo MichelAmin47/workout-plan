@@ -364,7 +364,13 @@ export default function FitnessSchema() {
     if (dist < 260) return;
     setRefreshing(true);
     await refreshAll();
-    setRefreshing(false);
+    // Trigger SW update check so new JS is fetched if deployed, then reload.
+    // Fresh schema is already in localStorage so the reload is instant.
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      await reg?.update();
+    } catch {}
+    window.location.reload();
   };
 
   useEffect(() => { localStorage.setItem("selectedDay", selectedDay); }, [selectedDay]);
