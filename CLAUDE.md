@@ -234,6 +234,20 @@ weight    numeric
 unique constraint on (exercise, week, person)
 ```
 
+The `week_overrides` table schema:
+```
+id                  uuid (PK)
+schema_id           uuid (FK → schemas.id)
+week_nummer         int        (absolute calendar week, e.g. 30)
+dag_nummer          int        (dag_volgorde of the day to override: 1=Ma … 7=Zo)
+dag_van_week        text       ('rust' | 'training' | 'cardio_fitness')
+emoji               text       (nullable — tile emoji; defaults: 🏖️ for rust, 🥊 for cardio_fitness)
+naam                text       (nullable — tile label; defaults: 'Vrije dag' for rust, 'Cardio Fitness' for cardio_fitness)
+unique constraint on (schema_id, week_nummer, dag_nummer)
+```
+
+Overrides are fetched in `fetchSchemaData()` alongside schemas/schema_days/exercises and passed to `buildWeeks()`. Inside `buildWeeks`, an `overrideMap` keyed by `"calWeek__dagVolgorde"` is built per schema. When a day matches an override: `type` becomes `dag_van_week`; `emoji`/`naam` use the override values (or type-based fallbacks); `dag_nummer` and `kleur` are set to `null` so the tile renders in neutral gray. The override is baked into `localStorage["cached_schema_v2"]` so it works offline. Pull-to-refresh re-fetches and reapplies overrides.
+
 Important: Supabase `PostgrestBuilder` is a lazy promise — the HTTP request only fires when `.then()` is called or the result is awaited. Always chain `.then()` on upsert/insert calls, otherwise the request is silently dropped.
 
 ## Offline support & pull-to-refresh
