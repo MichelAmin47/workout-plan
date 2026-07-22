@@ -171,10 +171,10 @@ const KB_EXERCISES = [
 function buildWeeks(schemas, schemaDays, exercises, weekOverrides = []) {
   const allWeeks = [];
   for (const s of schemas) {
-    // "calWeek__dagVolgorde" -> override type for this schema
+    // "calWeek__dagVolgorde" -> full override row for this schema
     const overrideMap = {};
     for (const o of weekOverrides) {
-      if (o.schema_id === s.id) overrideMap[`${o.week_nummer}__${o.dag_nummer}`] = o.dag_van_week;
+      if (o.schema_id === s.id) overrideMap[`${o.week_nummer}__${o.dag_nummer}`] = o;
     }
     const numWeeks = s.eind_week - s.start_week + 1;
     const schDays = schemaDays
@@ -184,18 +184,21 @@ function buildWeeks(schemas, schemaDays, exercises, weekOverrides = []) {
       const calWeek = s.start_week + relWeek - 1;
       const phase = relWeek <= 3 ? "Opbouw" : "Nieuwe Prikkel";
       const days = schDays.map(sd => {
-        const effectiveType = overrideMap[`${calWeek}__${sd.dag_volgorde}`] || sd.type || "training";
+        const ov = overrideMap[`${calWeek}__${sd.dag_volgorde}`];
+        const effectiveType = ov?.dag_van_week || sd.type || "training";
+        const isTraining = effectiveType === "training";
+        const isCardio = effectiveType === "cardio_fitness";
         const base = {
           dayId: sd.id,
-          dag_nummer: sd.dag_nummer,
+          dag_nummer: isTraining ? sd.dag_nummer : null,
           type: effectiveType,
           dag_label: sd.dag_label,
           dag_volgorde: sd.dag_volgorde,
-          emoji: sd.emoji,
-          naam: sd.spiergroep_naam,
-          kleur: sd.kleur,
+          emoji: ov ? (ov.emoji || (isCardio ? "🚴" : isTraining ? sd.emoji : "😴")) : sd.emoji,
+          naam: ov ? (ov.naam || (isCardio ? "Cardio" : isTraining ? sd.spiergroep_naam : "Rustdag")) : sd.spiergroep_naam,
+          kleur: isTraining ? sd.kleur : null,
         };
-        if (effectiveType !== "training") return base;
+        if (!isTraining) return base;
         const dayExs = exercises.filter(e => e.schema_day_id === sd.id && e.week_nummer === relWeek);
         const toEx = (e) => ({
           name: e.naam,
