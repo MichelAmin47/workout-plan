@@ -1399,7 +1399,8 @@ function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPr
         display: "flex", flexDirection: "column", alignItems: "center",
         padding: "0 2px 6px", borderRadius: 10,
         border: isSelected ? `2px solid ${tileColor}` : isToday ? "2px solid #ddd" : "2px solid transparent",
-        cursor: "pointer", background: isSelected ? (day.dag_nummer ? dayColors[day.dag_nummer].bg : hexA(tileColor, 0.15)) : "#fafafa",
+        cursor: "pointer", background: isSelected ? (day.dag_nummer ? dayColors[day.dag_nummer].bg : hexA(tileColor, 0.15)) : "#fff",
+        boxShadow: isSelected ? `0 2px 8px ${hexA(tileColor, 0.25)}` : "0 1px 3px rgba(0,0,0,0.06)",
         userSelect: "none", minWidth: 0,
       }}
     >
