@@ -371,13 +371,7 @@ export default function FitnessSchema() {
     if (dist < 260) return;
     setRefreshing(true);
     await refreshAll();
-    // Trigger SW update check so new JS is fetched if deployed, then reload.
-    // Fresh schema is already in localStorage so the reload is instant.
-    try {
-      const reg = await navigator.serviceWorker?.getRegistration();
-      await reg?.update();
-    } catch {}
-    window.location.reload();
+    setRefreshing(false);
   };
 
   useEffect(() => { localStorage.setItem("selectedDay", selectedDay); }, [selectedDay]);
@@ -677,6 +671,7 @@ export default function FitnessSchema() {
             completedExercises,
             onWeightChange: (name, wk, person, val) => handleWeightChange(name, wk, person, val),
             toggleCompletion: toggleExerciseCompletion,
+            lightColor: colors.light,
           };
           return (
             <Section title="Supersets" icon="⚡" accent={colors.accent} timerSeconds={90} timerActive={activeTimer === "spiergroep"} onTimerClick={() => handleTimerClick("spiergroep", "Supersets", "⚡", 90, colors.accent)}>
@@ -1260,7 +1255,7 @@ function TypeBadge({ type }) {
   );
 }
 
-function SupersetBlock({ title, exercises, accentColor, expandedExercise, onToggle, weekNum, dayId, weights, savedIndicators, completedExercises, onWeightChange, toggleCompletion }) {
+function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExercise, onToggle, weekNum, dayId, weights, savedIndicators, completedExercises, onWeightChange, toggleCompletion }) {
   return (
     <div style={{ marginBottom: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, paddingLeft: 4 }}>
@@ -1269,7 +1264,7 @@ function SupersetBlock({ title, exercises, accentColor, expandedExercise, onTogg
         </div>
         <div style={{ flex: 1, height: 1, background: hexA(accentColor, 0.25) }} />
       </div>
-      <div style={{ background: "#fff", borderRadius: 12, overflow: "hidden", border: `2px solid ${accentColor}33` }}>
+      <div style={{ background: "#fff", borderRadius: 12, overflow: "hidden", border: `2px solid ${hexA(accentColor, 0.2)}` }}>
         {exercises.map((ex, i) => {
           const type = inferExerciseType(ex.name, ex.categorie);
           const k = wKey(ex.name, weekNum);
@@ -1282,7 +1277,7 @@ function SupersetBlock({ title, exercises, accentColor, expandedExercise, onTogg
           return (
             <div key={i}>
               <div
-                style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", background: hexA(accentColor, 0.04), cursor: "pointer" }}
+                style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", background: hexA(lightColor, 0.33), cursor: "pointer" }}
                 onClick={() => onToggle(ex.name)}
               >
                 <ExCircle num={i + 1} completed={isCompleted} accent={accentColor} onLongPress={() => toggleCompletion(ex.name, weekNum, dayId)} />
