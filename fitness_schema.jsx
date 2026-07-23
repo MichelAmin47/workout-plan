@@ -665,11 +665,17 @@ export default function FitnessSchema() {
       {/* Content */}
       <div style={{ padding: "16px", maxWidth: 600, margin: "0 auto" }}>
 
-        {day.type === "rust" && (
-          day.naam === "Anti-zit"
-            ? <StretchenCard goals={(schema.restDayGoals || []).filter(g => g.dag_van_week === "stretchen" && g.schema_id === week.schemaId)} day={day} />
-            : <VrijeDagCard goals={(schema.restDayGoals || []).filter(g => g.dag_van_week === "vrije_dag" && g.schema_id === week.schemaId)} day={day} />
-        )}
+        {day.type === "rust" && (() => {
+          // Priority: week-specific row (week_nummer = calWeek) > catch-all (week_nummer = 0)
+          const restGoals = (type) => {
+            const all = (schema.restDayGoals || []).filter(g => g.dag_van_week === type && g.schema_id === week.schemaId);
+            const specific = all.filter(g => g.week_nummer === week.week);
+            return specific.length > 0 ? specific : all.filter(g => g.week_nummer === 0);
+          };
+          return day.naam === "Anti-zit"
+            ? <StretchenCard goals={restGoals("stretchen")} day={day} />
+            : <VrijeDagCard goals={restGoals("vrije_dag")} day={day} />;
+        })()}
 
         {day.type === "cardio_fitness" && <CardioFitnessCard day={day} />}
 
