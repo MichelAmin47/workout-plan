@@ -276,14 +276,18 @@ export default function FitnessSchema() {
   const rawPullDist = useRef(0);
 
   const fetchSchemaData = async () => {
-    const [{ data: schemas }, { data: schemaDays }, { data: exercises }, { data: weekOverrides }] = await Promise.all([
+    const [{ data: schemas }, { data: schemaDays }, { data: exercises }, { data: weekOverrides }, { data: restDayGoals }] = await Promise.all([
       supabase.from("schemas").select("*").order("start_week"),
       supabase.from("schema_days").select("*"),
       supabase.from("exercises").select("*").order("volgorde"),
       supabase.from("week_overrides").select("*"),
+      supabase.from("rest_day_goals").select("*"),
     ]);
     if (!schemas || !schemaDays || !exercises) throw new Error("empty");
-    return buildWeeks(schemas, schemaDays, exercises, weekOverrides || []);
+    return {
+      weeks: buildWeeks(schemas, schemaDays, exercises, weekOverrides || []),
+      restDayGoals: restDayGoals || [],
+    };
   };
 
   const fetchUserData = async () => {
@@ -313,9 +317,9 @@ export default function FitnessSchema() {
 
   const refreshAll = async () => {
     try {
-      const allWeeks = await fetchSchemaData();
-      localStorage.setItem("cached_schema_v2", JSON.stringify({ weeks: allWeeks }));
-      setSchema({ weeks: allWeeks });
+      const { weeks: allWeeks, restDayGoals } = await fetchSchemaData();
+      localStorage.setItem("cached_schema_v2", JSON.stringify({ weeks: allWeeks, restDayGoals }));
+      setSchema({ weeks: allWeeks, restDayGoals });
       setSchemaGen(g => g + 1);
       setSchemaOffline(false);
     } catch {
@@ -329,9 +333,9 @@ export default function FitnessSchema() {
     try {
       const raw = localStorage.getItem("cached_schema_v2");
       if (raw) {
-        const { weeks } = JSON.parse(raw);
+        const { weeks, restDayGoals } = JSON.parse(raw);
         if (weeks?.length) {
-          setSchema({ weeks });
+          setSchema({ weeks, restDayGoals: restDayGoals || [] });
           const idx = currentWeekIndex(weeks);
           if (idx >= 0) setSelectedWeek(idx);
           setSchemaLoading(false);
@@ -341,9 +345,9 @@ export default function FitnessSchema() {
     } catch {}
 
     fetchSchemaData()
-      .then(allWeeks => {
-        localStorage.setItem("cached_schema_v2", JSON.stringify({ weeks: allWeeks }));
-        setSchema({ weeks: allWeeks });
+      .then(({ weeks: allWeeks, restDayGoals }) => {
+        localStorage.setItem("cached_schema_v2", JSON.stringify({ weeks: allWeeks, restDayGoals }));
+        setSchema({ weeks: allWeeks, restDayGoals });
         if (!hasCache) {
           const idx = currentWeekIndex(allWeeks);
           if (idx >= 0) setSelectedWeek(idx);
@@ -662,20 +666,12 @@ export default function FitnessSchema() {
       <div style={{ padding: "16px", maxWidth: 600, margin: "0 auto" }}>
 
         {day.type === "rust" && (
-          <div style={{ background: "#fff", borderRadius: 14, padding: "28px 20px", textAlign: "center", boxShadow: "0 1px 4px #0001", marginBottom: 12 }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>{day.emoji}</div>
-            <div style={{ fontWeight: 700, fontSize: 18, color: "#1a1a1a", marginBottom: 6, fontFamily: "sans-serif" }}>Rustdag</div>
-            <div style={{ fontSize: 14, color: "#64748b", fontFamily: "sans-serif", lineHeight: 1.5 }}>Geen training vandaag — herstel en rust zodat je morgen weer vol gas kunt geven.</div>
-          </div>
+          day.naam === "Anti-zit"
+            ? <StrechenCard goals={(schema.restDayGoals || []).filter(g => g.dag_van_week === "stretchen")} day={day} />
+            : <VrijeDagCard goals={(schema.restDayGoals || []).filter(g => g.dag_van_week === "vrije_dag")} day={day} />
         )}
 
-        {day.type === "cardio_fitness" && (
-          <div style={{ background: "#fff7ed", border: "2px solid #fed7aa", borderRadius: 14, padding: "28px 20px", textAlign: "center", boxShadow: "0 1px 4px #0001", marginBottom: 12 }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>{day.emoji}</div>
-            <div style={{ fontWeight: 700, fontSize: 18, color: "#ea580c", marginBottom: 6, fontFamily: "sans-serif" }}>Cardio & Fitness</div>
-            <div style={{ fontSize: 14, color: "#7c2d12", fontFamily: "sans-serif", lineHeight: 1.5 }}>Externe sportzaal — cardio en vrij trainen. Focus op uithoudingsvermogen en herstel.</div>
-          </div>
-        )}
+        {day.type === "cardio_fitness" && <CardioFitnessCard day={day} />}
 
         {day.type === "training" && (<>
 
@@ -1390,6 +1386,75 @@ function ExCircle({ num, completed, accent, optional, onLongPress }) {
       }}
     >
       {completed ? "✓" : num}
+    </div>
+  );
+}
+
+const STREK_ICONS = { trap: "🪜", sta_op: "🧍", avond: "🌙", vacuum: "💨" };
+const VRIJ_ICONS  = { gezin: "👨‍👩‍👧", optioneel: "✨" };
+
+function StrechenCard({ goals, day }) {
+  return (
+    <div style={{ background: "#fff", borderRadius: 14, padding: "20px", boxShadow: "0 1px 4px #0001", marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+        <span style={{ fontSize: 32 }}>{day.emoji}</span>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 16, color: "#1a1a1a", fontFamily: "sans-serif" }}>Anti-zit dag</div>
+          <div style={{ fontSize: 12, color: "#64748b", fontFamily: "sans-serif", marginTop: 2 }}>Blijf in beweging — geen training, wel actief</div>
+        </div>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {goals.length === 0 && (
+          <div style={{ fontSize: 13, color: "#94a3b8", fontFamily: "sans-serif", textAlign: "center", padding: "12px 0" }}>Geen doelen gevonden</div>
+        )}
+        {goals.map((g, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, background: "#f8faff", borderRadius: 10, padding: "11px 14px" }}>
+            <span style={{ fontSize: 20, flexShrink: 0 }}>{STREK_ICONS[g.type] || "✅"}</span>
+            <div style={{ flex: 1, fontSize: 14, color: "#1e293b", fontFamily: "sans-serif", lineHeight: 1.4 }}>{g.beschrijving}</div>
+            {g.duur_minuten && (
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#64748b", background: "#e2e8f0", borderRadius: 20, padding: "2px 8px", flexShrink: 0, fontFamily: "sans-serif" }}>
+                {g.duur_minuten} min
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function VrijeDagCard({ goals, day }) {
+  const main   = goals.find(g => g.type === "gezin");
+  const optie  = goals.find(g => g.type === "optioneel");
+  return (
+    <div style={{ background: "#fff", borderRadius: 14, padding: "28px 20px", textAlign: "center", boxShadow: "0 1px 4px #0001", marginBottom: 12 }}>
+      <div style={{ fontSize: 48, marginBottom: 12 }}>{day.emoji}</div>
+      <div style={{ fontWeight: 700, fontSize: 18, color: "#1a1a1a", marginBottom: 8, fontFamily: "sans-serif" }}>Vrije dag</div>
+      <div style={{ fontSize: 14, color: "#334155", fontFamily: "sans-serif", lineHeight: 1.6, marginBottom: optie ? 16 : 0 }}>
+        {main?.beschrijving || "Tijd met het gezin staat voorop vandaag."}
+      </div>
+      {optie && (
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#f1f5f9", borderRadius: 20, padding: "6px 14px", fontSize: 13, color: "#64748b", fontFamily: "sans-serif" }}>
+          <span>{VRIJ_ICONS.optioneel}</span>
+          <span>{optie.beschrijving}</span>
+          {optie.duur_minuten && <span style={{ fontWeight: 700 }}>· {optie.duur_minuten} min</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CardioFitnessCard({ day }) {
+  return (
+    <div style={{ background: "#fff7ed", border: "2px solid #fed7aa", borderRadius: 14, padding: "28px 20px", textAlign: "center", boxShadow: "0 1px 4px #0001", marginBottom: 12 }}>
+      <div style={{ fontSize: 48, marginBottom: 12 }}>{day.emoji}</div>
+      <div style={{ fontWeight: 700, fontSize: 18, color: "#ea580c", marginBottom: 8, fontFamily: "sans-serif" }}>Cardio Fitness</div>
+      <div style={{ fontSize: 14, color: "#7c2d12", fontFamily: "sans-serif", lineHeight: 1.5, marginBottom: 12 }}>
+        Externe sportzaal — buiten dit trainingsschema.
+      </div>
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#ffedd5", borderRadius: 20, padding: "5px 14px", fontSize: 12, color: "#9a3412", fontFamily: "sans-serif", fontWeight: 600 }}>
+        <span>🥊</span><span>Cardio &amp; vrij trainen</span>
+      </div>
     </div>
   );
 }
