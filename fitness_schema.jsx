@@ -220,7 +220,7 @@ function buildWeeks(schemas, schemaDays, exercises, weekOverrides = []) {
           core: dayExs.filter(e => e.categorie === "core").map(toEx),
         };
       });
-      allWeeks.push({ week: calWeek, label: `Week ${calWeek}`, phase, days });
+      allWeeks.push({ week: calWeek, label: `Week ${calWeek}`, phase, schemaId: s.id, days });
     }
   }
   return allWeeks;
@@ -667,8 +667,8 @@ export default function FitnessSchema() {
 
         {day.type === "rust" && (
           day.naam === "Anti-zit"
-            ? <StretchenCard goals={(schema.restDayGoals || []).filter(g => g.dag_van_week === "stretchen")} day={day} />
-            : <VrijeDagCard goals={(schema.restDayGoals || []).filter(g => g.dag_van_week === "vrije_dag")} day={day} />
+            ? <StretchenCard goals={(schema.restDayGoals || []).filter(g => g.dag_van_week === "stretchen" && g.schema_id === week.schemaId)} day={day} />
+            : <VrijeDagCard goals={(schema.restDayGoals || []).filter(g => g.dag_van_week === "vrije_dag" && g.schema_id === week.schemaId)} day={day} />
         )}
 
         {day.type === "cardio_fitness" && <CardioFitnessCard day={day} />}
