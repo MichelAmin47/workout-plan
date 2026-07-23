@@ -667,7 +667,7 @@ export default function FitnessSchema() {
 
         {day.type === "rust" && (
           day.naam === "Anti-zit"
-            ? <StrechenCard goals={(schema.restDayGoals || []).filter(g => g.dag_van_week === "stretchen")} day={day} />
+            ? <StretchenCard goals={(schema.restDayGoals || []).filter(g => g.dag_van_week === "stretchen")} day={day} />
             : <VrijeDagCard goals={(schema.restDayGoals || []).filter(g => g.dag_van_week === "vrije_dag")} day={day} />
         )}
 
@@ -1393,7 +1393,7 @@ function ExCircle({ num, completed, accent, optional, onLongPress }) {
 const STREK_ICONS = { trap: "🪜", sta_op: "🧍", avond: "🌙", vacuum: "💨" };
 const VRIJ_ICONS  = { gezin: "👨‍👩‍👧", optioneel: "✨" };
 
-function StrechenCard({ goals, day }) {
+function StretchenCard({ goals, day }) {
   return (
     <div style={{ background: "#fff", borderRadius: 14, padding: "20px", boxShadow: "0 1px 4px #0001", marginBottom: 12 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
