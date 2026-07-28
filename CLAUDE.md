@@ -70,6 +70,7 @@ android/                  ← Capacitor Android project (generated, do not edit 
 - recharts (latest) — progress chart
 - @capacitor/core, @capacitor/android — Capacitor 8 Android bridge
 - @capacitor/haptics@8.0.2 — `Haptics.impact()` for long-press feedback
+- vite-plugin-pwa@1.3.0 — service worker for offline app-shell caching
 - No routing, no state management, no CSS framework
 
 ## Environment variables
@@ -84,18 +85,19 @@ VITE_SUPABASE_ANON_KEY=...
 
 Everything lives in `fitness_schema.jsx`:
 
-- **`schema`** — static data object containing the full 7-week program. Two phases: `"Opbouw"` (weeks 1–3, same exercises with progressive overload) and `"Nieuwe Prikkel"` (weeks 4–7, one set of new exercises across all four weeks with an intro→peak→continuation→final-peak progression: week 26 intro, week 27 peak, week 28 same exercises +gewicht, week 29 same exercises +gewicht piek).
-- **`FitnessSchema`** (default export) — top-level component. Manages state: `selectedWeek`, `selectedDay` (persisted to `localStorage` under key `"selectedDay"`), `weights` (map of fetched weights from Supabase), `expandedExercise` (name of the currently open weight panel), `completedDays` (Set of completed day keys), `completedExercises` (Set of completed exercise keys), `swaps` (map of swapped KB exercises keyed by `sKey`), `swapModal` (null or `{original, week, day}` for the open bottom sheet), `activeTimer` (section key or null), `activeSection` (object with key/label/icon/seconds/accent or null), and `timerLocked` (bool). Calls `useTimer` for the rest timer. Barbell long-press uses component-level refs `bbTimerRef`, `bbLongPressed`, `bbStartPos`. Derives all display data from `schema` by indexing with those state values. The app header shows the title "7-Weken Trainingsschema" and a phase badge (e.g. "Opbouw" / "Nieuwe Prikkel") — no other controls.
+- **`schema`** — dynamic object built from Supabase (`schemas`, `schema_days`, `exercises` tables). Cached in `localStorage["cached_schema_v2"]` for offline use. Two phases: `"Opbouw"` (weeks 1–3) and `"Nieuwe Prikkel"` (weeks 4+). Built by `buildWeeks()` at module scope.
+- **`buildWeeks(schemas, schemaDays, exercises, weekOverrides = [])`** — module-scope pure function. Transforms raw Supabase rows into week/day structures. Each week has 7 days sorted by `dag_volgorde`. Training days have `barbell/spiergroep/kettlebell/core`; non-training days have only metadata (`type`, `dag_label`, `emoji`, `naam`).
+- **`FitnessSchema`** (default export) — top-level component. Manages state: `selectedWeek`, `selectedDay` (index 0–6 into `week.days`, persisted to `localStorage["selectedDay"]`), `schema` (object `{ weeks, restDayGoals }` — the full built schema plus rest-day goal rows from Supabase, cached in `localStorage["cached_schema_v2"]`), `schemaGen` (integer counter incremented on every successful schema refresh — used as part of `WeekDayTile` keys to force remount after pull-to-refresh), `weights`, `expandedExercise`, `completedDays`, `completedExercises`, `swaps`, `swapModal`, `activeTimer`, `activeSection`, `timerLocked`, `schemaOffline` (bool — true when Supabase unreachable and serving from cache), `refreshing` (bool — pull-to-refresh in progress), `pullY` (raw px pulled). Also: `progressieOpen`, `progressieExercise`. Calls `useTimer`. The app header shows title + phase badge. Offline shows a gray banner below the header.
 - **`Section`** — always-expanded card wrapper used for each exercise category. Header shows section title + a timer button (⏱ label). Timer button uses section accent when active. Props: `title`, `icon`, `accent`, `timerSeconds`, `timerActive`, `onTimerClick`.
 - **`ExRow`** — single exercise row (number badge, name, optional note, sets pill). When `onToggle` is provided (spiergroep, kettlebell), the row is clickable and renders a weight input panel below it when `expanded` is true. The panel contains M: and Z: number inputs that save to Supabase on change, plus a previous-week reference line. The number badge is rendered by `ExCircle`. Accepts `swapped` (bool) and `originalName` (string) props — when `swapped` is true, shows a purple "GEWIJZIGD" badge next to the name and renders `↩ originalName` below in gray. Accepts `hiitInterval` (`{ work, rest }` or null) — when set, renders a split badge (`Xs | Ys`) instead of the regular sets pill.
 - **`ExCircle`** — the circular number badge inside `ExRow`. Supports a 1000ms long press (`onLongPress`) to toggle exercise completion. Shows a green ✓ when completed. Long press works on both mouse and touch; suppresses the subsequent click to prevent the weight panel from toggling.
-- **`DayButton`** — day selector button. Short click selects the day; 1000ms long press toggles completion for that day in the current week. Shows a small green ✓ badge overlaid on the emoji when completed.
+- **`WeekDayTile`** — 7-day week selector tile. Shows day abbreviation (`dag_label`), emoji, multi-line name split per word, an orange dot above today's tile, and a gray dot for rest days. 1000ms long press on training days toggles day completion. Non-training days (rust/cardio_fitness) ignore long press. Props: `day`, `isSelected`, `isToday`, `isCompleted`, `onSelect`, `onLongPress`.
+- **`DayButton`** — legacy 4-day selector button (still present in code but no longer rendered; superseded by `WeekDayTile`).
 - **`SwipeableRow`** — wrapper component around each KB exercise row. Detects a horizontal swipe of ≥60px with <30px vertical drift (mouse and touch) and fires `onSwipeRight`. Translates the row during swipe and snaps back. Suppresses the click event after a completed swipe via a `swiped` ref.
 - **`BottomSheet`** — modal slide-up panel rendered when `swapModal` is set. Fixed overlay (zIndex 100) + fixed sheet (zIndex 101). Lists all KB exercises except the currently displayed one. Selecting an exercise calls `saveSwap()`, updates the `swaps` map, and closes the sheet.
 - **`KB_EXERCISES`** — constant array of 30 KB exercise names defined outside the component, used to populate the bottom sheet list.
-- **`HIIT_INTERVALS`** — constant map from week number to `{ work, rest }` seconds: `{ 4: { work: 30, rest: 20 }, 5: { work: 35, rest: 20 }, 6: { work: 40, rest: 20 }, 7: { work: 45, rest: 20 } }`. Weeks 4–7 = Weeks 26–29.
 - **`dayColors` / `phaseColors`** — lookup maps from day ID / phase name to color tokens. These drive all theming; there is no CSS file.
-- **`getCurrentWeekIndex()`** — calculates the current ISO week number, subtracts 23 (first week of the program), and clamps to 0–6. Used as the initial value of `selectedWeek`.
+- **`currentWeekIndex(allWeeks)`** — calculates the current ISO week number (shifts to Thursday of the current week, then counts weeks from Jan 1), then returns `allWeeks.findIndex(w => w.label === \`Week ${isoWeek}\`)`. Returns -1 if today is outside the program range; the caller falls back to `selectedWeek = 0`. Used as the initial value of `selectedWeek` on mount.
 - **`wKey(exercise, week)`** — builds the in-memory map key `"exercise__week"` used to look up weights from the `weights` state object.
 - **`dKey(weekNum, dayId)`** — builds the key `"week__dayId"` used in the `completedDays` Set.
 - **`eKey(exercise, weekNum, dayId)`** — builds the key `"exercise__week__dayId"` used in the `completedExercises` Set.
@@ -103,7 +105,16 @@ Everything lives in `fitness_schema.jsx`:
 
 ## Data shape
 
-Each `week.days[n]` entry has four exercise categories:
+`week.days` is a 7-element array sorted by `dag_volgorde` (Mon–Sun). Each entry has:
+- `dayId` — `schema_days.id` (UUID)
+- `dag_nummer` — muscle-group ID 1–4 (nullable; null for non-training days)
+- `type` — `"training"` | `"rust"` | `"cardio_fitness"`
+- `dag_label` — abbreviated day name (`"Ma"`, `"Di"`, …)
+- `dag_volgorde` — sort order 1–7
+- `emoji` — day emoji from DB
+- `naam` — day name (e.g. `"Rug & Biceps"`, `"Anti-zit dag"`)
+
+Training days additionally have:
 - `spiergroep` — muscle-group isolation exercises (array of exercise objects)
 - `barbell` — single compound barbell lift (plain object, not array)
 - `kettlebell` — full-body KB movements (array of exercise objects)
@@ -111,11 +122,13 @@ Each `week.days[n]` entry has four exercise categories:
 
 Exercise object fields:
 ```js
-{ name: string, sets: string, note: string, optional?: true }
+{ name: string, sets: string, note: string, optional?: true, hiitInterval?: { work: number, rest: number } }
 ```
-`optional: true` renders the row with a dashed orange border and "OPTIONEEL" badge. Only appears on `spiergroep` exercises (last item per day). Kettlebell and core exercises never have `optional`.
+`optional: true` renders the row with a dashed orange border and "OPTIONEEL" badge. Only appears on `spiergroep` exercises (last item per day). Kettlebell and core exercises never have `optional`. `hiitInterval` is set on kettlebell exercises when `hiit_work` / `hiit_rest` are non-null in the DB row; see the KB HIIT intervals section.
 
-`schema.days` (the 4-day split labels/colors) and `week.days` (the actual exercises) are both indexed by position — `schema.days[i].id` maps to `week.days[i].dayId`. The render order in `schema.days` is: Schouders (id 4), Borst & Triceps (id 2), Rug & Biceps (id 3), Benen & Billen (id 1).
+**Content area for non-training days**: When `day.type === "rust"`, either `StretchenCard` (if `day.naam === "Anti-zit"`) or `VrijeDagCard` (all other rust days) is shown; both fetch their content from the `rest_day_goals` Supabase table filtered by `dag_van_week` and `schema_id`. When `day.type === "cardio_fitness"`, a hardcoded `CardioFitnessCard` is shown. The Progressie chart is shown in all cases (it reads all exercise weights globally). Training sections (Barbell/Spiergroep/KB/Core) are guarded by `{day.type === "training" && ...}`.
+
+**Supabase `schema_days` columns**: `dag_label` TEXT, `dag_volgorde` INTEGER, `dag_nummer` INTEGER (nullable), `type` CHECK in ('training','rust','cardio_fitness'), `emoji` TEXT, `spiergroep_naam` (→ `naam` in JS).
 
 ## Color tokens
 
@@ -138,7 +151,7 @@ A collapsible **Progressie** section sits at the bottom of the content area. Sta
 When open it shows:
 - A styled `<select>` dropdown with exercises ordered: current day's exercises first, then all barbell → spiergroep → kettlebell → core exercises from the full schema (deduplicated, excluding already-listed day exercises).
 - A stats row with M — Max / gain (orange) and Z — Max / gain (blue) cards derived from the `weights` state already loaded on mount.
-- A Recharts `LineChart` (220px height) with M in orange `#f37121` and Z in blue `#0ea5e9`, `connectNulls`, week labels on X axis (`W23`–`W29`).
+- A Recharts `LineChart` (220px height) with M in orange `#f37121` and Z in blue `#0ea5e9`, `connectNulls`, week labels on X axis (`W23`–`W36`).
 - A `CustomTooltip` component renders a white card with colored dots and bold kg values.
 
 The chart reads from the existing `weights` state — no additional Supabase fetch needed.
@@ -147,7 +160,7 @@ The chart reads from the existing `weights` state — no additional Supabase fet
 
 A 2000ms long press toggles completion state, persisted to Supabase. Long press is implemented inline per component using a `useRef` timer (not a custom hook, to avoid hook-in-loop issues). `triggerImpact()` fires on mobile when the long press triggers.
 
-**Day completion** — long press on a `DayButton` toggles the day's completion for the currently selected week. Stored in `completedDays` (Set, keyed by `dKey`). The green ✓ badge overlays the emoji.
+**Day completion** — long press on a `WeekDayTile` (training days only) toggles the day's completion for the currently selected week. Stored in `completedDays` (Set, keyed by `dKey`). The green ✓ replaces the emoji in the tile.
 
 **Exercise completion** — long press on an `ExCircle` toggles that exercise's completion for the current week and day. Stored in `completedExercises` (Set, keyed by `eKey`). The circle turns solid green with ✓. The click event after a long press is suppressed via `e.stopPropagation()` to prevent the weight panel from opening.
 
@@ -169,14 +182,20 @@ completed_exercises:
   unique constraint on (exercise, week, day)
 ```
 
-## KB HIIT intervals (weeks 26–29)
+## KB HIIT intervals
 
-For weeks 26–29 (`week.week` 4–7), the kettlebell section switches to HIIT interval mode. The KB section renders:
+When KB exercises have `hiit_work` / `hiit_rest` values in the `exercises` table, the kettlebell section switches to HIIT interval mode for that week. The KB section renders:
 
 1. A **HIIT banner** above the exercise list — orange border card showing ⚡ "HIIT Intervallen" with the werk/rust seconds side-by-side.
 2. Each KB `ExRow` receives `hiitInterval={{ work, rest }}` and renders a **split badge** (orange `Xs` left pill + gray `Ys` right pill) instead of the normal sets pill.
 
-Weeks 23–25 (`week.week` 1–3) are unaffected; `hiitInterval` is `null` and sets display normally. The split is derived via `HIIT_INTERVALS[week.week] || null` inside an IIFE wrapping the KB section's children. Work intervals escalate across the four weeks: 30s → 35s → 40s → 45s, rest stays at 20s.
+The `hiitInterval` is read from `day.kettlebell[0]?.hiitInterval` — set in `buildWeeks` by `toEx()` when `e.hiit_work != null`. **There is no hardcoded JS constant**; all HIIT work/rest values come from the `exercises` table in Supabase. When `hiit_work` is `null` on an exercise row, `hiitInterval` is `null` and the normal sets pill is shown instead.
+
+**Schema 1 HIIT schedule** (relative weeks 4–8 = calWeeks 26–30):
+30s/20s → 35s/20s → 40s/20s → 45s/20s → 45s/20s
+
+**Schema 2 HIIT schedule** (all 6 weeks = calWeeks 31–36):
+30s/20s → 35s/20s → 40s/15s → 45s/15s → 50s/15s → 50s/10s
 
 ## KB exercise swapping
 
@@ -214,13 +233,35 @@ On load, all rows are fetched from the `weights` table and stored in a `weights`
 The `weights` Supabase table schema:
 ```
 exercise  text
-week      int        (program week number 1–5)
+week      int        (absolute calendar week, e.g. 23–36)
 person    text       ('M' or 'Z')
 weight    numeric
 unique constraint on (exercise, week, person)
 ```
 
+The `week_overrides` table schema:
+```
+id                  uuid (PK)
+schema_id           uuid (FK → schemas.id)
+week_nummer         int        (absolute calendar week, e.g. 30)
+dag_nummer          int        (dag_volgorde of the day to override: 1=Ma … 7=Zo)
+dag_van_week        text       ('rust' | 'training' | 'cardio_fitness')
+emoji               text       (nullable — tile emoji; defaults: 🏖️ for rust, 🥊 for cardio_fitness)
+naam                text       (nullable — tile label; defaults: 'Vrije dag' for rust, 'Cardio Fitness' for cardio_fitness)
+unique constraint on (schema_id, week_nummer, dag_nummer)
+```
+
+Overrides are fetched in `fetchSchemaData()` alongside schemas/schema_days/exercises and passed to `buildWeeks()`. Inside `buildWeeks`, an `overrideMap` keyed by `"calWeek__dagVolgorde"` is built per schema. When a day matches an override: `type` becomes `dag_van_week`; `emoji`/`naam` use the override values (or type-based fallbacks); `dag_nummer` and `kleur` are set to `null` so the tile renders in neutral gray. The override is baked into `localStorage["cached_schema_v2"]` so it works offline. Pull-to-refresh re-fetches and reapplies overrides.
+
 Important: Supabase `PostgrestBuilder` is a lazy promise — the HTTP request only fires when `.then()` is called or the result is awaited. Always chain `.then()` on upsert/insert calls, otherwise the request is silently dropped.
+
+## Offline support & pull-to-refresh
+
+**Schema caching** — on successful Supabase fetch, the full schema is stored in `localStorage["cached_schema_v2"]` as JSON. On load, the app serves cached data immediately (cache-first), then fetches fresh data in the background and updates the cache. If Supabase is unreachable and a cache exists, a gray "offline" banner appears below the header (`schemaOffline` state). Cache key is `cached_schema_v2` (versioned to avoid stale structure issues).
+
+**Service worker** — `vite-plugin-pwa` generates a Workbox service worker that precaches all build assets (JS/CSS/HTML). This lets the Capacitor WebView load the app shell offline after the first online visit, before localStorage can even be read. Configured in `vite.config.js` with `registerType: 'autoUpdate'`.
+
+**Pull-to-refresh** — touch events on the root div: `handlePullStart` / `handlePullMove` / `handlePullEnd`. A raw pull distance (`rawPullDist`) is tracked starting from `touchstart`. The visible pull distance (`pullY`) uses damped mapping. A progress ring SVG indicator appears after 150px raw pull and fills as you pull toward the 260px trigger threshold. On release at ≥260px (or immediately when `refreshing` is true), it triggers `refreshAll()` — re-fetches schema + user data from Supabase and updates the cache. The root div has `overscrollBehaviorY: "contain"` to prevent the browser's native overscroll. The indicator shows an orange arc (`strokeDasharray`) that rotates when refreshing (`@keyframes ptr-spin` injected via `<style>` tag).
 
 ## Rest timer
 
@@ -244,9 +285,11 @@ Wake Lock: the Web API `navigator.wakeLock` is not used. Screen keep-awake while
 
 Helper functions: `playBoxingBell()` (Web Audio API — defined but not called on timer completion; native handles it), `triggerVibration()` (calls `Haptics.vibrate({ duration: 1600 })` — defined but not called on completion; native handles it), `triggerImpact()` (long press — calls `Haptics.impact({ style: ImpactStyle.Medium })`), `formatTime(seconds)` → `"M:SS"`, `formatTimerLabel(seconds)` → `"Xmin"` or `"Xsec"`. Haptics helpers use `.catch(() => {})` so they fail silently in web browsers where Capacitor Haptics is unavailable.
 
-## Progressive overload pattern (weeks 1–3)
+## Progressive overload pattern (schema 1, weeks 1–3)
 
-Weeks 1–3 use the same exercises. Volume increases each week (e.g. 3x → 4x → 5x sets) and the barbell notes say `"Focusgewicht"` → `"+5kg"` → `"+5kg piek"`. The `note` field on `spiergroep` exercises is `""` in week 1 and `"+gewicht"` in weeks 2–3.
+**Applies to schema 1 only (calWeeks 23–25).** Schema 2 uses supersets throughout; see `week.week >= 31` render branch.
+
+Within schema 1's first three relative weeks, the same exercises repeat with increasing volume (e.g. 3x → 4x → 5x sets) and the barbell notes say `"Focusgewicht"` → `"+5kg"` → `"+5kg piek"`. The `note` field on `spiergroep` exercises is `""` in week 1 and `"+gewicht"` in weeks 2–3.
 
 ## Android / Capacitor
 
