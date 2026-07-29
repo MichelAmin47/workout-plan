@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Vite + React app that renders a 7-week gym training plan. The component (`fitness_schema.jsx`) lives at the project root and is self-contained — all styling is inline, no CSS file.
+A Vite + React app that renders a 14-week gym training plan across two schemas (schema 1: calWeeks 23–30, schema 2: calWeeks 31–36). The component (`fitness_schema.jsx`) lives at the project root and is self-contained — all styling is inline, no CSS file.
 
 ## Dev server
 
@@ -18,13 +18,17 @@ Requires Node.js 20.19+ or 22.12+. The project was developed on Node 22.22.3 (nv
 
 ## Android build
 
-After any JS change that needs to be reflected in the Android app:
+The production app (`main` branch) points its WebView at `https://workout-plan-taupe.vercel.app` via the `server.url` in `capacitor.config.ts`. **JS/UI changes pushed to `main` are picked up automatically after a pull-to-refresh in the running app — no APK rebuild required.**
+
+`cap sync` + APK rebuild is only needed when native Android files change (e.g. `capacitor.config.ts` itself, Java plugins, `AndroidManifest.xml`, `build.gradle`):
 
 ```bash
 npm run build && npx cap sync android
 ```
 
-Then rebuild and install the APK in Android Studio. `cap sync` copies `dist/` into `android/app/src/main/assets/public/` — the WebView will not pick up JS changes until this is run.
+`cap sync` copies `dist/` into `android/app/src/main/assets/public/` and updates `android/app/src/main/assets/capacitor.config.json` (gitignored). After syncing native changes, rebuild and install the APK in Android Studio.
+
+**Important:** `android/app/src/main/res/values/strings.xml` holds the launcher app name (`app_name`) and package name. It is tracked in git but NOT updated by `cap sync` — if `appName` or `appId` changes in `capacitor.config.ts`, update `strings.xml` manually too.
 
 ## File layout
 
@@ -60,6 +64,7 @@ android/                  ← Capacitor Android project (generated, do not edit 
       drawable/ic_timer_notification.xml ← flat monochrome notification icon (required)
       raw/boxing_bell.mp3       ← bell audio used by TimerPlugin.playBell()
     AndroidManifest.xml         ← permissions + foreground service declaration
+    res/values/strings.xml      ← app_name + package_name (tracked in git; update manually if appId/appName changes)
 ```
 
 ## Dependency versions (as of last update)
@@ -81,13 +86,28 @@ VITE_SUPABASE_URL=...
 VITE_SUPABASE_ANON_KEY=...
 ```
 
+## Vercel deployment
+
+Production URL: `https://workout-plan-taupe.vercel.app` (stable Vercel alias, never rotates).
+The `main` branch auto-deploys to production. The `server.url` in `capacitor.config.ts` points here so the Android WebView always loads the latest production JS.
+
+**Required Vercel dashboard settings** (Settings → for the Production environment):
+- Deployment Protection → **Disabled** (otherwise the Android WebView gets an auth challenge instead of the app)
+- Vercel Toolbar → **Disabled** (injected toolbar breaks the mobile WebView layout)
+
 ## Component architecture
 
 Everything lives in `fitness_schema.jsx`:
 
 - **`schema`** — dynamic object built from Supabase (`schemas`, `schema_days`, `exercises` tables). Cached in `localStorage["cached_schema_v2"]` for offline use. Two phases: `"Opbouw"` (weeks 1–3) and `"Nieuwe Prikkel"` (weeks 4+). Built by `buildWeeks()` at module scope.
-- **`buildWeeks(schemas, schemaDays, exercises, weekOverrides = [])`** — module-scope pure function. Transforms raw Supabase rows into week/day structures. Each week has 7 days sorted by `dag_volgorde`. Training days have `barbell/spiergroep/kettlebell/core`; non-training days have only metadata (`type`, `dag_label`, `emoji`, `naam`).
+- **`buildWeeks(schemas, schemaDays, exercises, weekOverrides = [])`** — module-scope pure function. Transforms raw Supabase rows into week/day structures. Iterates all schemas in one pass, producing a flat array of all calendar weeks across both schemas. Each week object includes `{ week, label, phase, schemaId, days }`. Each week has 7 days sorted by `dag_volgorde`. Training days have `barbell/spiergroep/kettlebell/core`; non-training days have only metadata (`type`, `dag_label`, `emoji`, `naam`). `schemaId` is used downstream to filter `restDayGoals` per schema.
 - **`FitnessSchema`** (default export) — top-level component. Manages state: `selectedWeek`, `selectedDay` (index 0–6 into `week.days`, persisted to `localStorage["selectedDay"]`), `schema` (object `{ weeks, restDayGoals }` — the full built schema plus rest-day goal rows from Supabase, cached in `localStorage["cached_schema_v2"]`), `schemaGen` (integer counter incremented on every successful schema refresh — used as part of `WeekDayTile` keys to force remount after pull-to-refresh), `weights`, `expandedExercise`, `completedDays`, `completedExercises`, `swaps`, `swapModal`, `activeTimer`, `activeSection`, `timerLocked`, `schemaOffline` (bool — true when Supabase unreachable and serving from cache), `refreshing` (bool — pull-to-refresh in progress), `pullY` (raw px pulled). Also: `progressieOpen`, `progressieExercise`. Calls `useTimer`. The app header shows title + phase badge. Offline shows a gray banner below the header.
+- **`SupersetBlock`** — renders one superset group (e.g. "SUPERSET 1") inside the Supersets section (schema 2 only, `week.week >= 31`). Shows a colored pill header, a rounded card with exercises separated by "GEEN RUST →" connectors, and an expanded weight panel when an exercise is tapped. Each exercise row includes `TypeBadge`. Props: `title`, `exercises`, `accentColor`, `lightColor`, plus shared weight/completion props.
+- **`TypeBadge`** — small inline pill rendered next to an exercise name in `SupersetBlock`. Calls `inferExerciseType(name, categorie)` to return one of `"barbell"` / `"dumbbell"` / `"cable"` / `"machine"` / `null`. Returns `null` (renders nothing) for KB, core, and bodyweight exercises.
+- **`inferExerciseType(name, categorie)`** — module-scope helper. Checks `categorie === "barbell"` first, then falls through to regex patterns on the name: `/^(Barbell |T-Bar )/` or `name.includes("(barbell)")` → barbell; `name.includes("Dumbbell")` or `name === "Hammer Curl"` → dumbbell; `/Cable|Pulldown/` → cable; `/Machine|Leg Press|Hack Squat|Pec Deck/` → machine.
+- **`StretchenCard`** — renders for `day.naam === "Anti-zit"` rust days. Shows a list of goals from `rest_day_goals` filtered by `dag_van_week === "stretchen"`. Icons keyed by `type` field (`trap`, `sta_op`, `avond`, `vacuum`).
+- **`VrijeDagCard`** — renders for all other rust days. Shows goals from `rest_day_goals` filtered by `dag_van_week === "vrije_dag"`. Icons keyed by `type` (`gezin`, `optioneel`). Supports week-specific overrides: rows with `week_nummer === week.week` take priority over `week_nummer === 0` catch-all.
+- **`CardioFitnessCard`** — renders for `day.type === "cardio_fitness"` days. Hardcoded layout (no Supabase fetch).
 - **`Section`** — always-expanded card wrapper used for each exercise category. Header shows section title + a timer button (⏱ label). Timer button uses section accent when active. Props: `title`, `icon`, `accent`, `timerSeconds`, `timerActive`, `onTimerClick`.
 - **`ExRow`** — single exercise row (number badge, name, optional note, sets pill). When `onToggle` is provided (spiergroep, kettlebell), the row is clickable and renders a weight input panel below it when `expanded` is true. The panel contains M: and Z: number inputs that save to Supabase on change, plus a previous-week reference line. The number badge is rendered by `ExCircle`. Accepts `swapped` (bool) and `originalName` (string) props — when `swapped` is true, shows a purple "GEWIJZIGD" badge next to the name and renders `↩ originalName` below in gray. Accepts `hiitInterval` (`{ work, rest }` or null) — when set, renders a split badge (`Xs | Ys`) instead of the regular sets pill.
 - **`ExCircle`** — the circular number badge inside `ExRow`. Supports a 1000ms long press (`onLongPress`) to toggle exercise completion. Shows a green ✓ when completed. Long press works on both mouse and touch; suppresses the subsequent click to prevent the weight panel from toggling.
@@ -112,7 +132,7 @@ Everything lives in `fitness_schema.jsx`:
 - `dag_label` — abbreviated day name (`"Ma"`, `"Di"`, …)
 - `dag_volgorde` — sort order 1–7
 - `emoji` — day emoji from DB
-- `naam` — day name (e.g. `"Rug & Biceps"`, `"Anti-zit dag"`)
+- `naam` — day name (e.g. `"Rug & Biceps"`, `"Anti-zit"`, `"Vrije dag"`)
 
 Training days additionally have:
 - `spiergroep` — muscle-group isolation exercises (array of exercise objects)
@@ -126,7 +146,10 @@ Exercise object fields:
 ```
 `optional: true` renders the row with a dashed orange border and "OPTIONEEL" badge. Only appears on `spiergroep` exercises (last item per day). Kettlebell and core exercises never have `optional`. `hiitInterval` is set on kettlebell exercises when `hiit_work` / `hiit_rest` are non-null in the DB row; see the KB HIIT intervals section.
 
-**Content area for non-training days**: When `day.type === "rust"`, either `StretchenCard` (if `day.naam === "Anti-zit"`) or `VrijeDagCard` (all other rust days) is shown; both fetch their content from the `rest_day_goals` Supabase table filtered by `dag_van_week` and `schema_id`. When `day.type === "cardio_fitness"`, a hardcoded `CardioFitnessCard` is shown. The Progressie chart is shown in all cases (it reads all exercise weights globally). Training sections (Barbell/Spiergroep/KB/Core) are guarded by `{day.type === "training" && ...}`.
+Each week object also carries:
+- `schemaId` — UUID of the parent schema; used to filter `restDayGoals` so schema 1 and schema 2 rest-day content don't bleed into each other.
+
+**Content area for non-training days**: When `day.type === "rust"`, either `StretchenCard` (if `day.naam === "Anti-zit"`) or `VrijeDagCard` (all other rust days) is shown; both pull their content from the `rest_day_goals` Supabase table filtered by `dag_van_week` and `g.schema_id === week.schemaId`. Week-specific rows (`week_nummer === week.week`) take priority over catch-all rows (`week_nummer === 0`). When `day.type === "cardio_fitness"`, a hardcoded `CardioFitnessCard` is shown. The Progressie chart is shown in all cases (it reads all exercise weights globally). Training sections (Barbell/Spiergroep/KB/Core) are guarded by `{day.type === "training" && ...}`.
 
 **Supabase `schema_days` columns**: `dag_label` TEXT, `dag_volgorde` INTEGER, `dag_nummer` INTEGER (nullable), `type` CHECK in ('training','rust','cardio_fitness'), `emoji` TEXT, `spiergroep_naam` (→ `naam` in JS).
 
@@ -142,7 +165,11 @@ Optional exercise accent color is always orange `#f37121` (same as the app heade
 
 ## Section render order
 
-Inside the content area, sections are rendered in this fixed order: Barbell → Spiergroep → Kettlebell → Core → Progressie. The Barbell section uses a solid orange card (not `ExRow`) but is also clickable and shows an inline weight panel when expanded. The progress note below the sections is driven by `week.phase`: "Opbouw" weeks show a progressive overload tip; "Nieuwe Prikkel" weeks show either an intro tip ("begin with a workable weight, build next week") or a peak tip ("go for max weight"), determined by checking whether `schema.weeks[selectedWeek + 1]?.phase === "Nieuwe Prikkel"` — if true it's the intro week, otherwise it's the peak week.
+**Schema 1 (`week.week <= 30`):** Barbell → Spiergroep → Kettlebell → Core → Progressie. The Barbell section uses a solid orange card (not `ExRow`) but is also clickable and shows an inline weight panel when expanded.
+
+**Schema 2 (`week.week >= 31`):** The Barbell and Spiergroep sections are replaced by a single **Supersets** section rendered via `SupersetBlock`. The Barbell exercise (note = `"Superset 1"`) and matching spiergroep exercises are grouped into SUPERSET 1; the remaining paired spiergroep exercises into SUPERSET 2; any remaining spiergroep exercises (empty `note`) into a "LOSSE OEFENINGEN" block. Order: Supersets → Kettlebell → Core → Progressie.
+
+The progress note below the sections is driven by `week.phase`: "Opbouw" weeks show a progressive overload tip; "Nieuwe Prikkel" weeks show either an intro tip ("begin with a workable weight, build next week") or a peak tip ("go for max weight"), determined by checking whether `schema.weeks[selectedWeek + 1]?.phase === "Nieuwe Prikkel"` — if true it's the intro week, otherwise it's the peak week.
 
 ## Progressie chart
 
@@ -237,6 +264,18 @@ week      int        (absolute calendar week, e.g. 23–36)
 person    text       ('M' or 'Z')
 weight    numeric
 unique constraint on (exercise, week, person)
+```
+
+The `rest_day_goals` table schema:
+```
+rest_day_goals:
+  id            uuid (PK)
+  schema_id     uuid (FK → schemas.id)
+  week_nummer   int        (0 = catch-all for every week; specific calWeek = override for that week only)
+  dag_van_week  text       ('stretchen' | 'vrije_dag')
+  type          text       (icon key: 'trap'|'sta_op'|'avond'|'vacuum' for stretchen; 'gezin'|'optioneel' for vrije_dag)
+  beschrijving  text
+  duur_minuten  int        (nullable)
 ```
 
 The `week_overrides` table schema:
