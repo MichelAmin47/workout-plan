@@ -1,4 +1,6 @@
-// Static/canned content for the UI-only pass. Real backend wiring comes later.
+// Seeded example thread the app opens with. Coach replies to new messages
+// are real (via the coach-chat Edge Function) — only this initial history
+// is static.
 
 let seq = 0
 const id = () => `seed-${++seq}`
@@ -98,20 +100,6 @@ export const seedMessages = [
 // Everything before it is prior history, already resolved.
 
 export const quickReplyOptions = ['Niet zo goed', 'Prima!', 'Heel goed 💪']
-
-const cannedReplies = [
-  'Dank je voor het delen! Ik neem dit mee voor morgen. 🌿',
-  'Goed om te weten, ik hou het bij! 💪',
-  'Duidelijk! Ik pas mijn advies hierop aan.',
-  'Fijn dat je het laat weten — tot morgen! 🌙',
-]
-
-let cannedIndex = 0
-export function nextCannedReply() {
-  const reply = cannedReplies[cannedIndex % cannedReplies.length]
-  cannedIndex += 1
-  return reply
-}
 
 export function makeMessageId() {
   return id()

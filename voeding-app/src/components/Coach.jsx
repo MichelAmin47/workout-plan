@@ -7,7 +7,10 @@ import SummaryCard from './SummaryCard.jsx'
 import { UserBubble, CoachBubble } from './ChatBubble.jsx'
 import TypingIndicator from './TypingIndicator.jsx'
 import SendIcon from './SendIcon.jsx'
-import { seedMessages, quickReplyOptions, nextCannedReply, makeMessageId } from '../data/seedMessages.js'
+import { seedMessages, quickReplyOptions, makeMessageId } from '../data/seedMessages.js'
+import { askCoach } from '../lib/chatApi.js'
+
+const FALLBACK_ERROR_TEXT = 'Sorry, ik kan even niet reageren — probeer het zo nog eens.'
 
 function nowTime() {
   const d = new Date()
@@ -31,21 +34,26 @@ export default function Coach() {
     }
   }, [messages, isTyping])
 
-  function sendMessage(text) {
+  async function sendMessage(text) {
     const trimmed = text.trim()
     if (!trimmed) return
 
-    setMessages((prev) => [...prev, { id: makeMessageId(), type: 'user', text: trimmed, time: nowTime() }])
+    const userMessage = { id: makeMessageId(), type: 'user', text: trimmed, time: nowTime() }
+    const threadWithUserMessage = [...messages, userMessage]
+    setMessages(threadWithUserMessage)
     setInputValue('')
     setIsTyping(true)
 
-    setTimeout(() => {
-      setIsTyping(false)
-      setMessages((prev) => [
-        ...prev,
-        { id: makeMessageId(), type: 'coach', text: nextCannedReply(), time: nowTime() },
-      ])
-    }, 1200)
+    let replyText
+    try {
+      replyText = await askCoach(threadWithUserMessage)
+    } catch (err) {
+      console.error('coach-chat call failed', err)
+      replyText = FALLBACK_ERROR_TEXT
+    }
+
+    setIsTyping(false)
+    setMessages((prev) => [...prev, { id: makeMessageId(), type: 'coach', text: replyText, time: nowTime() }])
   }
 
   function handleSubmit(e) {
