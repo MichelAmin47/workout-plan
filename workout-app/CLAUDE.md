@@ -102,7 +102,7 @@ Production URL: `https://workout-plan-taupe.vercel.app` (stable Vercel alias, ne
 The `main` branch auto-deploys to production. The `server.url` in the root `capacitor.config.ts` points here so the Android WebView always loads the latest production JS.
 
 **Required Vercel dashboard settings** (Settings → for the Production environment):
-- **Root Directory** → `workout-app` (required since the monorepo restructure — the app no longer lives at the repo root; no `vercel.json` exists, so this must be set in the dashboard)
+- **Root Directory** → `workout-app` (set since the monorepo restructure — the app no longer lives at the repo root; no `vercel.json` exists, so this lives only in the dashboard. Confirmed working: live-update via pull-to-refresh tested successfully against this setting)
 - Deployment Protection → **Disabled** (otherwise the Android WebView gets an auth challenge instead of the app)
 - Vercel Toolbar → **Disabled** (injected toolbar breaks the mobile WebView layout)
 

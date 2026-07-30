@@ -32,7 +32,7 @@ Each app (`workout-app/`, `voeding-app/`) is a fully independent Vite + React pr
 
 ## Vercel deployment
 
-Production URL `https://workout-plan-taupe.vercel.app` serves `workout-app/`. No `vercel.json` exists — the project's **Root Directory** must be set to `workout-app` in the Vercel dashboard (Settings → General) for deployments to resolve correctly post-restructure. See `workout-app/CLAUDE.md` → "Vercel deployment" for the rest of the required dashboard settings.
+Production URL `https://workout-plan-taupe.vercel.app` serves `workout-app/`. No `vercel.json` exists — the project's **Root Directory** is set to `workout-app` in the Vercel dashboard (Settings → General), a manual change made after the monorepo restructure. Live-update (pull-to-refresh picking up `main` pushes without an APK rebuild) was re-verified working against this setting. See `workout-app/CLAUDE.md` → "Vercel deployment" for the rest of the dashboard settings.
 
 ## Language
 
