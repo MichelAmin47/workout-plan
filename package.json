@@ -1,0 +1,15 @@
+{
+  "name": "fitness-project",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Capacitor tooling root for the fitness-project monorepo (android/ + capacitor.config.ts). Web apps live in workout-app/ and voeding-app/ with their own package.json.",
+  "devDependencies": {
+    "@capacitor/cli": "^8.4.1",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/haptics": "^8.0.2"
+  }
+}
