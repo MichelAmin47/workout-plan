@@ -1,4 +1,30 @@
-import { supabase } from './supabaseClient.ts'
+import { supabase } from '../_shared/supabaseClient.ts'
+import { closeDayWithSummary } from '../_shared/summary.ts'
+
+interface ConversationMessage {
+  role: 'user' | 'assistant'
+  content: unknown
+}
+
+// Flattens the working message list into plain "Gebruiker: ... / Coach: ..."
+// turns for the summary model, skipping tool_use/tool_result plumbing.
+function buildTranscript(messages: ConversationMessage[]): string {
+  const lines: string[] = []
+  for (const msg of messages) {
+    if (typeof msg.content === 'string') {
+      lines.push(`${msg.role === 'user' ? 'Gebruiker' : 'Coach'}: ${msg.content}`)
+    } else if (Array.isArray(msg.content)) {
+      const text = msg.content
+        .filter((block: { type: string }) => block.type === 'text')
+        .map((block: { text: string }) => block.text)
+        .join(' ')
+      if (text.trim()) {
+        lines.push(`${msg.role === 'user' ? 'Gebruiker' : 'Coach'}: ${text.trim()}`)
+      }
+    }
+  }
+  return lines.join('\n')
+}
 
 export const TOOLS = [
   {
@@ -71,9 +97,20 @@ export const TOOLS = [
       required: ['id'],
     },
   },
+  {
+    name: 'close_day_summary',
+    description:
+      'Close out today and write the end-of-day summary. Call this when the user asks to close/end the day (e.g. "sluit de dag af"). This triggers a separate compression step over the whole conversation — do not write the summary yourself.',
+    input_schema: { type: 'object', properties: {} },
+  },
 ]
 
-export async function executeTool(name: string, input: Record<string, unknown>, todayStr: string): Promise<unknown> {
+export async function executeTool(
+  name: string,
+  input: Record<string, unknown>,
+  todayStr: string,
+  conversationMessages: ConversationMessage[],
+): Promise<unknown> {
   switch (name) {
     case 'nutrition_log_add': {
       const { data, error } = await supabase
@@ -126,6 +163,14 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         .eq('id', input.id)
       if (error) return { error: error.message }
       return { status: 'deactivated' }
+    }
+    case 'close_day_summary': {
+      const transcript = buildTranscript(conversationMessages)
+      const result = await closeDayWithSummary(todayStr, transcript || null)
+      if (!result.ok) {
+        return { error: result.error ?? 'Kon de dag niet afsluiten.' }
+      }
+      return { status: 'closed' }
     }
     default:
       return { error: `Unknown tool: ${name}` }

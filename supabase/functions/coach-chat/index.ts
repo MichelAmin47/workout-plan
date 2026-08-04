@@ -7,7 +7,8 @@
 // multi-turn tool-use loop so the coach can log/correct/delete meals
 // (nutrition_log) and manage its own long-term memory (coach_memory).
 
-import { amsterdamNow, isoDateString } from './today.ts'
+import { amsterdamNow, isoDateString } from '../_shared/today.ts'
+import { callClaude, extractText } from '../_shared/anthropic.ts'
 import { PERSONA_PROMPT, buildDynamicContext } from './prompt.ts'
 import { TOOLS, executeTool } from './tools.ts'
 
@@ -55,51 +56,42 @@ Deno.serve(async (req: Request) => {
 
     const workingMessages = [...messages]
     let finalReplyText: string | null = null
+    let daySummaryWritten = false
 
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
-      const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-5',
-          max_tokens: 1024,
-          system: systemPrompt,
-          messages: workingMessages,
-          tools: TOOLS,
-        }),
+      const result = await callClaude(apiKey, {
+        model: 'claude-sonnet-5',
+        system: systemPrompt,
+        messages: workingMessages,
+        tools: TOOLS,
+        maxTokens: 1024,
       })
 
-      if (!anthropicRes.ok) {
-        const errText = await anthropicRes.text()
-        console.error('Anthropic API error', anthropicRes.status, errText)
+      if (!result.ok) {
+        console.error('Anthropic API error', result.status, result.errorText)
         return jsonResponse({ error: 'Coach is momenteel niet bereikbaar.' }, 502)
       }
 
-      const data = await anthropicRes.json()
+      const data = result.data!
 
       if (data.stop_reason === 'tool_use') {
         workingMessages.push({ role: 'assistant', content: data.content })
 
         const toolResults = []
         for (const block of data.content ?? []) {
-          if (block.type === 'tool_use') {
-            const result = await executeTool(block.name, block.input ?? {}, todayStr)
-            toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result) })
+          if (block.type === 'tool_use' && block.id && block.name) {
+            const toolResult = await executeTool(block.name, block.input ?? {}, todayStr, workingMessages)
+            if (block.name === 'close_day_summary' && toolResult && typeof toolResult === 'object' && !('error' in toolResult)) {
+              daySummaryWritten = true
+            }
+            toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(toolResult) })
           }
         }
         workingMessages.push({ role: 'user', content: toolResults })
         continue
       }
 
-      finalReplyText = (data.content ?? [])
-        .filter((block: { type: string }) => block.type === 'text')
-        .map((block: { text: string }) => block.text)
-        .join('\n')
-        .trim()
+      finalReplyText = extractText(data.content)
       break
     }
 
@@ -107,7 +99,7 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: 'Coach kon geen antwoord afronden.' }, 502)
     }
 
-    return jsonResponse({ reply: finalReplyText })
+    return jsonResponse({ reply: finalReplyText, daySummaryWritten })
   } catch (err) {
     console.error('coach-chat error', err)
     return jsonResponse({ error: 'Er ging iets mis.' }, 500)

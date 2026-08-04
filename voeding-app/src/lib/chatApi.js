@@ -58,5 +58,5 @@ export async function askCoach(messages) {
   if (error || !data?.reply) {
     throw error ?? new Error('No reply from coach-chat')
   }
-  return data.reply
+  return { reply: data.reply, daySummaryWritten: Boolean(data.daySummaryWritten) }
 }
