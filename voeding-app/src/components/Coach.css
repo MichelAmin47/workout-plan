@@ -46,6 +46,18 @@
   align-items: center;
   gap: 5px;
 }
+/* TEMPORARY — remove after block 4 verification */
+.test-notification-btn {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--accent2);
+  background: transparent;
+  border: 1px solid var(--accent2);
+  border-radius: 12px;
+  padding: 4px 8px;
+  flex-shrink: 0;
+}
+
 .coach-status::before {
   content: '';
   width: 6px;
