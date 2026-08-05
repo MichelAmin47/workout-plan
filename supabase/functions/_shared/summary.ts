@@ -40,6 +40,7 @@ Regels:
 - samenvatting: 1-2 zinnen, reflectief — wat ging er goed, hoe verliep de dag.
 - aandachtspunt: wat de coach morgen moet onthouden — concreet, geen open zin.
 - Zodra de gebruiker in het gesprek heeft aangegeven vol of klaar te zijn voor die dag: sluit af op wat goed ging. Noem GEEN manieren om het eiwitdoel alsnog te halen en geen "je had nog wat kunnen eten" — dat is precies het gedrag dat de coach zelf ook al vermijdt.
+- De caloriewaarden hieronder staan erbij voor nauwkeurigheid, niet om standaard te noemen. Focus zoals gebruikelijk op eiwitten en hoe de dag verliep — noem calorieën alleen als dat al onderdeel was van het gesprek zelf.
 - Gebruik het record_summary tool om dit vast te leggen.
 
 Trainingscontext van vandaag: ${workoutSummary}
@@ -55,6 +56,7 @@ BELANGRIJK: je hebt het gesprek van die dag niet gezien. Verzin GEEN stemming, g
 Regels:
 - samenvatting: 1-2 zinnen, feitelijk — gelogde maaltijden/eiwitten en trainingsdata van die dag.
 - aandachtspunt: een feitelijke observatie op basis van de cijfers (bv. eiwitdoel wel/niet gehaald), geen gok over intentie of stemming.
+- De caloriewaarden hieronder staan erbij voor nauwkeurigheid, niet om standaard te noemen — focus zoals gebruikelijk op eiwitten, niet op calorieën.
 - Gebruik het record_summary tool om dit vast te leggen.
 
 Trainingscontext van die dag: ${workoutSummary}
@@ -78,14 +80,14 @@ export async function closeDayWithSummary(
   }
 
   const [mealsRes, workoutSummary] = await Promise.all([
-    supabase.from('nutrition_log').select('tijdstip, omschrijving, eiwitten_g').eq('datum', datum).order('tijdstip', { ascending: true }),
+    supabase.from('nutrition_log').select('tijdstip, omschrijving, eiwitten_g, calorieen').eq('datum', datum).order('tijdstip', { ascending: true }),
     resolveWorkoutForDate(datum),
   ])
 
   const meals = mealsRes.data ?? []
   const mealsText =
     meals.length > 0
-      ? meals.map((m) => `- ${m.tijdstip ?? '?'} ${m.omschrijving}: ${m.eiwitten_g}g eiwit`).join('\n')
+      ? meals.map((m) => `- ${m.tijdstip ?? '?'} ${m.omschrijving}: ${m.eiwitten_g}g eiwit, ${m.calorieen}kcal`).join('\n')
       : 'Geen maaltijden gelogd.'
 
   const systemPrompt = conversationTranscript

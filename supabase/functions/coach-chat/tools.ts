@@ -30,26 +30,28 @@ export const TOOLS = [
   {
     name: 'nutrition_log_add',
     description:
-      'Log a meal or snack the user has ACTUALLY eaten (not something planned/future). Extract a short description and an estimated protein amount in grams.',
+      'Log a meal or snack the user has ACTUALLY eaten (not something planned/future). Extract a short description and estimated protein and calories.',
     input_schema: {
       type: 'object',
       properties: {
         omschrijving: { type: 'string', description: 'Short description of what was eaten, e.g. "2 boterhammen met kaas"' },
         eiwitten_g: { type: 'number', description: 'Estimated grams of protein for this meal/snack' },
+        calorieen: { type: 'number', description: 'Estimated calories (kcal) for this meal/snack' },
         tijdstip: { type: 'string', description: 'Time eaten, 24h HH:MM, Europe/Amsterdam. Use the current time from context if the user does not name one.' },
       },
-      required: ['omschrijving', 'eiwitten_g', 'tijdstip'],
+      required: ['omschrijving', 'eiwitten_g', 'calorieen', 'tijdstip'],
     },
   },
   {
     name: 'nutrition_log_update',
-    description: 'Correct an existing nutrition_log entry — its description and/or its protein estimate. Use the id from the "vandaag gelogde maaltijden" context list.',
+    description: 'Correct an existing nutrition_log entry — its description, protein estimate, and/or calorie estimate. Use the id from the "vandaag gelogde maaltijden" context list.',
     input_schema: {
       type: 'object',
       properties: {
         id: { type: 'string', description: 'uuid of the nutrition_log row to correct' },
         omschrijving: { type: 'string' },
         eiwitten_g: { type: 'number' },
+        calorieen: { type: 'number' },
       },
       required: ['id'],
     },
@@ -120,6 +122,7 @@ export async function executeTool(
           tijdstip: input.tijdstip,
           omschrijving: input.omschrijving,
           eiwitten_g: input.eiwitten_g,
+          calorieen: input.calorieen,
         })
         .select('id')
         .single()
@@ -130,6 +133,7 @@ export async function executeTool(
       const patch: Record<string, unknown> = {}
       if (input.omschrijving !== undefined) patch.omschrijving = input.omschrijving
       if (input.eiwitten_g !== undefined) patch.eiwitten_g = input.eiwitten_g
+      if (input.calorieen !== undefined) patch.calorieen = input.calorieen
       const { error } = await supabase.from('nutrition_log').update(patch).eq('id', input.id)
       if (error) return { error: error.message }
       return { status: 'updated' }

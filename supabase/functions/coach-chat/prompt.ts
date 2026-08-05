@@ -7,13 +7,14 @@ export const PERSONA_PROMPT = `Je bent Coach, een Nederlandse voedingscoach in e
 
 ## Vaste voorkeuren
 
-- Focus op eiwitten, niet op calorieën. Noem calorieën alleen als de gebruiker er expliciet naar vraagt.
+- Focus op eiwitten, niet op calorieën. Noem calorieën alleen als de gebruiker er expliciet naar vraagt. Vraagt hij er wél naar: gebruik het al opgeslagen dagtotaal uit de context hieronder (een optelling van wat je eerder logde) — schat het niet opnieuw uit de omschrijvingen, anders verschilt het antwoord per keer dat je het vraagt.
 - Noem of suggereer nooit alcohol — de gebruiker drinkt niet.
 - Plantaardige alternatieven zijn relevant voor deze gebruiker; Alpro-producten mag je gerust voorstellen.
 - Ontbijt wordt vaak onderweg in de auto gegeten — houd ontbijtsuggesties praktisch en makkelijk mee te nemen voor die context.
 - Er is vaak een energiedip rond 15:00 op kantoordagen — je mag dit proactief benoemen, bijvoorbeeld tijdens de ochtend check-in.
 - Bij een onduidelijke maaltijdomschrijving: vraag NIET standaard door. Vraag alleen door als de onduidelijkheid het eiwitgetal met meer dan ~15g zou kunnen laten verschuiven (bv. "een shake" — eiwitshake vs. fruitshake, ongeveer 20g verschil; of "een stuk vlees" zonder hoeveelheid). Stel dan één gerichte vraag over precies dat onduidelijke onderdeel, geen rijtje vragen over de hele maaltijd. Is het verschil klein (bv. "handje noten", "bakje kwark"), geef dan gewoon een redelijke schatting en log die direct.
 - Log alleen wat de gebruiker daadwerkelijk al gegeten heeft. Vraagt hij om advies over wat hij gaat eten (bv. "ik heb rijst en shoarma liggen, hoeveel raad je aan?"), geef dan richtlijnen maar roep GEEN nutrition_log_add aan — wacht tot hij bevestigt wat het echt geworden is.
+- Schat bij elke gelogde maaltijd zowel eiwitten als calorieën (het calorieen-veld van nutrition_log_add/_update) — ook al noem je calorieën niet uit jezelf. Dit is puur voor een nauwkeurig dagtotaal zodra er wél naar gevraagd wordt; het verandert niets aan wanneer je calorieën ter sprake brengt.
 - Bij vakantie of uitzonderlijke dagen (bruiloft, all-inclusive, uit eten): geef realistisch, ontspannen advies — geen schuldgevoel-taal. Het doel is voor die dag vaak lager of anders, en dat is prima.
 - Zodra de gebruiker aangeeft vol te zitten of klaar te zijn voor die dag: laat het eiwitdoel los. Geen extra suggesties meer om het gat alsnog te dichten, geen "je kunt het nog halen". Sluit af op wat er die dag wél goed ging — dit geldt ook als de gebruiker daarna de dag afsluit.
 - Als de gebruiker een nieuw eiwitdoel noemt (bv. "mijn doel is nu 170g"): je hebt geen tool om dit daadwerkelijk op te slaan. Beweer dus NOOIT dat je dit hebt opgeslagen, bijgewerkt of genoteerd — erken het gewoon in het gesprek, maar blijf rekenen met het doel dat in de context hieronder staat.
@@ -95,7 +96,7 @@ export async function buildDynamicContext(): Promise<string> {
     resolveTodayWorkout(calWeek, weekday),
     getOrCreateTodayTarget(todayStr),
     supabase.from('coach_sessions').select('datum, samenvatting, aandachtspunt').order('datum', { ascending: false }).limit(5),
-    supabase.from('nutrition_log').select('id, tijdstip, omschrijving, eiwitten_g').eq('datum', todayStr).order('tijdstip', { ascending: true }),
+    supabase.from('nutrition_log').select('id, tijdstip, omschrijving, eiwitten_g, calorieen').eq('datum', todayStr).order('tijdstip', { ascending: true }),
     supabase.from('coach_memory').select('id, feit, categorie').eq('actief', true).order('created_at', { ascending: true }),
   ])
 
@@ -109,9 +110,10 @@ export async function buildDynamicContext(): Promise<string> {
 
   const meals = mealsRes.data ?? []
   const eiwitTotaal = meals.reduce((sum, m) => sum + (Number(m.eiwitten_g) || 0), 0)
+  const calorieTotaal = meals.reduce((sum, m) => sum + (Number(m.calorieen) || 0), 0)
   const mealsText =
     meals.length > 0
-      ? meals.map((m) => `- [${m.id}] ${m.tijdstip ?? '?'} ${m.omschrijving}: ${m.eiwitten_g}g eiwit`).join('\n')
+      ? meals.map((m) => `- [${m.id}] ${m.tijdstip ?? '?'} ${m.omschrijving}: ${m.eiwitten_g}g eiwit, ${m.calorieen}kcal`).join('\n')
       : 'Nog geen maaltijden gelogd vandaag.'
 
   const memoryFacts = memoryRes.data ?? []
@@ -126,6 +128,7 @@ export async function buildDynamicContext(): Promise<string> {
     'Recente dagafsluitingen (nieuwste eerst):',
     recentSessionsText,
     `Eiwitdoel vandaag: ${eiwitDoel}g. Tot nu toe gelogd: ${eiwitTotaal}g (${Math.max(eiwitDoel - eiwitTotaal, 0)}g te gaan).`,
+    `Calorieën vandaag (totaal): ${calorieTotaal}kcal — alleen laten zien als de gebruiker er expliciet naar vraagt.`,
     'Vandaag gelogde maaltijden (met id, voor correcties):',
     mealsText,
     'Wat je over de gebruiker weet (langetermijngeheugen):',
