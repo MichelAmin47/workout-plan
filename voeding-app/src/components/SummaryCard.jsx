@@ -1,3 +1,6 @@
+// streak is optional — there's no streak data in the schema yet (see
+// bouwplan block 9, not designed), so callers that don't have one simply
+// omit the prop and the pill doesn't render.
 export default function SummaryCard({ eyebrow, text, note, streak }) {
   return (
     <div className="summary-card">
@@ -9,7 +12,7 @@ export default function SummaryCard({ eyebrow, text, note, streak }) {
         <br />
         {note}
       </div>
-      <div className="streak-pill">{streak}</div>
+      {streak && <div className="streak-pill">{streak}</div>}
     </div>
   )
 }

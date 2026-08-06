@@ -30,11 +30,26 @@ async function fetchSummaryId(date) {
   return data && data.length > 0 ? data[0].id : null
 }
 
+// Same lookup as fetchSummaryId but with the actual summary content — used
+// right after a close to show what was just written, instead of just
+// tracking that *something* was written.
+async function fetchTodaySummary(date) {
+  const { data } = await supabase.from('coach_sessions').select('id, samenvatting, aandachtspunt').eq('datum', date).limit(1)
+  return data && data.length > 0 ? data[0] : null
+}
+
 export default function Coach() {
   const [messages, setMessages] = useState([])
   const [threadDate, setThreadDate] = useState(null)
   const [inputValue, setInputValue] = useState('')
   const [isTyping, setIsTyping] = useState(false)
+  // The just-written summary, shown once above the fresh thread right after
+  // a close. Deliberately NOT part of `messages` (never persisted to
+  // localStorage) — a fresh app launch is a fresh mount, so this simply
+  // isn't there anymore on reopen, with no invalidation logic needed. Only
+  // ever set inside the daySummaryWritten branch below, so a normal mid-day
+  // open or a failed close never touches it.
+  const [justClosedSummary, setJustClosedSummary] = useState(null)
   const scrollRef = useRef(null)
   // Not rendered, so a ref is enough — read at save time, written whenever a
   // thread is (re)stamped fresh. See threadStorage.js for why this exists.
@@ -135,8 +150,12 @@ export default function Coach() {
       clearThread()
       setTimeout(async () => {
         const today = todayDateString()
-        summaryIdAtStartRef.current = await fetchSummaryId(today)
-        setMessages(buildOpeningMessages(summaryIdAtStartRef.current !== null))
+        const summary = await fetchTodaySummary(today)
+        summaryIdAtStartRef.current = summary?.id ?? null
+        setJustClosedSummary(
+          summary ? { eyebrow: 'Dag afgesloten', text: summary.samenvatting, note: summary.aandachtspunt } : null,
+        )
+        setMessages(buildOpeningMessages(summary != null))
         setThreadDate(today)
       }, CLOSE_DAY_RESET_DELAY_MS)
     }
@@ -168,6 +187,9 @@ export default function Coach() {
       </div>
 
       <div className="chat-scroll" ref={scrollRef}>
+        {justClosedSummary && (
+          <SummaryCard eyebrow={justClosedSummary.eyebrow} text={justClosedSummary.text} note={justClosedSummary.note} />
+        )}
         {messages.map((msg) => {
           switch (msg.type) {
             case 'day-marker':
