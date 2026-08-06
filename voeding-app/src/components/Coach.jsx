@@ -164,7 +164,15 @@ export default function Coach() {
 
   // Fires once both async signals have landed, in whichever order: the
   // notification tap (above) and thread restoration (the effect above
-  // that). Two guards, checked live rather than via a flag captured at
+  // that). `threadDate` is only used here as a "has restoration finished"
+  // signal, not as the date to check — a resumed thread can be carrying a
+  // stale date (restoreThread only invalidates a stored thread when *its
+  // own* date's summary changes, not on a plain calendar rollover with no
+  // new summary involved), so the actual "is today closed" check below
+  // uses todayDateString() fresh, always the real current date regardless
+  // of what date the visible thread happens to be internally labelled as.
+  //
+  // Two guards, checked live rather than via a flag captured at
   // thread-build time (a "was it fresh" ref went stale the moment the app
   // was left open past the moment it was built — e.g. built fresh at 15:00,
   // still open at 23:30, tapped: the opening shown was never a closing
@@ -185,10 +193,11 @@ export default function Coach() {
     let cancelled = false
     ;(async () => {
       try {
-        const summary = await fetchTodaySummary(threadDate)
+        const today = todayDateString()
+        const summary = await fetchTodaySummary(today)
         if (cancelled) return
         if (summary) {
-          logDebug('join-effect: today already closed, skipping')
+          logDebug(`join-effect: ${today} already closed (threadDate was ${threadDate}), skipping`)
           return
         }
         setMessages((prev) => {
