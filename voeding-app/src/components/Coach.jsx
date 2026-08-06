@@ -67,11 +67,6 @@ export default function Coach() {
   // Not rendered, so a ref is enough — read at save time, written whenever a
   // thread is (re)stamped fresh. See threadStorage.js for why this exists.
   const summaryIdAtStartRef = useRef(null)
-  // Was the thread just now built fresh (buildOpeningMessages), or resumed
-  // from storage as-is? A fresh thread's opening message already asks the
-  // closing question itself when appropriate (block 4b) — the notification
-  // tap handler must not also append a second one on top of it.
-  const threadWasFreshRef = useRef(false)
 
   // Quick replies only make sense while the most recent thing in the thread
   // is a check-in question nobody has answered yet.
@@ -101,7 +96,6 @@ export default function Coach() {
         const today = todayDateString()
         summaryIdAtStartRef.current = await fetchSummaryId(today)
         if (cancelled) return
-        threadWasFreshRef.current = true
         setMessages(buildOpeningMessages(summaryIdAtStartRef.current !== null))
         setThreadDate(today)
         return
@@ -115,12 +109,10 @@ export default function Coach() {
         clearThread()
         summaryIdAtStartRef.current = await fetchSummaryId(today)
         if (cancelled) return
-        threadWasFreshRef.current = true
         setMessages(buildOpeningMessages(summaryIdAtStartRef.current !== null))
         setThreadDate(today)
       } else {
         summaryIdAtStartRef.current = stored.summaryIdAtStart ?? null
-        threadWasFreshRef.current = false
         setMessages(stored.messages)
         setThreadDate(stored.date)
       }
@@ -151,24 +143,32 @@ export default function Coach() {
 
   // Fires once both async signals have landed, in whichever order: the
   // notification tap (above) and thread restoration (the effect above
-  // that). A fresh thread's own opening message already covers this via
-  // block 4b, and a day that's already closed shouldn't be asked about
-  // again — both checked live rather than trusting a possibly-stale ref,
-  // since "already closed" can become true from something other than this
-  // exact thread (the 02:00 cron, or the user typing it themselves).
+  // that). Two guards, checked live rather than via a flag captured at
+  // thread-build time (a "was it fresh" ref went stale the moment the app
+  // was left open past the moment it was built — e.g. built fresh at 15:00,
+  // still open at 23:30, tapped: the opening shown was never a closing
+  // question, so appending one here is still correct):
+  // - has a closing question already appeared in *this* thread (either
+  //   block 4b's own opening, or an earlier tap this same session) — read
+  //   from the live message list inside the updater, not a ref;
+  // - is today already closed — a live fetch, since that can become true
+  //   from something other than this thread (the 02:00 cron, or the user
+  //   typing it themselves).
   useEffect(() => {
     if (!threadDate || notificationTapToken === consumedTapTokenRef.current) return
     consumedTapTokenRef.current = notificationTapToken
-    if (threadWasFreshRef.current) return
 
     let cancelled = false
     ;(async () => {
       const summary = await fetchTodaySummary(threadDate)
       if (cancelled || summary) return
-      setMessages((prev) => [
-        ...prev,
-        { id: makeMessageId(), type: 'coach', text: NOTIFICATION_TAP_QUESTION, time: nowTime() },
-      ])
+      setMessages((prev) => {
+        if (prev.some((m) => m.isClosingQuestion)) return prev
+        return [
+          ...prev,
+          { id: makeMessageId(), type: 'coach', text: NOTIFICATION_TAP_QUESTION, time: nowTime(), isClosingQuestion: true },
+        ]
+      })
     })()
 
     return () => {
@@ -217,7 +217,6 @@ export default function Coach() {
         const today = todayDateString()
         const summary = await fetchTodaySummary(today)
         summaryIdAtStartRef.current = summary?.id ?? null
-        threadWasFreshRef.current = true
         setJustClosedSummary(
           summary ? { eyebrow: 'Dag afgesloten', text: summary.samenvatting, note: summary.aandachtspunt } : null,
         )

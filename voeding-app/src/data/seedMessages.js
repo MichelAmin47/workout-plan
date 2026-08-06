@@ -22,16 +22,27 @@ function isLateEvening() {
 // hasSummaryToday gates the closing-day question: if today is already
 // closed (coach_sessions row exists), don't ask again even late in the
 // evening — open normally instead.
+//
+// isClosingQuestion is stamped onto the message itself (not just decided
+// here and forgotten) so anything that appends a *later* closing-question
+// message — e.g. the notification-tap handler in Coach.jsx — can check the
+// live thread for "has this already been asked" instead of relying on a
+// flag that only reflects the state at the moment the thread was built. A
+// thread opened fresh at 15:00 is not evening yet, so this returns the
+// normal greeting; if the app stays open until 23:30 with that same
+// thread, nothing here re-evaluates that decision — a stale "was it fresh"
+// check would wrongly treat that thread as "already handled".
 export function buildOpeningMessages(hasSummaryToday) {
-  const text =
-    isLateEvening() && !hasSummaryToday
-      ? 'Hoi! Voor ik de dag ga samenvatten: is er nog iets dat je vandaag hebt gegeten dat ik nog niet weet? 🌿'
-      : 'Hoi! Ik ben Coach, je voedingscoach. Hoe gaat je dag? Vertel me gerust wat je hebt gegeten of stel me een vraag — ik help je graag op weg. 🌿'
+  const isClosingQuestion = isLateEvening() && !hasSummaryToday
+  const text = isClosingQuestion
+    ? 'Hoi! Voor ik de dag ga samenvatten: is er nog iets dat je vandaag hebt gegeten dat ik nog niet weet? 🌿'
+    : 'Hoi! Ik ben Coach, je voedingscoach. Hoe gaat je dag? Vertel me gerust wat je hebt gegeten of stel me een vraag — ik help je graag op weg. 🌿'
   return [
     {
       id: id(),
       type: 'coach',
       text,
+      ...(isClosingQuestion ? { isClosingQuestion: true } : {}),
     },
   ]
 }
