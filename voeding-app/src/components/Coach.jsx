@@ -63,6 +63,16 @@ export default function Coach() {
   // is also distinguishable from the first once consumed.
   const [notificationTapToken, setNotificationTapToken] = useState(0)
   const consumedTapTokenRef = useRef(0)
+  // TEMPORARY — remove once the notification-tap issue is diagnosed. On-
+  // screen trail since remote debugging (chrome://inspect) has real setup
+  // friction — this makes "did the tap event even arrive, and where did the
+  // chain stop" directly visible on the phone itself.
+  const [debugLog, setDebugLog] = useState([])
+  const logDebug = (msg) => {
+    const line = `${new Date().toLocaleTimeString('nl-NL')} ${msg}`
+    console.log('[tap-debug]', line)
+    setDebugLog((prev) => [...prev.slice(-7), line])
+  }
   const scrollRef = useRef(null)
   // Not rendered, so a ref is enough — read at save time, written whenever a
   // thread is (re)stamped fresh. See threadStorage.js for why this exists.
@@ -132,12 +142,23 @@ export default function Coach() {
   // tap event until a listener exists to consume it (retainUntilConsumed),
   // so there's no race with this effect running before/after the tap.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- temporary debug logging only
+    logDebug(`mount: isNativePlatform=${Capacitor.isNativePlatform()}`)
     if (!Capacitor.isNativePlatform()) return
     const listenerPromise = LocalNotifications.addListener('localNotificationActionPerformed', () => {
+      logDebug('tap event received')
       setNotificationTapToken((t) => t + 1)
     })
+      .then((handle) => {
+        logDebug('listener registered ok')
+        return handle
+      })
+      .catch((err) => {
+        logDebug(`listener registration FAILED: ${err?.message ?? err}`)
+        return null
+      })
     return () => {
-      listenerPromise.then((handle) => handle.remove())
+      listenerPromise.then((handle) => handle?.remove())
     }
   }, [])
 
@@ -155,20 +176,35 @@ export default function Coach() {
   //   from something other than this thread (the 02:00 cron, or the user
   //   typing it themselves).
   useEffect(() => {
+    if (notificationTapToken !== 0) {
+      logDebug(`join-effect: threadDate=${threadDate} token=${notificationTapToken} consumed=${consumedTapTokenRef.current}`)
+    }
     if (!threadDate || notificationTapToken === consumedTapTokenRef.current) return
     consumedTapTokenRef.current = notificationTapToken
 
     let cancelled = false
     ;(async () => {
-      const summary = await fetchTodaySummary(threadDate)
-      if (cancelled || summary) return
-      setMessages((prev) => {
-        if (prev.some((m) => m.isClosingQuestion)) return prev
-        return [
-          ...prev,
-          { id: makeMessageId(), type: 'coach', text: NOTIFICATION_TAP_QUESTION, time: nowTime(), isClosingQuestion: true },
-        ]
-      })
+      try {
+        const summary = await fetchTodaySummary(threadDate)
+        if (cancelled) return
+        if (summary) {
+          logDebug('join-effect: today already closed, skipping')
+          return
+        }
+        setMessages((prev) => {
+          if (prev.some((m) => m.isClosingQuestion)) {
+            logDebug('join-effect: closing question already present, skipping')
+            return prev
+          }
+          logDebug('join-effect: appending closing question')
+          return [
+            ...prev,
+            { id: makeMessageId(), type: 'coach', text: NOTIFICATION_TAP_QUESTION, time: nowTime(), isClosingQuestion: true },
+          ]
+        })
+      } catch (err) {
+        logDebug(`join-effect ERROR: ${err?.message ?? err}`)
+      }
     })()
 
     return () => {
@@ -285,6 +321,29 @@ export default function Coach() {
         })}
         {isTyping && <TypingIndicator />}
       </div>
+
+      {/* TEMPORARY — remove once the notification-tap issue is diagnosed */}
+      {debugLog.length > 0 && (
+        <div
+          style={{
+            position: 'fixed',
+            left: 0,
+            right: 0,
+            bottom: 64,
+            maxHeight: '35vh',
+            overflowY: 'auto',
+            background: 'rgba(0,0,0,0.85)',
+            color: '#0f0',
+            fontSize: 10,
+            fontFamily: 'monospace',
+            padding: 6,
+            zIndex: 9999,
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          {debugLog.join('\n')}
+        </div>
+      )}
 
       {showQuickReplies && (
         <div className="quick-replies">
