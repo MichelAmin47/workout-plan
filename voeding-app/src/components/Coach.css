@@ -169,6 +169,63 @@
   font-size: 14px;
   color: var(--text);
   line-height: 1.55;
+  overflow-wrap: break-word;
+}
+
+/* Rendered markdown inside a coach bubble. Reset to zero first so a plain
+   single-paragraph message (the common case) looks identical to before this
+   was rendered markdown at all — spacing only appears *between* multiple
+   block elements, never around a lone one. */
+.bubble-coach p {
+  margin: 0;
+}
+.bubble-coach p + p {
+  margin-top: 0.6em;
+}
+.bubble-coach ul,
+.bubble-coach ol {
+  margin: 0.5em 0;
+  padding-left: 1.3em;
+}
+.bubble-coach ul:first-child,
+.bubble-coach ol:first-child {
+  margin-top: 0;
+}
+.bubble-coach ul:last-child,
+.bubble-coach ol:last-child {
+  margin-bottom: 0;
+}
+.bubble-coach li {
+  margin: 0.15em 0;
+}
+.bubble-coach li > p {
+  margin: 0;
+}
+.bubble-coach strong,
+.bubble-coach b {
+  font-weight: 600;
+}
+.bubble-coach code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.9em;
+}
+.bubble-coach pre {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 8px 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.bubble-coach pre code {
+  background: none;
+  padding: 0;
+}
+.bubble-coach a {
+  color: inherit;
+  text-decoration: underline;
 }
 
 /* User message bubble */
