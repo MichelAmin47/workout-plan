@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
+import { LocalNotifications } from '@capacitor/local-notifications'
 import './Coach.css'
 import DayMarker from './DayMarker.jsx'
 import CheckinCard from './CheckinCard.jsx'
@@ -16,6 +18,9 @@ import { fireTestNotification } from '../lib/dailyReminder.js'
 
 const FALLBACK_ERROR_TEXT = 'Sorry, ik kan even niet reageren — probeer het zo nog eens.'
 const CLOSE_DAY_RESET_DELAY_MS = 1500
+// Same intent as the block 4b opening variant, phrased for arriving
+// mid-conversation (via a notification tap) rather than as a greeting.
+const NOTIFICATION_TAP_QUESTION = 'Is er nog iets dat je vandaag hebt gegeten dat ik nog niet weet, zodat ik de dag kan samenvatten? 🌿'
 
 function nowTime() {
   const d = new Date()
@@ -50,10 +55,23 @@ export default function Coach() {
   // ever set inside the daySummaryWritten branch below, so a normal mid-day
   // open or a failed close never touches it.
   const [justClosedSummary, setJustClosedSummary] = useState(null)
+  // Bumped by the notification tap listener; consumed by the join-effect
+  // below once thread restoration has also finished. Two independent async
+  // signals (tap event, thread restore) that can arrive in either order —
+  // this plus `threadDate` together are how we wait for both. A counter
+  // rather than a boolean so a second real-device tap (foreground re-tap)
+  // is also distinguishable from the first once consumed.
+  const [notificationTapToken, setNotificationTapToken] = useState(0)
+  const consumedTapTokenRef = useRef(0)
   const scrollRef = useRef(null)
   // Not rendered, so a ref is enough — read at save time, written whenever a
   // thread is (re)stamped fresh. See threadStorage.js for why this exists.
   const summaryIdAtStartRef = useRef(null)
+  // Was the thread just now built fresh (buildOpeningMessages), or resumed
+  // from storage as-is? A fresh thread's opening message already asks the
+  // closing question itself when appropriate (block 4b) — the notification
+  // tap handler must not also append a second one on top of it.
+  const threadWasFreshRef = useRef(false)
 
   // Quick replies only make sense while the most recent thing in the thread
   // is a check-in question nobody has answered yet.
@@ -83,6 +101,7 @@ export default function Coach() {
         const today = todayDateString()
         summaryIdAtStartRef.current = await fetchSummaryId(today)
         if (cancelled) return
+        threadWasFreshRef.current = true
         setMessages(buildOpeningMessages(summaryIdAtStartRef.current !== null))
         setThreadDate(today)
         return
@@ -96,10 +115,12 @@ export default function Coach() {
         clearThread()
         summaryIdAtStartRef.current = await fetchSummaryId(today)
         if (cancelled) return
+        threadWasFreshRef.current = true
         setMessages(buildOpeningMessages(summaryIdAtStartRef.current !== null))
         setThreadDate(today)
       } else {
         summaryIdAtStartRef.current = stored.summaryIdAtStart ?? null
+        threadWasFreshRef.current = false
         setMessages(stored.messages)
         setThreadDate(stored.date)
       }
@@ -110,6 +131,50 @@ export default function Coach() {
       cancelled = true
     }
   }, [])
+
+  // Tapping the daily reminder opens the app but otherwise looks identical
+  // to a normal open — this listener is what distinguishes "opened via the
+  // notification" from "opened normally," which the fresh-thread opening
+  // message alone can't do (that's purely clock-based). Registering the
+  // listener is enough even on a cold start: the native side retains the
+  // tap event until a listener exists to consume it (retainUntilConsumed),
+  // so there's no race with this effect running before/after the tap.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return
+    const listenerPromise = LocalNotifications.addListener('localNotificationActionPerformed', () => {
+      setNotificationTapToken((t) => t + 1)
+    })
+    return () => {
+      listenerPromise.then((handle) => handle.remove())
+    }
+  }, [])
+
+  // Fires once both async signals have landed, in whichever order: the
+  // notification tap (above) and thread restoration (the effect above
+  // that). A fresh thread's own opening message already covers this via
+  // block 4b, and a day that's already closed shouldn't be asked about
+  // again — both checked live rather than trusting a possibly-stale ref,
+  // since "already closed" can become true from something other than this
+  // exact thread (the 02:00 cron, or the user typing it themselves).
+  useEffect(() => {
+    if (!threadDate || notificationTapToken === consumedTapTokenRef.current) return
+    consumedTapTokenRef.current = notificationTapToken
+    if (threadWasFreshRef.current) return
+
+    let cancelled = false
+    ;(async () => {
+      const summary = await fetchTodaySummary(threadDate)
+      if (cancelled || summary) return
+      setMessages((prev) => [
+        ...prev,
+        { id: makeMessageId(), type: 'coach', text: NOTIFICATION_TAP_QUESTION, time: nowTime() },
+      ])
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [threadDate, notificationTapToken])
 
   // Persist on every change, once we know which date this thread belongs to
   // (guards against overwriting a not-yet-restored stored thread with the
@@ -152,6 +217,7 @@ export default function Coach() {
         const today = todayDateString()
         const summary = await fetchTodaySummary(today)
         summaryIdAtStartRef.current = summary?.id ?? null
+        threadWasFreshRef.current = true
         setJustClosedSummary(
           summary ? { eyebrow: 'Dag afgesloten', text: summary.samenvatting, note: summary.aandachtspunt } : null,
         )
