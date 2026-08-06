@@ -12,6 +12,7 @@ import SendIcon from './SendIcon.jsx'
 import { buildOpeningMessages, quickReplyOptions, makeMessageId } from '../data/seedMessages.js'
 import { askCoach } from '../lib/chatApi.js'
 import { supabase } from '../supabase.js'
+import { fetchProteinProgress } from '../lib/dayProgress.js'
 import { todayDateString, loadStoredThread, saveThread, clearThread } from '../lib/threadStorage.js'
 // TEMPORARY — remove after block 4 verification
 import { fireTestNotification } from '../lib/dailyReminder.js'
@@ -43,6 +44,21 @@ async function fetchTodaySummary(date) {
   return data && data.length > 0 ? data[0] : null
 }
 
+// A thread left open (or just resumed) past midnight keeps presenting
+// itself as the previous day — nothing invalidates it on a plain calendar
+// rollover with no summary event involved. Discarding that thread would
+// lose a conversation the user may not have finished; silently relabelling
+// it as today would mix yesterday's messages into today with no boundary.
+// Instead: keep everything, insert a day-marker, and start today's opening
+// right after it — same DayMarker component the original mock already had
+// for exactly this, just never wired up to anything until now.
+async function buildRolloverTransition(previousMessages, previousDate, today) {
+  const [progress, summaryId] = await Promise.all([fetchProteinProgress(today, previousDate), fetchSummaryId(today)])
+  const marker = { id: makeMessageId(), type: 'day-marker', label: 'Vandaag' }
+  const opening = buildOpeningMessages(summaryId !== null, progress)
+  return { messages: [...previousMessages, marker, ...opening], summaryId }
+}
+
 export default function Coach() {
   const [messages, setMessages] = useState([])
   const [threadDate, setThreadDate] = useState(null)
@@ -67,6 +83,13 @@ export default function Coach() {
   // Not rendered, so a ref is enough — read at save time, written whenever a
   // thread is (re)stamped fresh. See threadStorage.js for why this exists.
   const summaryIdAtStartRef = useRef(null)
+  // Mirrors `messages` for the visibilitychange handler below, which needs
+  // the latest thread content inside an async callback that only
+  // re-subscribes when `threadDate` changes (not on every message).
+  const messagesRef = useRef([])
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
 
   // Quick replies only make sense while the most recent thing in the thread
   // is a check-in question nobody has answered yet.
@@ -92,11 +115,26 @@ export default function Coach() {
 
     async function restoreThread() {
       const stored = loadStoredThread()
+      const today = todayDateString()
+
       if (!stored) {
-        const today = todayDateString()
+        const progress = await fetchProteinProgress(today)
         summaryIdAtStartRef.current = await fetchSummaryId(today)
         if (cancelled) return
-        setMessages(buildOpeningMessages(summaryIdAtStartRef.current !== null))
+        setMessages(buildOpeningMessages(summaryIdAtStartRef.current !== null, progress))
+        setThreadDate(today)
+        return
+      }
+
+      // Calendar rollover: the stored thread belongs to a day that's since
+      // passed. Checked before the summary-id comparison below, since that
+      // comparison is only meaningful for "did *this* date's own summary
+      // change" — a plain date mismatch is a different situation entirely.
+      if (stored.date !== today) {
+        const transition = await buildRolloverTransition(stored.messages, stored.date, today)
+        if (cancelled) return
+        summaryIdAtStartRef.current = transition.summaryId
+        setMessages(transition.messages)
         setThreadDate(today)
         return
       }
@@ -105,11 +143,11 @@ export default function Coach() {
       if (cancelled) return
 
       if (currentId !== (stored.summaryIdAtStart ?? null)) {
-        const today = todayDateString()
         clearThread()
+        const progress = await fetchProteinProgress(today)
         summaryIdAtStartRef.current = await fetchSummaryId(today)
         if (cancelled) return
-        setMessages(buildOpeningMessages(summaryIdAtStartRef.current !== null))
+        setMessages(buildOpeningMessages(summaryIdAtStartRef.current !== null, progress))
         setThreadDate(today)
       } else {
         summaryIdAtStartRef.current = stored.summaryIdAtStart ?? null
@@ -123,6 +161,32 @@ export default function Coach() {
       cancelled = true
     }
   }, [])
+
+  // Catches the case restoreThread's mount-time check can't: the app never
+  // closed, just sat backgrounded across midnight with the same thread
+  // still active in memory. visibilitychange (a standard web API, not a
+  // Capacitor plugin — no native dependency, no rebuild) fires reliably
+  // when the WebView's Activity resumes to the foreground. Re-registers
+  // only on a threadDate change (rare) rather than depending on `messages`
+  // directly (every chat message), reading the latest thread via the ref
+  // above instead.
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.visibilityState !== 'visible' || !threadDate) return
+      const today = todayDateString()
+      if (threadDate === today) return
+      ;(async () => {
+        const transition = await buildRolloverTransition(messagesRef.current, threadDate, today)
+        summaryIdAtStartRef.current = transition.summaryId
+        setMessages(transition.messages)
+        setThreadDate(today)
+      })()
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [threadDate])
 
   // Tapping the daily reminder opens the app but otherwise looks identical
   // to a normal open — this listener is what distinguishes "opened via the
@@ -223,12 +287,12 @@ export default function Coach() {
       clearThread()
       setTimeout(async () => {
         const today = todayDateString()
-        const summary = await fetchTodaySummary(today)
+        const [summary, progress] = await Promise.all([fetchTodaySummary(today), fetchProteinProgress(today)])
         summaryIdAtStartRef.current = summary?.id ?? null
         setJustClosedSummary(
           summary ? { eyebrow: 'Dag afgesloten', text: summary.samenvatting, note: summary.aandachtspunt } : null,
         )
-        setMessages(buildOpeningMessages(summary != null))
+        setMessages(buildOpeningMessages(summary != null, progress))
         setThreadDate(today)
       }, CLOSE_DAY_RESET_DELAY_MS)
     }
