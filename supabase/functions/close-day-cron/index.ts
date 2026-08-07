@@ -10,7 +10,7 @@
 // means no summary is written at all — an empty row is worse than no row.
 
 import { supabase } from '../_shared/supabaseClient.ts'
-import { amsterdamNow, isoDateString } from '../_shared/today.ts'
+import { amsterdamNow, isoDateString, resolveActiveDate } from '../_shared/today.ts'
 import { closeDayWithSummary } from '../_shared/summary.ts'
 
 function jsonResponse(body: unknown, status = 200) {
@@ -23,10 +23,11 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const now = amsterdamNow()
-    const yesterday = new Date(now)
-    yesterday.setDate(yesterday.getDate() - 1)
-    const datum = isoDateString(yesterday)
+    // Same resolveActiveDate the manual close path uses — the cron always
+    // runs within its cutoff window (~02:00-03:00), so this resolves to
+    // "yesterday" exactly as before, but now as the same shared reasoning
+    // rather than a separately-maintained "-1 day" that could drift from it.
+    const datum = isoDateString(resolveActiveDate(amsterdamNow()))
 
     const { data: meals, error: mealsError } = await supabase.from('nutrition_log').select('id').eq('datum', datum).limit(1)
     if (mealsError) {

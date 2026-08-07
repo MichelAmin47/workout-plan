@@ -174,7 +174,10 @@ export async function executeTool(
       if (!result.ok) {
         return { error: result.error ?? 'Kon de dag niet afsluiten.' }
       }
-      return { status: 'closed' }
+      // Distinguishes "just closed" from "already existed" so the model
+      // can respond honestly instead of always claiming a fresh close —
+      // see PERSONA_PROMPT's "Dag afsluiten" section.
+      return { status: result.alreadyClosed ? 'already_closed' : 'closed' }
     }
     default:
       return { error: `Unknown tool: ${name}` }

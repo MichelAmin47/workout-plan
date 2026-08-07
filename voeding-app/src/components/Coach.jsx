@@ -269,10 +269,12 @@ export default function Coach() {
 
     let replyText
     let daySummaryWritten = false
+    let closedActiveDate = null
     try {
       const result = await askCoach(threadWithUserMessage)
       replyText = result.reply
       daySummaryWritten = result.daySummaryWritten
+      closedActiveDate = result.activeDate
     } catch (err) {
       console.error('coach-chat call failed', err)
       replyText = FALLBACK_ERROR_TEXT
@@ -286,7 +288,13 @@ export default function Coach() {
     if (daySummaryWritten) {
       clearThread()
       setTimeout(async () => {
-        const today = todayDateString()
+        // Use the date the server actually closed, not a locally-recomputed
+        // one — this is exactly the flow the "closed after midnight, filed
+        // under the wrong date" bug was found in, so it's the one spot
+        // where trusting agreement between two independent clocks isn't
+        // good enough. Falls back to a local computation only if the
+        // server response is ever missing this field.
+        const today = closedActiveDate ?? todayDateString()
         const [summary, progress] = await Promise.all([fetchTodaySummary(today), fetchProteinProgress(today)])
         summaryIdAtStartRef.current = summary?.id ?? null
         setJustClosedSummary(

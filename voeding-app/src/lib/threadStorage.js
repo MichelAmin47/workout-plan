@@ -15,8 +15,20 @@
 
 const STORAGE_KEY = 'coach_thread_v1'
 
+// Mirrors the server's _shared/today.ts resolveActiveDate — must stay in
+// sync (same 04:00 cutoff, same reasoning: before it, still finishing the
+// day that just ended, not starting a new one early). Every call site in
+// this app uses this to mean "which day is active right now" — thread
+// dates, rollover detection, whether today's already closed — never the
+// literal raw calendar date, so this is a direct behavior change rather
+// than a parallel function callers would have to remember to pick between.
+const ACTIVE_DAY_CUTOFF_HOUR = 4
+
 export function todayDateString() {
   const d = new Date()
+  if (d.getHours() < ACTIVE_DAY_CUTOFF_HOUR) {
+    d.setDate(d.getDate() - 1)
+  }
   const pad = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }

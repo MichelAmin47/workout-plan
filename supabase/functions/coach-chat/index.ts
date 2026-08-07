@@ -7,7 +7,7 @@
 // multi-turn tool-use loop so the coach can log/correct/delete meals
 // (nutrition_log) and manage its own long-term memory (coach_memory).
 
-import { amsterdamNow, isoDateString } from '../_shared/today.ts'
+import { amsterdamNow, isoDateString, resolveActiveDate } from '../_shared/today.ts'
 import { callClaude, extractText } from '../_shared/anthropic.ts'
 import { PERSONA_PROMPT, buildDynamicContext } from './prompt.ts'
 import { TOOLS, executeTool } from './tools.ts'
@@ -50,7 +50,12 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: 'Coach is niet geconfigureerd.' }, 500)
     }
 
-    const todayStr = isoDateString(amsterdamNow())
+    // The day currently "in play", not the raw calendar date — past
+    // midnight (before the 04:00 cutoff), this is still yesterday from the
+    // user's perspective. Used for both nutrition_log entries and
+    // close_day_summary, so logging and closing always agree on which day
+    // is being acted on. See _shared/today.ts for the full reasoning.
+    const todayStr = isoDateString(resolveActiveDate(amsterdamNow()))
     const dynamicContext = await buildDynamicContext()
     const systemPrompt = `${PERSONA_PROMPT}\n\n## Actuele context\n\n${dynamicContext}`
 
@@ -99,7 +104,12 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: 'Coach kon geen antwoord afronden.' }, 502)
     }
 
-    return jsonResponse({ reply: finalReplyText, daySummaryWritten })
+    // Included always, not just on a close — the client's own cutoff
+    // computation *should* agree with this given a device clock roughly in
+    // sync, but for the one flow where disagreement would actually misfile
+    // data (fetching what was just closed), the client uses this value
+    // directly instead of trusting that agreement.
+    return jsonResponse({ reply: finalReplyText, daySummaryWritten, activeDate: todayStr })
   } catch (err) {
     console.error('coach-chat error', err)
     return jsonResponse({ error: 'Er ging iets mis.' }, 500)

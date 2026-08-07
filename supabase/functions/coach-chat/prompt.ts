@@ -1,5 +1,5 @@
 import { supabase } from '../_shared/supabaseClient.ts'
-import { amsterdamNow, currentCalWeek, isoDateString, isoTimeString, resolveTodayWorkout } from '../_shared/today.ts'
+import { amsterdamNow, currentCalWeek, isoDateString, isoTimeString, resolveActiveDate, resolveTodayWorkout } from '../_shared/today.ts'
 
 const DEFAULT_EIWIT_DOEL_G = 165
 
@@ -7,7 +7,7 @@ export const PERSONA_PROMPT = `Je bent Coach, een Nederlandse voedingscoach in e
 
 ## Vaste voorkeuren
 
-- Focus op eiwitten, niet op calorieën. Noem calorieën alleen als de gebruiker er expliciet naar vraagt. Vraagt hij er wél naar: gebruik het al opgeslagen dagtotaal uit de context hieronder (een optelling van wat je eerder logde) — schat het niet opnieuw uit de omschrijvingen, anders verschilt het antwoord per keer dat je het vraagt.
+- Focus op eiwitten, niet op calorieën — dit geldt voor elke dag, ook eerdere dagen, niet alleen vandaag. Noem calorieën alleen als er expliciet naar gevraagd wordt. Gebruik dan het al opgeslagen dagtotaal uit de context hieronder (bij vandaag: de optelling verderop; bij een eerdere dag: het dagtotaal bij die dagafsluiting) — schat nooit opnieuw uit de omschrijvingen of het gesprek, anders verschilt het antwoord per keer dat je het vraagt.
 - Noem of suggereer nooit alcohol — de gebruiker drinkt niet.
 - Plantaardige alternatieven zijn relevant voor deze gebruiker; Alpro-producten mag je gerust voorstellen.
 - Ontbijt wordt vaak onderweg in de auto gegeten — houd ontbijtsuggesties praktisch en makkelijk mee te nemen voor die context.
@@ -68,9 +68,12 @@ Geheugen mag de show niet stelen: geen "genoteerd!"-bevestiging bij het opslaan,
 
 ## Dag afsluiten
 
-Zegt de gebruiker iets als "sluit de dag af", "we kunnen wel stoppen voor vandaag" of vergelijkbaar → roep close_day_summary aan. Dit triggert een aparte samenvatting-stap over het hele gesprek; jij schrijft die samenvatting niet zelf.
+Zegt de gebruiker iets als "sluit de dag af", "we kunnen wel stoppen voor vandaag" of vergelijkbaar → roep close_day_summary aan. Dit triggert een aparte samenvatting-stap over het hele gesprek; jij schrijft die samenvatting niet zelf. Let op: vlak na middernacht (vóór 04:00) hoort deze actie bij de dag die net voorbij is, niet bij de kalenderdatum van dit moment — dat regelt de tool zelf, jij hoeft hier niets voor te doen.
 
-Als het tool-resultaat een fout aangeeft: erken dat eerlijk ("dat lukte net niet, probeer het zo nog eens") en beweer NIET dat de dag is afgesloten. Het gesprek blijft dan gewoon bewaard — dat is precies de bedoeling bij een mislukte poging.`
+Het tool-resultaat vertelt je precies wat er gebeurd is — reageer daarop, niet op wat je zou verwachten:
+- status "closed" → de dag is zojuist echt afgesloten, bevestig dat gewoon.
+- status "already_closed" → deze dag stond al klaar (bijvoorbeeld al eerder afgesloten, of automatisch door het systeem). Beweer NIET dat je hem nu pas hebt afgesloten — erken eerlijk dat hij al klaar stond.
+- een fout ("error" veld) → erken dat eerlijk ("dat lukte net niet, probeer het zo nog eens") en beweer NIET dat de dag is afgesloten. Het gesprek blijft dan gewoon bewaard — dat is precies de bedoeling bij een mislukte poging.`
 
 async function getOrCreateTodayTarget(todayStr: string): Promise<number> {
   const { data: existing } = await supabase.from('daily_targets').select('eiwit_doel_g').eq('datum', todayStr).limit(1)
@@ -87,15 +90,26 @@ async function getOrCreateTodayTarget(todayStr: string): Promise<number> {
 
 export async function buildDynamicContext(): Promise<string> {
   const now = amsterdamNow()
-  const calWeek = currentCalWeek(now)
-  const weekday = now.getDay() || 7
-  const todayStr = isoDateString(now)
+  // Everything date-dependent below (workout day, daily target, today's
+  // meal list) is derived from the *active* day, not the raw calendar
+  // date — before the 04:00 cutoff this is still yesterday, matching the
+  // date coach-chat/index.ts uses for logging and closing. The literal
+  // clock time (timeStr) is unaffected either way, since shifting the date
+  // doesn't touch the hour/minute.
+  const activeDate = resolveActiveDate(now)
+  const calWeek = currentCalWeek(activeDate)
+  const weekday = activeDate.getDay() || 7
+  const todayStr = isoDateString(activeDate)
   const timeStr = isoTimeString(now)
 
   const [workoutSummary, eiwitDoel, sessionsRes, mealsRes, memoryRes] = await Promise.all([
     resolveTodayWorkout(calWeek, weekday),
     getOrCreateTodayTarget(todayStr),
-    supabase.from('coach_sessions').select('datum, samenvatting, aandachtspunt').order('datum', { ascending: false }).limit(5),
+    supabase
+      .from('coach_sessions')
+      .select('datum, samenvatting, aandachtspunt, eiwit_totaal, calorieen_totaal')
+      .order('datum', { ascending: false })
+      .limit(5),
     supabase.from('nutrition_log').select('id, tijdstip, omschrijving, eiwitten_g, calorieen').eq('datum', todayStr).order('tijdstip', { ascending: true }),
     supabase.from('coach_memory').select('id, feit, categorie').eq('actief', true).order('created_at', { ascending: true }),
   ])
@@ -104,7 +118,16 @@ export async function buildDynamicContext(): Promise<string> {
   const recentSessionsText =
     sessions.length > 0
       ? sessions
-          .map((s) => `- ${s.datum}: ${s.samenvatting ?? ''}${s.aandachtspunt ? ` (aandachtspunt: ${s.aandachtspunt})` : ''}`)
+          .map((s) => {
+            // Real SUM(nutrition_log) totals from the close, never Opus-
+            // estimated — same "alleen op verzoek tonen" annotation as
+            // today's own total below, right where the number sits.
+            const totals =
+              s.eiwit_totaal != null
+                ? ` — dagtotaal: ${Math.round(Number(s.eiwit_totaal))}g eiwit, ${Math.round(Number(s.calorieen_totaal) || 0)}kcal (alleen noemen als er expliciet naar gevraagd wordt)`
+                : ''
+            return `- ${s.datum}: ${s.samenvatting ?? ''}${s.aandachtspunt ? ` (aandachtspunt: ${s.aandachtspunt})` : ''}${totals}`
+          })
           .join('\n')
       : 'Nog geen eerdere dagafsluitingen beschikbaar.'
 

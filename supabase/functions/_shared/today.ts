@@ -40,6 +40,27 @@ export function isoTimeString(d: Date): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+const ACTIVE_DAY_CUTOFF_HOUR = 4
+
+// The calendar day currently "in play" for logging, closing, and dynamic
+// context — mirrors the reasoning close-day-cron already applies (it only
+// ever runs at ~02:00-03:00 Amsterdam time, always targeting "yesterday").
+// Before the cutoff, someone acting now is still finishing the day that
+// just ended, not starting a new one early: closing at 00:30 summarises
+// yesterday; closing at 09:00 is today, unusual but real, and must not
+// silently overwrite yesterday's summary. 04:00 sits comfortably between
+// those two cases and lands safely after the cron's own run, so by the
+// time this window closes the cron will already have swept up anything
+// genuinely neglected.
+export function resolveActiveDate(now: Date): Date {
+  if (now.getHours() < ACTIVE_DAY_CUTOFF_HOUR) {
+    const shifted = new Date(now)
+    shifted.setDate(shifted.getDate() - 1)
+    return shifted
+  }
+  return now
+}
+
 export async function resolveTodayWorkout(calWeek: number, weekday: number): Promise<string> {
   const { data: schemas } = await supabase.from('schemas').select('id, start_week, eind_week')
   const schema = schemas?.find((s) => calWeek >= s.start_week && calWeek <= s.eind_week)

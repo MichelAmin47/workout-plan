@@ -58,5 +58,9 @@ export async function askCoach(messages) {
   if (error || !data?.reply) {
     throw error ?? new Error('No reply from coach-chat')
   }
-  return { reply: data.reply, daySummaryWritten: Boolean(data.daySummaryWritten) }
+  // activeDate is the day the server actually logged/closed against (past
+  // midnight, before its 04:00 cutoff, that's still yesterday) — used
+  // instead of recomputing locally wherever agreement with the server
+  // matters most, e.g. fetching what a close just wrote.
+  return { reply: data.reply, daySummaryWritten: Boolean(data.daySummaryWritten), activeDate: data.activeDate }
 }

@@ -67,11 +67,13 @@ ${mealsText}`
 export async function closeDayWithSummary(
   datum: string,
   conversationTranscript: string | null,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; alreadyClosed?: boolean; error?: string }> {
   const { data: existing } = await supabase.from('coach_sessions').select('id').eq('datum', datum).limit(1)
   if (existing && existing.length > 0) {
-    // Already closed (manual + cron race, or a retry) — nothing to do.
-    return { ok: true }
+    // Already closed (manual + cron race, or a retry) — nothing to do, but
+    // say so honestly so the caller doesn't imply this action is what just
+    // closed it (see coach-chat/tools.ts + PERSONA_PROMPT's "Dag afsluiten").
+    return { ok: true, alreadyClosed: true }
   }
 
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
@@ -89,6 +91,12 @@ export async function closeDayWithSummary(
     meals.length > 0
       ? meals.map((m) => `- ${m.tijdstip ?? '?'} ${m.omschrijving}: ${m.eiwitten_g}g eiwit, ${m.calorieen}kcal`).join('\n')
       : 'Geen maaltijden gelogd.'
+
+  // Plain SUM over the actual rows — never estimated by Opus, same
+  // reasoning as block 3b's fix for today's own total: a re-estimate drifts
+  // between asks, a stored sum doesn't.
+  const eiwitTotaal = meals.reduce((sum, m) => sum + (Number(m.eiwitten_g) || 0), 0)
+  const calorieTotaal = meals.reduce((sum, m) => sum + (Number(m.calorieen) || 0), 0)
 
   const systemPrompt = conversationTranscript
     ? buildRichSystemPrompt(workoutSummary, mealsText)
@@ -122,10 +130,12 @@ export async function closeDayWithSummary(
     return { ok: false, error: 'Incomplete summary' }
   }
 
-  const { error: insertError } = await supabase.from('coach_sessions').insert({ datum, samenvatting, aandachtspunt })
+  const { error: insertError } = await supabase
+    .from('coach_sessions')
+    .insert({ datum, samenvatting, aandachtspunt, eiwit_totaal: eiwitTotaal, calorieen_totaal: calorieTotaal })
   if (insertError) {
     return { ok: false, error: insertError.message }
   }
 
-  return { ok: true }
+  return { ok: true, alreadyClosed: false }
 }
