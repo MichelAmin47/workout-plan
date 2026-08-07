@@ -315,6 +315,25 @@ export default function Coach() {
     setInputValue(option)
   }
 
+  // TEMPORARY — status bar overlap investigation, remove after diagnosis.
+  // alert() renders as a native OS dialog, unaffected by the CSS/inset bug
+  // itself, so it's readable regardless of whether the header is currently
+  // overlapped.
+  function checkInsets() {
+    const cssVar = getComputedStyle(document.documentElement).getPropertyValue('--safe-area-inset-top').trim()
+    const headerEl = document.querySelector('.coach-header')
+    const resolvedPaddingTop = headerEl ? getComputedStyle(headerEl).paddingTop : 'n/a (.coach-header not found)'
+    const hasInterface = typeof window.CapacitorSystemBarsAndroidInterface !== 'undefined'
+    alert(
+      [
+        `--safe-area-inset-top: "${cssVar || '(not set)'}"`,
+        `.coach-header resolved padding-top: ${resolvedPaddingTop}`,
+        `CapacitorSystemBarsAndroidInterface present: ${hasInterface}`,
+        `userAgent: ${navigator.userAgent}`,
+      ].join('\n'),
+    )
+  }
+
   return (
     <div className="app">
       <div className="coach-header">
@@ -327,6 +346,10 @@ export default function Coach() {
           {/* TEMPORARY — remove after block 4 verification */}
           <button type="button" className="test-notification-btn" onClick={fireTestNotification}>
             🔔 test
+          </button>
+          {/* TEMPORARY — status bar overlap investigation, remove after diagnosis */}
+          <button type="button" className="test-notification-btn" onClick={checkInsets}>
+            📐 insets
           </button>
         </div>
       </div>
