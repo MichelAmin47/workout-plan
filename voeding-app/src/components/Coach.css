@@ -7,13 +7,14 @@
 }
 
 /* ── Header ── */
-/* max() of both mechanisms: env(safe-area-inset-top) is the CSS-native
-   variable, --safe-area-inset-top is Capacitor's own JS-injected custom
-   property (its SystemBars plugin sets this directly because env() was
-   unreliable on Android WebView before Chromium 140 — see
-   node_modules/@capacitor/android SystemBars.java). Both are undefined/0
-   outside a rebuilt Capacitor app (desktop browser, current APK), so this
-   is a no-op fallback to plain 14px until the native side is rebuilt. */
+/* index.html deliberately has no viewport-fit=cover (see SystemBars.java's
+   shouldPassthroughInsets) — the OS keeps drawing its own status bar chrome
+   above the WebView instead of the page owning that area, same as
+   workout-app. That means the native side already pads the WebView below
+   the status bar on its own, so both env(safe-area-inset-top) and
+   Capacitor's injected --safe-area-inset-top read 0 here; this calc() is
+   just a harmless +14px breathing-room fallback, not the thing doing the
+   real safe-area work. */
 .coach-header {
   padding: calc(max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px)) + 14px) 20px 0;
   flex-shrink: 0;
