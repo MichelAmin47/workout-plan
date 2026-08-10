@@ -315,6 +315,21 @@ export default function Coach() {
     setInputValue(option)
   }
 
+  // TEMPORARY — daily-reminder double-fire investigation, remove after
+  // diagnosis. alert() so it's readable without needing devtools.
+  async function checkPending() {
+    const { notifications } = await LocalNotifications.getPending()
+    if (notifications.length === 0) {
+      alert('No pending notifications.')
+      return
+    }
+    alert(
+      notifications
+        .map((n) => `id ${n.id}: ${JSON.stringify(n.schedule)}`)
+        .join('\n\n'),
+    )
+  }
+
   return (
     <div className="app">
       <div className="coach-header">
@@ -327,6 +342,10 @@ export default function Coach() {
           {/* TEMPORARY — remove after block 4 verification */}
           <button type="button" className="test-notification-btn" onClick={fireTestNotification}>
             🔔 test
+          </button>
+          {/* TEMPORARY — daily-reminder double-fire investigation, remove after diagnosis */}
+          <button type="button" className="test-notification-btn" onClick={checkPending}>
+            📋 pending
           </button>
         </div>
       </div>
