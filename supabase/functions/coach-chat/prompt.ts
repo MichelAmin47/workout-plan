@@ -1,5 +1,15 @@
 import { supabase } from '../_shared/supabaseClient.ts'
-import { amsterdamNow, currentCalWeek, isoDateString, isoTimeString, resolveActiveDate, resolveTodayWorkout } from '../_shared/today.ts'
+import {
+  amsterdamNow,
+  currentCalWeek,
+  isoDateString,
+  isoTimeString,
+  resolveActiveDate,
+  resolveTodayWorkout,
+  resolveWeekPlan,
+  resolveYesterdayIfOutsideWeek,
+  type WeekDayInfo,
+} from '../_shared/today.ts'
 
 const DEFAULT_EIWIT_DOEL_G = 165
 
@@ -36,6 +46,8 @@ Eiwitdoel is berekend op ~114kg lichaamsgewicht × 1.6g/kg (afvallen + spierbeho
 ## Trainingscontext relevant voor voedingstiming
 
 De gebruiker traint vaak nuchter — dit is gewend en werkt goed, geen aanmoediging nodig om dit te veranderen. Zondag is de vaste beendag, altijd nuchter — dit is de norm, niet de uitzondering. Op andere dagen soms een lichte snack vooraf (banaan, handje noten/cashews, 20-30g). Na training: vaak een shake gevolgd door een vollediger maaltijd — beide is prima, geen "beter" van de twee.
+
+Gebruik de weekplanning uit de context hieronder ook buiten een directe vraag over training om: vooruitkijkend voor voedingstiming die vooraf geregeld moet worden (glycogeen laden de avond vóór een zware beendag, een snack vóór Power Hour klaarhebben), en terugkijkend voor het herstelvenster — spiereiwitsynthese blijft 24-48 uur verhoogd na een zware sessie, dus ook de dag ná een trainingsdag mag je daarop wijzen.
 
 ## Langetermijngeheugen (coach_memory)
 
@@ -75,6 +87,24 @@ Het tool-resultaat vertelt je precies wat er gebeurd is — reageer daarop, niet
 - status "already_closed" → deze dag stond al klaar (bijvoorbeeld al eerder afgesloten, of automatisch door het systeem). Beweer NIET dat je hem nu pas hebt afgesloten — erken eerlijk dat hij al klaar stond.
 - een fout ("error" veld) → erken dat eerlijk ("dat lukte net niet, probeer het zo nog eens") en beweer NIET dat de dag is afgesloten. Het gesprek blijft dan gewoon bewaard — dat is precies de bedoeling bij een mislukte poging.`
 
+const DAY_TYPE_LABELS: Record<string, string> = {
+  training: 'Trainingsdag',
+  rust: 'Rustdag',
+  cardio_fitness: 'Cardio/fitness',
+}
+
+function formatWeekPlan(days: WeekDayInfo[]): string {
+  return days
+    .map((d) => {
+      const typeLabel = d.dayType ? (DAY_TYPE_LABELS[d.dayType] ?? d.dayType) : 'Onbekend'
+      const naamPart = d.naam ? ` — ${d.naam}` : ''
+      const completedPart = d.completed === true ? ' (afgevinkt)' : d.completed === false ? ' (nog niet afgevinkt)' : ''
+      const todayPart = d.isToday ? ' ← VANDAAG' : ''
+      return `- ${d.label}: ${typeLabel}${naamPart}${completedPart}${todayPart}`
+    })
+    .join('\n')
+}
+
 async function getOrCreateTodayTarget(todayStr: string): Promise<number> {
   const { data: existing } = await supabase.from('daily_targets').select('eiwit_doel_g').eq('datum', todayStr).limit(1)
   if (existing && existing.length > 0) {
@@ -102,8 +132,10 @@ export async function buildDynamicContext(): Promise<string> {
   const todayStr = isoDateString(activeDate)
   const timeStr = isoTimeString(now)
 
-  const [workoutSummary, eiwitDoel, sessionsRes, mealsRes, memoryRes] = await Promise.all([
+  const [workoutSummary, weekPlan, yesterdayOutsideWeek, eiwitDoel, sessionsRes, mealsRes, memoryRes] = await Promise.all([
     resolveTodayWorkout(calWeek, weekday),
+    resolveWeekPlan(calWeek, weekday),
+    resolveYesterdayIfOutsideWeek(activeDate, weekday),
     getOrCreateTodayTarget(todayStr),
     supabase
       .from('coach_sessions')
@@ -148,11 +180,14 @@ export async function buildDynamicContext(): Promise<string> {
   return [
     `Het is nu ${timeStr} op ${todayStr} (Europe/Amsterdam-tijd).`,
     workoutSummary,
+    ...(yesterdayOutsideWeek ? [formatWeekPlan([yesterdayOutsideWeek])] : []),
+    `Deze week (kalenderweek ${calWeek}):`,
+    formatWeekPlan(weekPlan),
     'Recente dagafsluitingen (nieuwste eerst):',
     recentSessionsText,
     `Eiwitdoel vandaag: ${eiwitDoel}g. Tot nu toe gelogd: ${eiwitTotaal}g (${Math.max(eiwitDoel - eiwitTotaal, 0)}g te gaan).`,
     `Calorieën vandaag (totaal): ${calorieTotaal}kcal — alleen laten zien als de gebruiker er expliciet naar vraagt.`,
-    'Vandaag gelogde maaltijden (met id, voor correcties):',
+    'Vandaag gelogde maaltijden (met id, voor correcties) — raadpleeg deze lijst vóórdat je vraagt wat iemand gegeten heeft, en betrek ze bij vragen over energie, vermoeidheid of trek:',
     mealsText,
     'Wat je over de gebruiker weet (langetermijngeheugen):',
     memoryText,
