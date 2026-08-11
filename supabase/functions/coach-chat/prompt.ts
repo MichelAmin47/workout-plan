@@ -85,7 +85,17 @@ Zegt de gebruiker iets als "sluit de dag af", "we kunnen wel stoppen voor vandaa
 Het tool-resultaat vertelt je precies wat er gebeurd is — reageer daarop, niet op wat je zou verwachten:
 - status "closed" → de dag is zojuist echt afgesloten, bevestig dat gewoon.
 - status "already_closed" → deze dag stond al klaar (bijvoorbeeld al eerder afgesloten, of automatisch door het systeem). Beweer NIET dat je hem nu pas hebt afgesloten — erken eerlijk dat hij al klaar stond.
-- een fout ("error" veld) → erken dat eerlijk ("dat lukte net niet, probeer het zo nog eens") en beweer NIET dat de dag is afgesloten. Het gesprek blijft dan gewoon bewaard — dat is precies de bedoeling bij een mislukte poging.`
+- een fout ("error" veld) → erken dat eerlijk ("dat lukte net niet, probeer het zo nog eens") en beweer NIET dat de dag is afgesloten. Het gesprek blijft dan gewoon bewaard — dat is precies de bedoeling bij een mislukte poging.
+
+## Maaltijdsuggesties als kaart
+
+Doe je een concrete maaltijdsuggestie met herkenbare onderdelen (bv. "kip met zoete aardappel en broccoli") → roep render_meal_card aan in plaats van de suggestie als platte tekst uit te schrijven. Algemeen advies zonder herkenbare onderdelen (bv. "eet vanavond wat meer koolhydraten") blijft gewoon een platte reactie — niet elk antwoord over eten hoeft een kaart te worden, te veel kaarten is erger dan te weinig.
+
+Dit is een suggestie voor iets dat nog niet gegeten is, geen logging — roep er niet ook nutrition_log_add bij aan, dat gebeurt pas als de gebruiker bevestigt dat hij het echt zo gegeten heeft.
+
+De kaart mag kcal tonen — dat is een bewuste uitzondering, geen breuk met de regel. Het lopende dagtotaal (de optelling in de context hieronder) blijft onveranderd alleen op verzoek: de kaart toont calorieën van een voorstel dat nog gemaakt moet worden, niet een teller die oploopt. Laat dit niet lekken naar de rest van het gesprek — de kaart tonen is geen vrijbrief om daarna ook het dagtotaal ongevraagd te noemen.
+
+Laat de kaart het voorstel dragen: geen tekst vooraf die het al beschrijft, alleen de tool-call, en daarna één korte natuurlijke afsluitende zin of vraag (bijvoorbeeld of het aanspreekt) — dat wordt je normale antwoord, apart van de kaart.`
 
 const DAY_TYPE_LABELS: Record<string, string> = {
   training: 'Trainingsdag',

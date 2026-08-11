@@ -10,7 +10,7 @@
 import { amsterdamNow, isoDateString, resolveActiveDate } from '../_shared/today.ts'
 import { callClaude, extractText } from '../_shared/anthropic.ts'
 import { PERSONA_PROMPT, buildDynamicContext } from './prompt.ts'
-import { TOOLS, executeTool } from './tools.ts'
+import { TOOLS, executeTool, formatMealCard } from './tools.ts'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -62,6 +62,10 @@ Deno.serve(async (req: Request) => {
     const workingMessages = [...messages]
     let finalReplyText: string | null = null
     let daySummaryWritten = false
+    // Last call wins if the model somehow calls this twice in one exchange
+    // — discouraged via PERSONA_PROMPT ("too many cards is worse than too
+    // few"), not worth guarding further for a single-user beta app.
+    let mealCard: ReturnType<typeof formatMealCard> | null = null
 
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
       const result = await callClaude(apiKey, {
@@ -89,6 +93,12 @@ Deno.serve(async (req: Request) => {
             if (block.name === 'close_day_summary' && toolResult && typeof toolResult === 'object' && !('error' in toolResult)) {
               daySummaryWritten = true
             }
+            // The card content comes straight from the tool_use block's
+            // input, not from executeTool's return value — that return
+            // value only becomes the tool_result echoed back to the model.
+            if (block.name === 'render_meal_card' && block.input) {
+              mealCard = formatMealCard(block.input as unknown as Parameters<typeof formatMealCard>[0])
+            }
             toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(toolResult) })
           }
         }
@@ -109,7 +119,7 @@ Deno.serve(async (req: Request) => {
     // sync, but for the one flow where disagreement would actually misfile
     // data (fetching what was just closed), the client uses this value
     // directly instead of trusting that agreement.
-    return jsonResponse({ reply: finalReplyText, daySummaryWritten, activeDate: todayStr })
+    return jsonResponse({ reply: finalReplyText, daySummaryWritten, activeDate: todayStr, mealCard })
   } catch (err) {
     console.error('coach-chat error', err)
     return jsonResponse({ error: 'Er ging iets mis.' }, 500)

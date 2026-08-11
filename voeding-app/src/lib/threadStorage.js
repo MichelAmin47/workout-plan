@@ -24,11 +24,20 @@ const STORAGE_KEY = 'coach_thread_v1'
 // than a parallel function callers would have to remember to pick between.
 const ACTIVE_DAY_CUTOFF_HOUR = 4
 
-export function todayDateString() {
+// The active Date object, not just its string form — exported (block 5) so
+// morningCheckin.js's weekday/calendar-week math shares this exact cutoff
+// instead of a fourth inline copy of the "4" constant. todayDateString
+// below is just this, formatted.
+export function activeDate() {
   const d = new Date()
   if (d.getHours() < ACTIVE_DAY_CUTOFF_HOUR) {
     d.setDate(d.getDate() - 1)
   }
+  return d
+}
+
+export function todayDateString() {
+  const d = activeDate()
   const pad = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }

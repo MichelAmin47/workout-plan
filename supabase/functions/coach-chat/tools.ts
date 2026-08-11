@@ -105,7 +105,65 @@ export const TOOLS = [
       'Close out today and write the end-of-day summary. Call this when the user asks to close/end the day (e.g. "sluit de dag af"). This triggers a separate compression step over the whole conversation — do not write the summary yourself.',
     input_schema: { type: 'object', properties: {} },
   },
+  {
+    name: 'render_meal_card',
+    description:
+      'Render a concrete meal suggestion as a structured card instead of writing it out as text. Only for a specific suggestion with identifiable ingredients (e.g. "kip met zoete aardappel en broccoli") — NOT for general advice with no concrete components (e.g. "eet vanavond wat meer koolhydraten"), which stays a plain reply. This is a suggestion for something not yet eaten, not a log entry — do not call nutrition_log_add for it.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        titel: { type: 'string', description: 'Short name for the suggestion, e.g. "Kip met zoete aardappel"' },
+        tag: { type: 'string', description: 'Short uppercase category label, e.g. "AVONDETEN", "LUNCH", "SNACK"' },
+        ingredienten: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              naam: { type: 'string' },
+              hoeveelheid: { type: 'string', description: 'Quantity, e.g. "150g" or "1 stuk"' },
+            },
+            required: ['naam', 'hoeveelheid'],
+          },
+        },
+        kcal: { type: 'number', description: 'Estimated total calories for this suggestion' },
+        eiwitten_g: { type: 'number', description: 'Estimated grams of protein' },
+        koolhydraten_g: { type: 'number', description: 'Estimated grams of carbohydrates' },
+        vet_g: { type: 'number', description: 'Estimated grams of fat' },
+      },
+      required: ['titel', 'tag', 'ingredienten', 'kcal', 'eiwitten_g', 'koolhydraten_g', 'vet_g'],
+    },
+  },
 ]
+
+interface MealCardInput {
+  titel: string
+  tag: string
+  ingredienten: { naam: string; hoeveelheid: string }[]
+  kcal: number
+  eiwitten_g: number
+  koolhydraten_g: number
+  vet_g: number
+}
+
+// Maps the tool's raw fields onto the exact shape MealCard/cardToText
+// already expect (see Coach.jsx's render switch and chatApi.js) — items:
+// [{name, detail}], macros: [{val, label}] in a fixed kcal/eiwit/koolhydraten/vet
+// order. The order is code-controlled here, not left to the model, so the
+// card layout is consistent regardless of which order the model happened
+// to fill in the tool call.
+export function formatMealCard(input: MealCardInput) {
+  return {
+    title: input.titel,
+    tag: input.tag,
+    items: input.ingredienten.map((i) => ({ name: i.naam, detail: i.hoeveelheid })),
+    macros: [
+      { val: `${Math.round(input.kcal)}`, label: 'kcal' },
+      { val: `${Math.round(input.eiwitten_g)}g`, label: 'eiwit' },
+      { val: `${Math.round(input.koolhydraten_g)}g`, label: 'koolhydraten' },
+      { val: `${Math.round(input.vet_g)}g`, label: 'vet' },
+    ],
+  }
+}
 
 export async function executeTool(
   name: string,
@@ -178,6 +236,13 @@ export async function executeTool(
       // can respond honestly instead of always claiming a fresh close —
       // see PERSONA_PROMPT's "Dag afsluiten" section.
       return { status: result.alreadyClosed ? 'already_closed' : 'closed' }
+    }
+    case 'render_meal_card': {
+      // No DB side effect — this tool is purely a structured-output vehicle.
+      // The actual card content is picked up by index.ts directly from the
+      // tool_use block (see formatMealCard above), not from this return
+      // value, which only becomes the tool_result fed back to the model.
+      return { status: 'rendered' }
     }
     default:
       return { error: `Unknown tool: ${name}` }

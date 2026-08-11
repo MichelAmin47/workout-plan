@@ -297,6 +297,15 @@
   overflow: hidden;
   margin: 4px 0;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  /* .chat-scroll is a flex column; a flex item with overflow other than
+     visible loses its content-based automatic minimum size (a CSS flexbox
+     spec quirk), so once the thread's total content exceeds the visible
+     height, flexbox was free to shrink this card toward 0 instead of just
+     letting .chat-scroll scroll — collapsed it to ~2px in practice. Never
+     caught before this block because MealCard was unused until now.
+     flex-shrink: 0 keeps it at its content size like every other message
+     type already gets by default. */
+  flex-shrink: 0;
 }
 .meal-card-header {
   padding: 14px 16px 10px;

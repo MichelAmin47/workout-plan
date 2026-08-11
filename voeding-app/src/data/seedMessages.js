@@ -17,7 +17,12 @@ const id = () => crypto.randomUUID()
 // fail on a 529 is a bad trade). Block 7 adds the client's own data
 // (protein progress) to those written templates instead — still no API
 // call, but no longer the same sentence every time either.
-function isLateEvening() {
+//
+// Exported (block 5) so morningCheckin.js's own evening gate uses this exact
+// threshold instead of a second copy of the "22" constant — the check-in
+// card and the closing question own opposite ends of the day and must agree
+// on where the line is.
+export function isLateEvening() {
   return new Date().getHours() >= 22
 }
 

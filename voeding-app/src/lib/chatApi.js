@@ -62,5 +62,10 @@ export async function askCoach(messages) {
   // midnight, before its 04:00 cutoff, that's still yesterday) — used
   // instead of recomputing locally wherever agreement with the server
   // matters most, e.g. fetching what a close just wrote.
-  return { reply: data.reply, daySummaryWritten: Boolean(data.daySummaryWritten), activeDate: data.activeDate }
+  return {
+    reply: data.reply,
+    daySummaryWritten: Boolean(data.daySummaryWritten),
+    activeDate: data.activeDate,
+    mealCard: data.mealCard ?? null,
+  }
 }

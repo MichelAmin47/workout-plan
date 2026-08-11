@@ -14,6 +14,7 @@ import { askCoach } from '../lib/chatApi.js'
 import { supabase } from '../supabase.js'
 import { fetchProteinProgress } from '../lib/dayProgress.js'
 import { todayDateString, loadStoredThread, saveThread, clearThread } from '../lib/threadStorage.js'
+import { shouldShowCheckin, hasShownCheckinToday, markCheckinShown, fetchMorningCheckin } from '../lib/morningCheckin.js'
 
 const FALLBACK_ERROR_TEXT = 'Sorry, ik kan even niet reageren — probeer het zo nog eens.'
 const CLOSE_DAY_RESET_DELAY_MS = 1500
@@ -53,8 +54,38 @@ async function fetchTodaySummary(date) {
 async function buildRolloverTransition(previousMessages, previousDate, today) {
   const [progress, summaryId] = await Promise.all([fetchProteinProgress(today, previousDate), fetchSummaryId(today)])
   const marker = { id: makeMessageId(), type: 'day-marker', label: 'Vandaag' }
-  const opening = buildOpeningMessages(summaryId !== null, progress)
+  const opening = await buildDailyOpening(summaryId !== null, progress, today)
   return { messages: [...previousMessages, marker, ...opening], summaryId }
+}
+
+// Block 5: wraps buildOpeningMessages with the morning check-in card
+// decision. Called from every genuine "first open of today" moment (the
+// mount effect's fresh-thread and cron-invalidated branches, and the
+// rollover transition above, which also covers the visibilitychange
+// midnight-crossing path since it's the same function) — deliberately NOT
+// called from the close_day_summary reset in sendMessage, since that's a
+// fresh thread starting mid-conversation right after a close, not an app
+// open, and a check-in card there would be a non-sequitur.
+//
+// hasShownCheckinToday/markCheckinShown (morningCheckin.js) are what make
+// this once-per-day rather than once-per-reopen: markCheckinShown only
+// fires on a genuinely successful card render, so a failed or slow call
+// doesn't burn the day's one shot and can still succeed on a later reopen
+// the same morning. Any other outcome — already shown today, no trigger,
+// the call failing — falls back to the exact same template
+// buildOpeningMessages always produced.
+async function buildDailyOpening(hasSummaryToday, progress, today) {
+  if (!hasShownCheckinToday(today)) {
+    const { show } = await shouldShowCheckin()
+    if (show) {
+      const result = await fetchMorningCheckin()
+      if (result.ok && result.card) {
+        markCheckinShown(today)
+        return [{ id: makeMessageId(), type: 'checkin-card', ...result.card }]
+      }
+    }
+  }
+  return buildOpeningMessages(hasSummaryToday, progress)
 }
 
 export default function Coach() {
@@ -118,8 +149,9 @@ export default function Coach() {
       if (!stored) {
         const progress = await fetchProteinProgress(today)
         summaryIdAtStartRef.current = await fetchSummaryId(today)
+        const opening = await buildDailyOpening(summaryIdAtStartRef.current !== null, progress, today)
         if (cancelled) return
-        setMessages(buildOpeningMessages(summaryIdAtStartRef.current !== null, progress))
+        setMessages(opening)
         setThreadDate(today)
         return
       }
@@ -144,8 +176,9 @@ export default function Coach() {
         clearThread()
         const progress = await fetchProteinProgress(today)
         summaryIdAtStartRef.current = await fetchSummaryId(today)
+        const opening = await buildDailyOpening(summaryIdAtStartRef.current !== null, progress, today)
         if (cancelled) return
-        setMessages(buildOpeningMessages(summaryIdAtStartRef.current !== null, progress))
+        setMessages(opening)
         setThreadDate(today)
       } else {
         summaryIdAtStartRef.current = stored.summaryIdAtStart ?? null
@@ -268,18 +301,30 @@ export default function Coach() {
     let replyText
     let daySummaryWritten = false
     let closedActiveDate = null
+    let mealCard = null
     try {
       const result = await askCoach(threadWithUserMessage)
       replyText = result.reply
       daySummaryWritten = result.daySummaryWritten
       closedActiveDate = result.activeDate
+      mealCard = result.mealCard
     } catch (err) {
       console.error('coach-chat call failed', err)
       replyText = FALLBACK_ERROR_TEXT
     }
 
     setIsTyping(false)
-    setMessages((prev) => [...prev, { id: makeMessageId(), type: 'coach', text: replyText, time: nowTime() }])
+    // Card first, then the trailing text reply — matches the persona
+    // prompt's instruction to lead with the card and follow with one short
+    // line, not describe the card in text beforehand. Both land in the same
+    // `messages` array as the plain-text case, so the existing saveThread
+    // effect persists the card exactly like any other message — no separate
+    // persistence path needed.
+    setMessages((prev) => [
+      ...prev,
+      ...(mealCard ? [{ id: makeMessageId(), type: 'meal-card', ...mealCard }] : []),
+      { id: makeMessageId(), type: 'coach', text: replyText, time: nowTime() },
+    ])
 
     // Only clear on a confirmed successful close — a failed close_day_summary
     // call must leave the thread exactly as it was, so nothing is lost.
