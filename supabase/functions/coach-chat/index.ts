@@ -25,7 +25,14 @@ function jsonResponse(body: unknown, status = 200) {
   })
 }
 
-const MAX_TOOL_ITERATIONS = 5
+// Was 5 — bumped after a reproduced bug: a meal-card revision ("kan het met
+// minder kip?") occasionally has the model re-invoke render_meal_card more
+// than once before settling on final text (Claude's own sampling variance,
+// not deterministic — the exact same message succeeded on one run and
+// exhausted the loop on another), and 5 wasn't always enough headroom for
+// that. See also the render_meal_card tool_result below, made more
+// directive for the same reason.
+const MAX_TOOL_ITERATIONS = 8
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -62,6 +69,11 @@ Deno.serve(async (req: Request) => {
     const workingMessages = [...messages]
     let finalReplyText: string | null = null
     let daySummaryWritten = false
+    // Diagnostics only, for the !finalReplyText branch below — this loop
+    // previously had no logging at all when it ran out of iterations,
+    // which is exactly what made the meal-card revision bug hard to
+    // diagnose from the platform's HTTP-level logs alone.
+    const calledToolNames: string[] = []
     // Last call wins if the model somehow calls this twice in one exchange
     // — discouraged via PERSONA_PROMPT ("too many cards is worse than too
     // few"), not worth guarding further for a single-user beta app.
@@ -89,6 +101,7 @@ Deno.serve(async (req: Request) => {
         const toolResults = []
         for (const block of data.content ?? []) {
           if (block.type === 'tool_use' && block.id && block.name) {
+            calledToolNames.push(block.name)
             const toolResult = await executeTool(block.name, block.input ?? {}, todayStr, workingMessages)
             if (block.name === 'close_day_summary' && toolResult && typeof toolResult === 'object' && !('error' in toolResult)) {
               daySummaryWritten = true
@@ -111,6 +124,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (!finalReplyText) {
+      console.error('coach-chat: exhausted MAX_TOOL_ITERATIONS without final text, tools called in order:', calledToolNames)
       return jsonResponse({ error: 'Coach kon geen antwoord afronden.' }, 502)
     }
 

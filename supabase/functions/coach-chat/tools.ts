@@ -242,7 +242,14 @@ export async function executeTool(
       // The actual card content is picked up by index.ts directly from the
       // tool_use block (see formatMealCard above), not from this return
       // value, which only becomes the tool_result fed back to the model.
-      return { status: 'rendered' }
+      //
+      // The plain { status: 'rendered' } this used to return was too terse
+      // — reproduced a bug where a meal-card revision occasionally had the
+      // model re-invoke this tool one or more extra times (not always, only
+      // sometimes — sampling variance) instead of moving on to its closing
+      // text, eating into MAX_TOOL_ITERATIONS. An explicit instruction here
+      // is cheap insurance against that ambiguity.
+      return { status: 'rendered', instructie: 'De kaart is nu getoond aan de gebruiker. Schrijf nu je korte afsluitende reactie in platte tekst — roep dit tool niet nogmaals aan voor dezelfde suggestie.' }
     }
     default:
       return { error: `Unknown tool: ${name}` }
