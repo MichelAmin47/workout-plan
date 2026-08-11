@@ -14,8 +14,6 @@ import { askCoach } from '../lib/chatApi.js'
 import { supabase } from '../supabase.js'
 import { fetchProteinProgress } from '../lib/dayProgress.js'
 import { todayDateString, loadStoredThread, saveThread, clearThread } from '../lib/threadStorage.js'
-// TEMPORARY — remove after block 4 verification
-import { fireTestNotification } from '../lib/dailyReminder.js'
 
 const FALLBACK_ERROR_TEXT = 'Sorry, ik kan even niet reageren — probeer het zo nog eens.'
 const CLOSE_DAY_RESET_DELAY_MS = 1500
@@ -315,21 +313,6 @@ export default function Coach() {
     setInputValue(option)
   }
 
-  // TEMPORARY — daily-reminder double-fire investigation, remove after
-  // diagnosis. alert() so it's readable without needing devtools.
-  async function checkPending() {
-    const { notifications } = await LocalNotifications.getPending()
-    if (notifications.length === 0) {
-      alert('No pending notifications.')
-      return
-    }
-    alert(
-      notifications
-        .map((n) => `id ${n.id}: ${JSON.stringify(n.schedule)}`)
-        .join('\n\n'),
-    )
-  }
-
   return (
     <div className="app">
       <div className="coach-header">
@@ -339,14 +322,6 @@ export default function Coach() {
             <div className="coach-name">Coach</div>
             <div className="coach-status">Jouw voedingscoach</div>
           </div>
-          {/* TEMPORARY — remove after block 4 verification */}
-          <button type="button" className="test-notification-btn" onClick={fireTestNotification}>
-            🔔 test
-          </button>
-          {/* TEMPORARY — daily-reminder double-fire investigation, remove after diagnosis */}
-          <button type="button" className="test-notification-btn" onClick={checkPending}>
-            📋 pending
-          </button>
         </div>
       </div>
 

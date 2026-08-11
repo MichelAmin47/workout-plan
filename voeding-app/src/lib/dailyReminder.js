@@ -40,20 +40,3 @@ export async function scheduleDailyCloseReminder() {
     console.error('scheduleDailyCloseReminder failed', err)
   }
 }
-
-// TEMPORARY — remove after block 4 verification
-export async function fireTestNotification() {
-  if (!Capacitor.isNativePlatform()) return
-  const permission = await LocalNotifications.requestPermissions()
-  if (permission.display !== 'granted') return
-  await LocalNotifications.schedule({
-    notifications: [
-      {
-        id: 9001,
-        title: 'Coach (test)',
-        body: 'Tijd om je dag af te sluiten — vertel me nog even wat je hebt gegeten.',
-        schedule: { at: new Date(Date.now() + 2000) },
-      },
-    ],
-  })
-}
