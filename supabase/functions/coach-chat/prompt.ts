@@ -88,6 +88,18 @@ Na nutrition_log_update (een eerder gelogde maaltijd corrigeren): wijzigt de cor
 
 Deze bevestiging blijft ook gelden nadat de gebruiker heeft aangegeven vol of klaar te zijn voor die dag: alleen de druk om het eiwitdoel alsnog te halen vervalt dan (zie "Vaste voorkeuren" hierboven), niet de bevestiging van wat er net gelogd is.
 
+## Gewicht bijhouden
+
+Noemt de gebruiker een gewicht (bv. "ik weeg 110,4", "110,4 kg vanochtend") → roep weight_log_add aan met het cijfer als getal (ook bij Nederlandse komma-notatie). Bevestig daarna alleen dat het genoteerd is, in één korte neutrale zin, bv. "110,4 kg genoteerd." Geen opmerking over het cijfer zelf, geen vergelijking met een vorige meting, geen aanmoediging — dit is bewust vlakker dan de bevestiging bij het loggen van een maaltijd.
+
+Wil de gebruiker een eerder gelogd gewicht corrigeren → roep weight_log_update aan met het id uit de context (indien bekend) en bevestig op dezelfde vlakke manier, bv. "Aangepast naar 108,9 kg."
+
+Noem gewicht, trend of onderhoudsniveau NOOIT uit jezelf — niet in de ochtend check-in, niet bij het afsluiten van de dag, niet tussendoor in het gesprek. Alleen als de gebruiker er zelf expliciet naar vraagt.
+
+Vraagt de gebruiker ernaar (bv. "hoe gaat het met mijn gewicht?", "wat is mijn onderhoudsniveau?"): gebruik de "Gewichtstrend"-regel uit de context hieronder.
+- Genoeg data → geef alleen de conclusie in één zin, bv. "je onderhoudsniveau ligt rond 2950, dat is wat we nu kunnen meten." Nooit de losse metingen noemen, nooit een week-voor-week uitsplitsing.
+- Nog te vroeg → zeg dat gewoon ("dat kan ik nog niet betrouwbaar zeggen, daar is meer data voor nodig") — verzin geen cijfer.
+
 ## Dag afsluiten
 
 Zegt de gebruiker iets als "sluit de dag af", "we kunnen wel stoppen voor vandaag" of vergelijkbaar → roep close_day_summary aan. Dit triggert een aparte samenvatting-stap over het hele gesprek; jij schrijft die samenvatting niet zelf. Let op: vlak na middernacht (vóór 04:00) hoort deze actie bij de dag die net voorbij is, niet bij de kalenderdatum van dit moment — dat regelt de tool zelf, jij hoeft hier niets voor te doen.
@@ -125,6 +137,111 @@ function formatWeekPlan(days: WeekDayInfo[]): string {
     .join('\n')
 }
 
+function dateFromIsoString(iso: string): Date {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+
+interface WeekBucket {
+  weekNum: number
+  earliestDate: Date
+  latestDate: Date
+  totalGewicht: number
+  count: number
+}
+
+// See voeding-app-v2.md §5 "Gewicht bijhouden — registreren, niet tonen":
+// two measurements/week takes 5-6 weeks before the trend is reliable —
+// picking the top of that range since it's explicitly acknowledging noise.
+const MIN_WEEKS_FOR_TREND = 6
+const KCAL_PER_KG = 7500
+
+// Server-computed, always included in context (never left to the model to
+// derive from raw weight_log rows — same reasoning as eiwitTotaal/
+// calorieTotaal below: a stored/computed number doesn't drift between
+// asks, a model re-estimate does). "Alleen op verzoek noemen" is enforced
+// by PERSONA_PROMPT's "Gewicht bijhouden" section, not by withholding this
+// line — individual measurements never appear in context at all, only this
+// one derived sentence, so there's nothing for the model to leak even if
+// it wanted to.
+//
+// Calendar weeks (via currentCalWeek, same as the rest of the app), not a
+// rolling window: the two measurement days (Wo/Zo) are fixed, and this
+// app's Mon-Sun week always contains exactly one of each, giving a
+// consistent 1-2 points per week. A rolling window would slide across that
+// fixed cadence and sometimes catch 1, sometimes 2 measurements depending
+// on where it lands — adding noise instead of removing it.
+//
+// Known accepted limitation: week-number arithmetic doesn't special-case a
+// year-boundary rollover (week 52 -> week 1) — acceptable for a
+// single-macrocycle personal app.
+async function resolveWeightTrend(): Promise<string> {
+  const { data: weightRows } = await supabase.from('weight_log').select('datum, gewicht').order('datum', { ascending: true })
+  const rows = weightRows ?? []
+
+  const buckets = new Map<number, WeekBucket>()
+  for (const row of rows) {
+    const date = dateFromIsoString(row.datum)
+    const weekNum = currentCalWeek(date)
+    const gewicht = Number(row.gewicht) || 0
+    const existing = buckets.get(weekNum)
+    if (existing) {
+      existing.totalGewicht += gewicht
+      existing.count += 1
+      if (date < existing.earliestDate) existing.earliestDate = date
+      if (date > existing.latestDate) existing.latestDate = date
+    } else {
+      buckets.set(weekNum, { weekNum, earliestDate: date, latestDate: date, totalGewicht: gewicht, count: 1 })
+    }
+  }
+
+  const weeks = Array.from(buckets.values()).sort((a, b) => a.earliestDate.getTime() - b.earliestDate.getTime())
+
+  if (weeks.length < MIN_WEEKS_FOR_TREND) {
+    return `Gewichtstrend (alleen op verzoek noemen): nog te vroeg voor een betrouwbare trend (${weeks.length} van de ${MIN_WEEKS_FOR_TREND} benodigde weken data).`
+  }
+
+  // Compare average of the first 2 qualifying weeks vs. the last 2 — noise
+  // reduction on both ends, matches the doc's own "twee weekgemiddelden
+  // vergelijken" wording literally rather than a full regression.
+  const firstPair = weeks.slice(0, 2)
+  const lastPair = weeks.slice(-2)
+  const avgWeightOf = (pair: WeekBucket[]) => pair.reduce((sum, w) => sum + w.totalGewicht / w.count, 0) / pair.length
+  const firstAvgWeight = avgWeightOf(firstPair)
+  const recentAvgWeight = avgWeightOf(lastPair)
+  const firstAvgWeekNum = firstPair.reduce((sum, w) => sum + w.weekNum, 0) / firstPair.length
+  const recentAvgWeekNum = lastPair.reduce((sum, w) => sum + w.weekNum, 0) / lastPair.length
+  const weeksElapsed = recentAvgWeekNum - firstAvgWeekNum
+
+  if (weeksElapsed <= 0) {
+    // Degenerate — most likely the year-boundary limitation above. Bail
+    // out rather than divide by zero or silently invert the sign.
+    return 'Gewichtstrend (alleen op verzoek noemen): nog niet genoeg spreiding in de data om te berekenen.'
+  }
+
+  // Weight *loss* (negative change) should yield a *positive* deficit.
+  const weeklyWeightChangeKg = (recentAvgWeight - firstAvgWeight) / weeksElapsed
+  const dailyDeficitKcal = -(weeklyWeightChangeKg * KCAL_PER_KG) / 7
+
+  // Actual average intake over the full qualifying span (first week ->
+  // last week), logged days only — an unlogged day would otherwise
+  // zero-inflate the average down.
+  const spanStart = isoDateString(weeks[0].earliestDate)
+  const spanEnd = isoDateString(weeks[weeks.length - 1].latestDate)
+  const { data: mealsInSpan } = await supabase.from('nutrition_log').select('datum, calorieen').gte('datum', spanStart).lte('datum', spanEnd)
+  const dailyTotals = new Map<string, number>()
+  for (const meal of mealsInSpan ?? []) {
+    dailyTotals.set(meal.datum, (dailyTotals.get(meal.datum) ?? 0) + (Number(meal.calorieen) || 0))
+  }
+  if (dailyTotals.size === 0) {
+    return 'Gewichtstrend (alleen op verzoek noemen): nog niet genoeg gelogde inname in dezelfde periode om te berekenen.'
+  }
+  const avgDailyIntake = Array.from(dailyTotals.values()).reduce((sum, v) => sum + v, 0) / dailyTotals.size
+
+  const maintenanceLevel = avgDailyIntake + dailyDeficitKcal
+  return `Gewichtstrend (alleen op verzoek noemen): onderhoudsniveau ~${Math.round(maintenanceLevel)} kcal, gebaseerd op ${weeks.length} weken data.`
+}
+
 async function getOrCreateTodayTarget(todayStr: string): Promise<number> {
   const { data: existing } = await supabase.from('daily_targets').select('eiwit_doel_g').eq('datum', todayStr).limit(1)
   if (existing && existing.length > 0) {
@@ -152,7 +269,7 @@ export async function buildDynamicContext(): Promise<string> {
   const todayStr = isoDateString(activeDate)
   const timeStr = isoTimeString(now)
 
-  const [workoutSummary, weekPlan, yesterdayOutsideWeek, eiwitDoel, sessionsRes, mealsRes, memoryRes] = await Promise.all([
+  const [workoutSummary, weekPlan, yesterdayOutsideWeek, eiwitDoel, sessionsRes, mealsRes, memoryRes, weightTrendLine, weightTodayRes] = await Promise.all([
     resolveTodayWorkout(calWeek, weekday),
     resolveWeekPlan(calWeek, weekday),
     resolveYesterdayIfOutsideWeek(activeDate, weekday),
@@ -164,6 +281,8 @@ export async function buildDynamicContext(): Promise<string> {
       .limit(5),
     supabase.from('nutrition_log').select('id, tijdstip, omschrijving, eiwitten_g, calorieen').eq('datum', todayStr).order('tijdstip', { ascending: true }),
     supabase.from('coach_memory').select('id, feit, categorie').eq('actief', true).order('created_at', { ascending: true }),
+    resolveWeightTrend(),
+    supabase.from('weight_log').select('id, gewicht').eq('datum', todayStr).order('created_at', { ascending: true }),
   ])
 
   const sessions = sessionsRes.data ?? []
@@ -197,6 +316,15 @@ export async function buildDynamicContext(): Promise<string> {
       ? memoryFacts.map((f) => `- [${f.id}]${f.categorie ? ` (${f.categorie})` : ''} ${f.feit}`).join('\n')
       : 'Nog geen langetermijnfeiten opgeslagen.'
 
+  // Only for weight_log_update's id lookup, same role mealsText plays for
+  // nutrition_log_update — not a "display the number" surface, this is
+  // working context for tool use, not something shown to the user.
+  const weightToday = weightTodayRes.data ?? []
+  const weightTodayText =
+    weightToday.length > 0
+      ? weightToday.map((w) => `- [${w.id}] ${w.gewicht}kg`).join('\n')
+      : 'Nog geen gewicht gelogd vandaag.'
+
   return [
     `Het is nu ${timeStr} op ${todayStr} (Europe/Amsterdam-tijd).`,
     workoutSummary,
@@ -207,6 +335,9 @@ export async function buildDynamicContext(): Promise<string> {
     recentSessionsText,
     `Eiwitdoel vandaag: ${eiwitDoel}g. Tot nu toe gelogd: ${eiwitTotaal}g (${Math.max(eiwitDoel - eiwitTotaal, 0)}g te gaan).`,
     `Calorieën vandaag (totaal): ${calorieTotaal}kcal — alleen laten zien als de gebruiker er expliciet naar vraagt.`,
+    weightTrendLine,
+    'Vandaag gelogd gewicht (met id, voor correcties):',
+    weightTodayText,
     'Vandaag gelogde maaltijden (met id, voor correcties) — raadpleeg deze lijst vóórdat je vraagt wat iemand gegeten heeft, en betrek ze bij vragen over energie, vermoeidheid of trek:',
     mealsText,
     'Wat je over de gebruiker weet (langetermijngeheugen):',

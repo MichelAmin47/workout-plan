@@ -106,6 +106,29 @@ export const TOOLS = [
     input_schema: { type: 'object', properties: {} },
   },
   {
+    name: 'weight_log_add',
+    description: 'Log a body weight measurement the user just reported (e.g. "ik weeg 110,4", "110,4 kg vanochtend"). Parse the number, including Dutch decimal-comma notation.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        gewicht: { type: 'number', description: 'Body weight in kg, e.g. 110.4' },
+      },
+      required: ['gewicht'],
+    },
+  },
+  {
+    name: 'weight_log_update',
+    description: 'Correct a previously logged weight measurement (e.g. the user says they mistyped it). Use the id from context if available, or ask which entry if ambiguous.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'uuid of the weight_log row to correct' },
+        gewicht: { type: 'number', description: 'Corrected body weight in kg' },
+      },
+      required: ['id', 'gewicht'],
+    },
+  },
+  {
     name: 'render_meal_card',
     description:
       'Render a concrete meal suggestion as a structured card instead of writing it out as text. Only for a specific suggestion with identifiable ingredients (e.g. "kip met zoete aardappel en broccoli") — NOT for general advice with no concrete components (e.g. "eet vanavond wat meer koolhydraten"), which stays a plain reply. This is a suggestion for something not yet eaten, not a log entry — do not call nutrition_log_add for it.',
@@ -200,6 +223,20 @@ export async function executeTool(
       const { error } = await supabase.from('nutrition_log').delete().eq('id', input.id)
       if (error) return { error: error.message }
       return { status: 'deleted' }
+    }
+    case 'weight_log_add': {
+      const { data, error } = await supabase
+        .from('weight_log')
+        .insert({ datum: todayStr, gewicht: input.gewicht })
+        .select('id')
+        .single()
+      if (error) return { error: error.message }
+      return { id: data.id, status: 'logged' }
+    }
+    case 'weight_log_update': {
+      const { error } = await supabase.from('weight_log').update({ gewicht: input.gewicht }).eq('id', input.id)
+      if (error) return { error: error.message }
+      return { status: 'updated' }
     }
     case 'memory_add': {
       const { data, error } = await supabase
