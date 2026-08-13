@@ -10,7 +10,7 @@ volledige bouw- en testgeschiedenis van fase 1.
 
 ## 1. Nog niet live getest (uit het blok 4-testplan)
 
-Deze zes punten stonden als testplan klaar sinds blok 4, maar zijn nooit
+Deze punten stonden als testplan klaar sinds blok 4, maar zijn nooit
 afgevinkt — waarschijnlijk ingehaald doordat blok 5 en de dagelijkse
 gebruikspraktijk andere dingen prioriteit gaven. Geen van deze heeft een
 bekend probleem; ze zijn simpelweg nooit expliciet bevestigd.
@@ -25,19 +25,18 @@ bekend probleem; ze zijn simpelweg nooit expliciet bevestigd.
   opnieuw om af te sluiten.
 - ⬜ **Melding vuurt ook op een dag zonder enige activiteit** (onvoorwaardelijk
   — de 23:30-melding hoort altijd te vuren, ongeacht of er die dag gelogd is).
-- ⬜ **Wo/Zo-gewichtsherinnering vuurt op de juiste dag** — de `weekday`-
-  waarden (Wo=4, Zo=1) zijn geverifieerd tegen de daadwerkelijke Capacitor-
-  broncode (`DateMatch.java` + de runtime `Weekday`-enum), maar nooit op een
-  echt toestel bevestigd: er was geen adb/emulator beschikbaar in de
-  bouwomgeving om `getPending()` te raadplegen. Nodig: een echte woensdag of
-  zondag afwachten, óf alsnog on-device `getPending()` checken. Het
-  faalpatroon hier is onzichtbaar — een melding die op de verkeerde dag
-  vuurt ziet er identiek uit als een werkende melding, dus dit mag niet
-  stilzwijgend als "waarschijnlijk goed" blijven staan.
 
 *Wel al bevestigd (ter referentie, geen actie nodig):* de echte 23:30-melding
-werkt (5 augustus), en de handmatige dagafsluiting end-to-end werkt (5
-augustus, na de 529-storing die dit eerder blokkeerde).
+werkt (5 augustus), de handmatige dagafsluiting end-to-end werkt (5 augustus,
+na de 529-storing die dit eerder blokkeerde), en de Wo/Zo-gewichtsherinnering
+staat on-device correct gepland (13 augustus, bevestigd via een screenshot
+van `LocalNotifications.getPending()` op een echt toestel — id 1002 op
+`weekday:4`/07:00 en id 1003 op `weekday:1`/07:00, exact overeenkomend met
+`weightReminder.js`'s bedoelde Wednesday/Sunday-mapping en de Capacitor
+`Weekday`-enum, `id` 1001 op 23:30 voor de dagelijkse afsluit-melding was ook
+zichtbaar. Dit bevestigt dat de meldingen correct *gepland* staan; of ze ook
+altijd zichtbaar vuren hangt af van toestelgedrag (batterij-optimalisatie,
+Do Not Disturb) — dat is losstaand van deze code-verificatie).
 
 ---
 
