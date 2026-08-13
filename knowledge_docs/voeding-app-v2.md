@@ -59,10 +59,11 @@ augustus, na de 529-storing die dit eerder blokkeerde).
     vetpercentage. Vastgelegd zodat dit niet elke paar kilo opnieuw ter
     discussie komt: **gewichtsverlies dat vooral vetmassa is, hoort het
     eiwitdoel niet te verlagen.**
-  - ➡️ **Dit gat is inmiddels uitgewerkt tot een concrete feature** — zie
-    "Gewicht bijhouden" in sectie 5. Daarmee gaat dit punt van "staat nergens"
-    naar een ontworpen oplossing; het blijft hier alleen staan als
-    monitoringpunt tot die feature gebouwd is.
+  - ✅ **Opgelost (12 augustus).** Gewicht heeft nu een eigen tabel
+    (`weight_log`) en wordt via de chat gelogd — zie de bouwgeschiedenis in
+    `voeding-app-volledige-documentatie.md`. Dit monitoringpunt is daarmee
+    afgerond; de vaststelling hierboven over het eiwitdoel blijft staan als
+    referentie, want die verandert niet mee met het gewicht.
 
 - **`coach_memory` periodiek controleren op ruis.** Nog niet gedaan sinds de
   laatste check. Staat er onterecht opgeslagen ruis in, dan is dat het
@@ -179,77 +180,63 @@ and the 02:00 cron can both close the day before anyone gets back to it.
 
 ---
 
-## 5. Featureideeën (fase 2, nog niet uitgewerkt of gepland)
+## 5. Staande afspraak — gedragsregels gelden niet automatisch voor de dagafsluiting
+
+**Vastgelegd 12 augustus, gevonden tijdens de bouw van de gewichtsfeature.**
+
+De dagafsluiting draait een **eigen model met een eigen prompt** uit
+`_shared/summary.ts` — die kent `coach-chat`'s `PERSONA_PROMPT` niet. Een
+gedragsregel die in `prompt.ts` wordt toegevoegd, geldt daar dus níet.
+
+**Hoe dit concreet misging:** de regel "noem gewicht nooit uit jezelf" werd
+netjes in `coach-chat` gezet en werkte daar ook. Maar het
+dagafsluitingsmodel wist er niets van en verwerkte een weging gewoon in het
+aandachtspunt voor de volgende dag — waarmee het gewicht alsnog dagelijks in
+beeld zou komen en het hele "registreren, niet tonen"-principe stilletjes
+ondergraven werd. Gevonden tijdens verificatie, gefixt met een expliciete
+uitsluiting in `summary.ts`.
+
+**Waarom dit een staand risico is:** niets waarschuwt hiervoor. De twee
+prompts staan los van elkaar, er is geen gedeelde basis en geen check die
+signaleert dat een regel maar op één plek staat. Elke volgende "de coach mag
+X nooit noemen"-regel loopt dezelfde fout in als er niet actief aan gedacht
+wordt.
+
+**Let op:** `_shared/summary.ts` wordt gebundeld in **zowel `coach-chat` als
+`close-day-cron`** — beide moeten opnieuw gedeployed worden bij een wijziging
+daar.
+
+**Onderstaand blok opnemen in elke CC-prompt die een gedragsregel toevoegt of
+wijzigt:**
+
+```
+## Prompt rule propagation (required)
+
+Any behavioural rule of the form "the coach should never mention X" or
+"the coach should always say Y" must be applied in BOTH places:
+
+1. coach-chat's PERSONA_PROMPT (prompt.ts) — the conversational model
+2. _shared/summary.ts — the day-close model, which runs its own separate
+   prompt and does NOT inherit PERSONA_PROMPT
+
+This has already caused a real bug: a "never mention weight" rule was
+added to coach-chat only, and the day-close model happily summarised a
+weigh-in into the next day's aandachtspunt.
+
+Note that _shared/summary.ts is bundled into both coach-chat and
+close-day-cron — changing it means redeploying both functions.
+
+Verify the rule holds in both paths before treating the change as done:
+test it in conversation AND trigger a day-close.
+```
+
+---
+
+## 6. Featureideeën (fase 2, nog niet uitgewerkt of gepland)
 
 Losse ideeën, nog niet in blokken opgedeeld en nog niet ontwerpmatig
 uitgedacht (geen calorieën-regels, triggers, of tool-mechanismen bepaald
 zoals bij blok 5) — dat is werk voor wanneer een van deze opgepakt wordt.
-
-- **Gewicht bijhouden — registreren, niet tonen.** ⚙️ **Uitgedacht (11-12
-  augustus), nog geen CC-prompt geschreven.** Vult het openstaande
-  monitoringpunt over lichaamsgewicht uit sectie 2.
-
-  **Waarom dit nodig is.** Het onderhoudsniveau is nu een *schatting* uit een
-  formule (Mifflin-St Jeor × activiteitsfactor). Zulke formules zitten er
-  makkelijk 10-15% naast — bij 111kg is dat 300-450 kcal, groter dan het hele
-  verschil waar het advies over gaat. Met genoeg meetpunten is het werkelijke
-  onderhoudsniveau terug te rekenen uit eigen data, en is er geen formule meer
-  nodig.
-
-  **Het weegprotocol (vastgesteld, met onderbouwing):**
-  **Woensdag- en zondagochtend**, na het eerste toiletbezoek, vóór eten en
-  drinken, in ondergoed.
-  - **Woensdag** ligt het verst van elke zware sessie: 3 dagen na beendag
-    (zondag), 2 dagen na rug & biceps (maandag), met dinsdag (anti-zit-dag)
-    ertussen — geen nieuwe belasting
-  - **Zondagochtend** is ook schoon: benen worden die dag pás getraind, dus
-    's ochtends zit je 7 dagen na de vorige beendag. Alleen schouders van
-    vrijdag/zaterdag speelt mee — kleine spiergroep, weinig vochtretentie
-  - **Praktische haalbaarheid gaf de doorslag** boven zaterdag+zondag:
-    woensdag is thuiswerkdag en zondag kent geen haast, dus op beide dagen kan
-    er gewacht worden tot ná het toilet. De theoretisch beste dag is waardeloos
-    als het de helft van de keren niet lukt
-  - *Geruststelling die erbij hoort:* zelfs áls er wat retentie in zit, valt
-    dat weg bij het vergelijken van weken — het effect herhaalt zich elke week
-    identiek en zit dus in beide weekgemiddelden even hard. Dit hoeft niet
-    perfect
-
-  **Het ontwerpprincipe: registreren, niet tonen.** Dit is dezelfde regel die
-  de app al toepast op calorieën, en om dezelfde reden. Een oplopende
-  calorieteller werkt verkrampend; een gewicht dat je twee keer per week
-  bewust bekijkt en beoordeelt, doet dat net zo goed. Dus:
-  - Het losse getal wordt **ingevoerd maar niet teruggetoond** — geen grafiek
-    van losse metingen, geen "je zat vorige week op X"
-  - Wat wél getoond wordt is een **trend, en alleen wanneer die iets
-    betekent** — bijvoorbeeld eens per maand: "je onderhoudsniveau ligt rond
-    2950, dat is wat we nu kunnen meten." Een conclusie, geen scorebord
-  - Structureel is dit hetzelfde patroon als `calorieen_totaal` in
-    `coach_sessions`: een kolom die gevuld wordt en meerekent, maar niet
-    standaard in beeld komt
-
-  **Wat de coach er uiteindelijk mee doet.** Twee weekgemiddelden vergelijken
-  geeft het werkelijke wekelijkse verlies; dat maal ~7500 kcal/kg, gedeeld
-  door zeven, geeft het dagelijkse tekort; opgeteld bij de werkelijke inname
-  (die al in `nutrition_log` staat) volgt het werkelijke onderhoudsniveau.
-  Met twee metingen per week duurt het 5-6 weken voor die trend betrouwbaar is
-  — dat is de prijs van twee in plaats van zeven metingen, en bewust
-  geaccepteerd.
-
-  **Nog te bepalen bij de bouw:**
-  - Data-model: eigen tabel (`weight_log`: id, datum, gewicht) — expliciet
-    *geen* `coach_memory`-rij, want dit is een parameter, geen feit (zie de
-    memory-spec)
-  - Invoer: via de chat ("ik weeg 110,4") of een klein UI-element? De chat
-    ligt voor de hand — het is twee keer per week, dus de frictie die bij
-    hydratie het probleem was speelt hier veel minder
-  - Herinnering op woensdag/zondagochtend? Zo ja, dan botst dat mogelijk met
-    de bestaande ochtend-check-in-kaart — uitzoeken of het dáárin past in
-    plaats van als losse melding
-  - Bij welke drempel/hoeveelheid meetpunten begint de coach over een trend?
-    En hoe vaak mag hij die noemen (voorstel: laag, vergelijkbaar met de
-    hydratie- en spreidingsregels)?
-  - Moet het weekgemiddelde over kalenderweken lopen, of over een voortschrij-
-    dend venster? Bij twee vaste dagen per week is dat verschil niet triviaal
 
 - **Eiwitspreiding over de dag — coach stuurt op timing, niet alleen op het
   dagtotaal.** ⚙️ **Uitgedacht (11 augustus), nog geen CC-prompt geschreven.**

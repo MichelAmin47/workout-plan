@@ -358,6 +358,21 @@ export default function Coach() {
     setInputValue(option)
   }
 
+  // TEMPORARY — reminder-not-firing investigation (23:30 report, 13 aug),
+  // remove once diagnosed. alert() so it's readable without devtools.
+  async function checkPending() {
+    const { notifications } = await LocalNotifications.getPending()
+    if (notifications.length === 0) {
+      alert('No pending notifications.')
+      return
+    }
+    alert(
+      notifications
+        .map((n) => `id ${n.id}: ${JSON.stringify(n.schedule)}`)
+        .join('\n\n'),
+    )
+  }
+
   return (
     <div className="app">
       <div className="coach-header">
@@ -367,6 +382,10 @@ export default function Coach() {
             <div className="coach-name">Coach</div>
             <div className="coach-status">Jouw voedingscoach</div>
           </div>
+          {/* TEMPORARY — remove after reminder investigation */}
+          <button type="button" className="test-notification-btn" onClick={checkPending}>
+            📋 pending
+          </button>
         </div>
       </div>
 
