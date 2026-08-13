@@ -121,8 +121,14 @@ export default function Coach() {
   }, [messages])
 
   // Quick replies only make sense while the most recent thing in the thread
-  // is a check-in question nobody has answered yet.
-  const showQuickReplies = !isTyping && messages[messages.length - 1]?.type === 'checkin-card'
+  // is a check-in card that actually asked something nobody has answered
+  // yet — `isQuestion` comes from the model itself (morning-checkin's
+  // heeft_vraag), since a checkin-card is often a plain statement ("Vandaag
+  // staan de schouders op het programma...") with nothing to reply to.
+  // Keying off message type alone would show mood pills for a question
+  // that was never asked.
+  const lastMessage = messages[messages.length - 1]
+  const showQuickReplies = !isTyping && lastMessage?.type === 'checkin-card' && lastMessage?.isQuestion === true
 
   useEffect(() => {
     const el = scrollRef.current

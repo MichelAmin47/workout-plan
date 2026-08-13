@@ -57,6 +57,18 @@ async function resolveDayType(calWeek, weekday) {
   return schemaDays && schemaDays.length > 0 ? schemaDays[0].type : null
 }
 
+// Cheap pre-call heuristic duplicated from morning-checkin/index.ts's
+// aandachtspuntHasQuestion (that copy has the full reasoning/limitations
+// comment) — same runtime-duplication precedent as currentCalWeek above.
+// Needed here too, not just server-side: if only the server gains this
+// trigger condition, a day where only the aandachtspunt-question applies
+// never gets called in the first place, since this function is what
+// decides whether to call the Edge Function at all.
+function aandachtspuntHasQuestion(text) {
+  if (!text) return false
+  return /\?/.test(text) || /\bvraag\b/i.test(text)
+}
+
 // Client-side cost gate — no Edge Function call is made just to decide
 // whether to make the (expensive) Edge Function call, only direct table
 // reads. Cross-week correctness for "yesterday" (bouwplan-voeding-app.md
@@ -81,13 +93,19 @@ export async function shouldShowCheckin() {
   const yesterdayWeekday = yesterday.getDay() || 7
   const yesterdayCalWeek = currentCalWeek(yesterday)
 
-  const [todayType, yesterdayType] = await Promise.all([
+  const pad = (n) => String(n).padStart(2, '0')
+  const yesterdayDateStr = `${yesterday.getFullYear()}-${pad(yesterday.getMonth() + 1)}-${pad(yesterday.getDate())}`
+
+  const [todayType, yesterdayType, yesterdaySession] = await Promise.all([
     resolveDayType(todayCalWeek, todayWeekday),
     resolveDayType(yesterdayCalWeek, yesterdayWeekday),
+    supabase.from('coach_sessions').select('aandachtspunt').eq('datum', yesterdayDateStr).limit(1),
   ])
 
+  const aandachtspunt = yesterdaySession.data && yesterdaySession.data.length > 0 ? yesterdaySession.data[0].aandachtspunt : null
+
   const isThursday = todayWeekday === 4
-  const show = todayType === 'training' || yesterdayType === 'training' || isThursday
+  const show = todayType === 'training' || yesterdayType === 'training' || isThursday || aandachtspuntHasQuestion(aandachtspunt)
   return { show }
 }
 
