@@ -73,7 +73,7 @@ export const TOOLS = [
       type: 'object',
       properties: {
         feit: { type: 'string', description: 'The fact, phrased as a neutral statement/observation' },
-        categorie: { type: 'string', enum: ['voorkeur', 'gewoonte', 'definitie'] },
+        categorie: { type: 'string', enum: ['voorkeur', 'gewoonte', 'definitie', 'vaste_gewoonte'] },
       },
       required: ['feit', 'categorie'],
     },

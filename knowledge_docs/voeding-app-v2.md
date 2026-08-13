@@ -83,6 +83,11 @@ augustus, na de 529-storing die dit eerder blokkeerde).
     `coach_memory` niet — een fout feit ziet er niet fout uit en blijft
     stilletjes advies sturen. Na elke testsessie dus even controleren wat
     erbij gekomen is.
+  - **Sinds 13 augustus: categorie `vaste_gewoonte`.** Vijf rijen zijn bewust
+    geseed vanuit `prompt.ts` (zie §6) — deze zien er bij een noise-check
+    "stabieler"/ouder uit dan een net geleerd feit omdat ze niet uit één
+    gesprek zijn afgeleid. Dat is geen ruis-signaal op zich; beoordeel ze op
+    dezelfde drie criteria als elk ander feit, niet op hoe "vers" ze aanvoelen.
 
 ---
 
@@ -121,7 +126,34 @@ repeatedly corrupted unrelated shared files (a stubbed summary.ts that
 silently stopped writing to coach_sessions, an undefined variable in
 today.ts's Monday cross-week path). These fail silently, so the diff is
 the only thing that catches them.
+
+Also: when you change a file under _shared/, identify EVERY function that
+bundles it and redeploy all of them — then diff all of them, not just the
+ones you deployed. A correct file on disk that never reached one of its
+functions is invisible to a diff scoped to what you deployed.
 ```
+
+### Tweede faalvorm (13 augustus): de niet-gedeployde functie
+
+**De afspraak hierboven bestond al en heeft dit niet gevangen — daarom apart
+benoemd.**
+
+Op 12 augustus werd een gewicht-uitsluiting toegevoegd aan
+`_shared/summary.ts`, dat door **twee** functies gebundeld wordt. Er werd
+gerapporteerd dat beide byte-gedift waren, maar in werkelijkheid had alleen
+`close-day-cron` de fix gekregen; `coach-chat` draaide nog de versie ervóór.
+Omdat de handmatige dagafsluiting ("sluit de dag af" in de chat) juist via
+`coach-chat` loopt, lekte het gewicht daar gewoon door.
+
+**Waarom dit een andere fout is dan het hertypte-payload-probleem:** de
+bestandsinhoud op schijf was volledig correct. Er was niets beschadigd. Wat
+faalde was de deploy-en-verificatiestap zelf — en de bestaande diff-afspraak
+kán dit per definitie niet vangen, want die vergelijkt alleen wat er
+gedeployed is. Een functie die had moeten worden bijgewerkt maar overgeslagen
+werd, valt buiten het blikveld.
+
+**Voorgestelde mechanische oplossing (uitgewerkt, nog niet gebouwd):** zie
+sectie 8, "Vervolgtaak 1".
 
 ---
 
@@ -232,7 +264,111 @@ test it in conversation AND trigger a day-close.
 
 ---
 
-## 6. Featureideeën (fase 2, nog niet uitgewerkt of gepland)
+## 6. Bevinding — hardcoded voorkeuren voelen als een sjabloon
+
+**⚠️ Deels opgelost (13 augustus) — migratie geslaagd, herkadering niet
+effectief gebleken.** Elke regel in "Vaste voorkeuren" en "Bekende vaste
+producten" is geclassificeerd als Schattingskennis / Gewoonte / Beide, met
+een aparte flag voor absolute regels (alcohol) en voor gewoontes met een
+asymmetrisch faalrisico (ontbijt onderweg, plantaardig/Alpro — bij beide
+bleek het risico van stil verdwijnen groter dan het risico van een
+sjabloonmatige suggestie, dus die blijven hardcoded, alleen herschreven als
+randvoorwaarde/open categorie in plaats van gewoonte-beschrijving).
+
+Vijf gewoontes zijn gemigreerd naar `coach_memory` onder een nieuwe categorie
+**`vaste_gewoonte`** (baseline-gewoontes, bewust geseed, niet live geleerd —
+zie de addendum in `PERSONA_PROMPT`'s "Langetermijngeheugen"-sectie voor hoe
+dit verschilt van een gewoon `gewoonte`-feit): de energiedip rond 15:00, de
+kwark+ei-voor-het-slapen-pairing (het productfeit zelf — kwark bevat caseïne
+— bleef apart hardcoded, alleen losgekoppeld van "voor het slapen"), nuchter
+trainen, de lichte snack vóór training, en de shake-dan-maaltijd-volgorde na
+training. Dit deel is structureel geslaagd: getest door de coach te vertellen
+dat de kwark+ei-gewoonte verleden tijd is → hij riep `memory_update` aan op
+precies de juiste geseede rij, geen conflicterende tweede rij, geen genegeerd
+verzoek.
+
+**De herkadering ("## Achtergrond, geen menu"-sectie + no-repeat-regel) hield
+in de praktijk niet stand.** Twee tests, beide met "wat kan ik voor het
+slapen eten?":
+- **Sterke case** (gisteren expliciet gemarkeerd als "kwark met ei gegeten,
+  zoals gebruikelijk"): coach stelde opnieuw kwark+ei voor, met de tekst "Dit
+  is jouw vaste avondroutine en werkt goed" — een expliciete herhaling, niet
+  een gemiste kans om het te zien, maar een bewuste keuze om de gewoonte te
+  bevestigen in plaats van te variëren.
+- **Zwakke case** (twee losse, verse gesprekken, geen enkel signaal over
+  kwark/ei/shake in de zichtbare dagafsluitingen): beide keren onafhankelijk
+  "Kwark met ei" als suggestie.
+
+Beide cases faalden, inclusief de case die de instructie het makkelijkst zou
+moeten kunnen vangen. De promptinstructie leunt volledig op het model dat
+'m volgt, en dat bleek hier niet voldoende: het productfeit (kwark = eiwitrijk
++ caseïne) en de `vaste_gewoonte`-herinnering blijven zo dominant in de
+context dat de "varieer"-instructie er niet tegenop weegt. Dit is een reëel,
+niet-opgelost restpunt — het oorspronkelijke sjabloon-probleem (dezelfde
+avondsuggestie, ongeacht de dag) bestaat na deze wijziging nog steeds. Enige
+verandering: het is nu tenminste corrigeerbaar via de chat (zie hierboven),
+wat vóór deze wijziging niet kon.
+
+**Volgende stap, nog niet uitgevoerd:** een instructie alleen volstaat niet;
+dit vraagt vermoedelijk een structurele aanpak (bv. de laatste N suggesties
+expliciet in de context meegeven in plaats van impliciet uit dagsamenvattingen
+laten afleiden), vergelijkbaar met hoe `eiwitTotaal`/`calorieTotaal` al als
+berekende waarden worden meegegeven in plaats van aan het model overgelaten.
+Niet uitgewerkt in deze sessie.
+
+**Beperking van die volgende stap, vooraf al zichtbaar:** dit lost hooguit de
+sterke case op. De zwakke case had helemaal geen signaal nodig om te falen —
+twee onafhankelijke, verse gesprekken zonder enige vermelding van kwark/ei/
+shake kwamen allebei zelfstandig op "Kwark met ei" uit. Er was dus niets om
+expliciet door te geven dat het verschil zou hebben gemaakt; de trek komt uit
+de inhoud zelf (het productfeit + de `vaste_gewoonte`-herinnering), niet uit
+het model dat een herhaling niet opmerkt. Een "laatste N suggesties"-context
+zou de sterke case dichten, maar de zwakke case vraagt om iets anders —
+vermoedelijk een andere aanpak dan meer/betere context, nog te bepalen.
+
+**Origineel, ter referentie:**
+
+De vaste voorkeuren staan **hardcoded in de system prompt** (`prompt.ts`), niet
+in `coach_memory`. Dat was een bewuste keuze uit het oorspronkelijke ontwerp —
+`coach_memory` kwam pas later, voor wat de coach *tijdens* gesprekken leert.
+
+**Het probleem in de praktijk:** "voor het slapen: vaak kwark + ei" gaat bij
+élk gesprek mee, ongeacht de dag of het onderwerp. Daardoor komt het elke dag
+terug als suggestie, wat sjabloonmatig aanvoelt — de coach put uit een vast
+lijstje in plaats van te kijken wat er die dag past.
+
+**De onderliggende spanning:** deze regels doen twee dingen tegelijk, en die
+vragen om verschillende behandeling.
+1. **Als schattingshulp** zijn ze nuttig — "een bakje kwark" hoeft dan geen
+   navraag, de coach weet welk product bedoeld wordt.
+2. **Als suggestiebron** worden ze een sjabloon — het lijstje wordt de default
+   in plaats van een van de mogelijkheden.
+
+**Tweede probleem: ze zijn niet corrigeerbaar via de chat.** De coach kan
+alleen `coach_memory`-rijen bijwerken of intrekken. Zeg je "ik eet geen kwark
+meer voor het slapen", dan gebeurt er waarschijnlijk één van twee dingen: hij
+slaat een `coach_memory`-feit op dat de hardcoded regel tegenspreekt (twee
+bronnen die botsen, zonder dat iets bewaakt welke wint), of hij slaat niets op
+omdat het op een tijdelijke stemming lijkt — en blijft het gewoon voorstellen.
+Wijzigen kan alleen via `prompt.ts` + een nieuwe deploy.
+
+**Zelfde categorie als de `summary.ts`-bevinding hierboven:** informatie die op
+meerdere plekken kan leven zonder dat iets bewaakt dat ze overeenkomen.
+
+**Mogelijke richtingen (nog niet uitgewerkt, geen keuze gemaakt):**
+- De voorkeuren splitsen naar hun functie: productkennis (voor schatten) blijft
+  hardcoded, gewoontes (voor suggesties) verhuizen naar `coach_memory` zodat ze
+  via de chat aanpasbaar worden
+- De prompt-instructie aanscherpen: vaste producten zijn *achtergrondkennis*,
+  geen voorstellenlijst — alleen noemen als het gesprek er echt om vraagt
+- Variatie afdwingen: niet twee dagen achter elkaar dezelfde avondsuggestie
+- Combinatie van bovenstaande
+
+Te bespreken voordat er een CC-prompt van gemaakt wordt.
+
+---
+
+## 7. Featureideeën (fase 2, nog niet uitgewerkt of gepland)
 
 Losse ideeën, nog niet in blokken opgedeeld en nog niet ontwerpmatig
 uitgedacht (geen calorieën-regels, triggers, of tool-mechanismen bepaald
@@ -344,6 +480,75 @@ zoals bij blok 5) — dat is werk voor wanneer een van deze opgepakt wordt.
   boodschap blijft het invoerveld op vaste hoogte staan in plaats van mee te
   schalen (auto-grow textarea), wat lange berichten typen onhandig maakt.
   Losse UI-bug/verbetering, geen backend-impact.
+
+---
+
+## 8. Vervolgtaken — uitgewerkt, bewust nog niet gebouwd
+
+Beide zijn tijdens ander werk onderzocht en voorgesteld, maar apart gehouden
+omdat ze te groot waren om erbij te doen. Hier staat genoeg detail om er een
+CC-prompt van te maken zonder de oorspronkelijke sessie terug te lezen.
+
+### Vervolgtaak 1 — bundel-afgeleide deploy-verificatie
+
+**Aanleiding:** de niet-gedeployde-functie fout uit sectie 3. De bestaande
+diff-afspraak vergelijkt alleen wat er gedeployed is, en kan een overgeslagen
+functie dus per definitie niet zien.
+
+**Waarom "beter opletten" hier niet volstaat:** de afspraak bestond al en de
+verificatie werd ook gerapporteerd als uitgevoerd. Wat ontbrak was niet de
+zorgvuldigheid maar een controle die niet afhangt van een correct mentaal
+model van "welke functies bundelen dit bestand".
+
+**Voorgestelde opzet (vier stappen):**
+1. Voor elke functiemap onder `supabase/functions/*`: parse recursief de
+   relatieve imports van `index.ts` (`from '../_shared/X.ts'`,
+   `from './Y.ts'`) om de werkelijke bundelset af te leiden. Dit vervangt
+   meteen de handmatig onderhouden bestandslijsten in de ad-hoc
+   deploy-scripts, die hun eigen driftrisico hebben (een nieuw geïmporteerd
+   shared-bestand dat niemand aan de lijst toevoegt).
+2. Haal per functie de live gedeployde bestanden op via `get_edge_function`.
+3. Byte-diff live tegen schijf voor élk bestand in de afgeleide bundel, voor
+   **élke** functie — niet afhankelijk van welke functies je denkt te hebben
+   aangeraakt.
+4. Rapporteer per functie geslaagd/gefaald, met vermelding van welk bestand
+   precies afwijkt.
+
+Stap 3 is de kern: onvoorwaardelijk over alle functies draaien maakt het
+ongevoelig voor een onvolledig beeld van de afhankelijkheden. Was dit na de
+`summary.ts`-wijziging één keer gedraaid, dan was `coach-chat` er direct
+uitgerold.
+
+**Omvang:** echt werk (import-parsing, niet alleen een diff-loop), vandaar
+apart.
+
+### Vervolgtaak 2 — transcript-filtering om gewichtslekkage structureel te blokkeren
+
+**Het probleem, scherp geformuleerd:** bij calorieën bestaat een *structurele*
+barrière — `calorieTotaal` is een apart berekend getal dat de prompt simpelweg
+kan weglaten. Bij gewicht bestaat die niet. Het getal zit in het ruwe
+gespreks-transcript (`buildTranscript` in `coach-chat/tools.ts`), dat het
+dagafsluitingsmodel integraal leest, inclusief "ik weeg 111,1" en de
+bevestiging erop.
+
+**Gevolg:** de uitsluitingsinstructie in de prompt is op dit moment de
+*enige* verdediging. Dat is zwakker dan het calorie-precedent waar de
+gewichtsfeature op gemodelleerd is, en het is de reden dat deze vervolgtaak
+meer is dan een verbetering-voor-later: één instructie die niet aankomt (zoals
+op 12 augustus letterlijk gebeurde) betekent direct een lek.
+
+**Wat onderzocht is:** identificeer assistent-beurten met een
+`weight_log_add`/`_update` tool-call, en sluit die beurt plus het uitlokkende
+gebruikersbericht uit vóórdat het transcript gebouwd wordt.
+
+**Waarom dat niet zomaar werkt:** een gebruikersbericht kan gewicht mengen met
+andere inhoud — "ik weeg 111,1 en heb net ontbeten". Op berichtniveau
+wegfilteren betekent dan dat de maaltijdvermelding óók verdwijnt. Er is dus
+een fijnmaziger aanpak nodig dan bericht-granulariteit, en dat is precies wat
+deze taak moet uitzoeken.
+
+**Raakt de dagafsluitingsflow** (`coach-chat/tools.ts`,
+`close_day_summary`-afhandeling) — daarom apart gehouden.
 
 ---
 
