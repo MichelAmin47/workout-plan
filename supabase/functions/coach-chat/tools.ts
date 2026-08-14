@@ -188,6 +188,23 @@ export function formatMealCard(input: MealCardInput) {
   }
 }
 
+// Recomputed fresh after every nutrition_log write, same reduce shape
+// buildDynamicContext already uses — not extracted into a shared module for
+// one call site's worth of reuse per file, consistent with this project's
+// existing runtime-duplication precedent (currentCalWeek,
+// aandachtspuntHasQuestion). Returning this from add/update/delete means
+// the coach's running-total confirmation comes from a real post-write SUM
+// instead of the pre-turn context snapshot, and a write that silently
+// didn't land shows up as an unchanged total instead of being invisible.
+async function computeDayTotals(todayStr: string): Promise<{ eiwitTotaal: number; calorieTotaal: number }> {
+  const { data } = await supabase.from('nutrition_log').select('eiwitten_g, calorieen').eq('datum', todayStr)
+  const rows = data ?? []
+  return {
+    eiwitTotaal: rows.reduce((sum, r) => sum + (Number(r.eiwitten_g) || 0), 0),
+    calorieTotaal: rows.reduce((sum, r) => sum + (Number(r.calorieen) || 0), 0),
+  }
+}
+
 export async function executeTool(
   name: string,
   input: Record<string, unknown>,
@@ -208,7 +225,8 @@ export async function executeTool(
         .select('id')
         .single()
       if (error) return { error: error.message }
-      return { id: data.id, status: 'logged' }
+      const totals = await computeDayTotals(todayStr)
+      return { id: data.id, status: 'logged', ...totals }
     }
     case 'nutrition_log_update': {
       const patch: Record<string, unknown> = {}
@@ -217,12 +235,14 @@ export async function executeTool(
       if (input.calorieen !== undefined) patch.calorieen = input.calorieen
       const { error } = await supabase.from('nutrition_log').update(patch).eq('id', input.id)
       if (error) return { error: error.message }
-      return { status: 'updated' }
+      const totals = await computeDayTotals(todayStr)
+      return { status: 'updated', ...totals }
     }
     case 'nutrition_log_delete': {
       const { error } = await supabase.from('nutrition_log').delete().eq('id', input.id)
       if (error) return { error: error.message }
-      return { status: 'deleted' }
+      const totals = await computeDayTotals(todayStr)
+      return { status: 'deleted', ...totals }
     }
     case 'weight_log_add': {
       const { data, error } = await supabase

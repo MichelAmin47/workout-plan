@@ -38,6 +38,14 @@ zichtbaar. Dit bevestigt dat de meldingen correct *gepland* staan; of ze ook
 altijd zichtbaar vuren hangt af van toestelgedrag (batterij-optimalisatie,
 Do Not Disturb) — dat is losstaand van deze code-verificatie).
 
+- ✅ **Opgelost (14 augustus).** Coach beweerde te loggen zonder te loggen (13
+  augustus, 23:07) — bij een overzichtsvraag toonde de coach de hamburger in
+  de lijst, maar de tool-call werd niet uitgevoerd — pas op expliciet verzoek
+  vijf minuten later belandde hij echt in `nutrition_log`. **Eerste geval in
+  dit project waarbij data stil verloren gaat**, in plaats van zichtbaar
+  verkeerd wordt gepresenteerd. Volledige analyse, fix en verificatie in
+  sectie 9.
+
 ---
 
 ## 2. Monitoring-punten (geen bug, wel iets om in de gaten te houden)
@@ -480,6 +488,16 @@ zoals bij blok 5) — dat is werk voor wanneer een van deze opgepakt wordt.
   schalen (auto-grow textarea), wat lange berichten typen onhandig maakt.
   Losse UI-bug/verbetering, geen backend-impact.
 
+- **Systeemprompt wordt bij élk bericht volledig opnieuw verstuurd.**
+  **Gevonden 14 augustus** tijdens het meten van context-omvang voor sectie 9
+  (de "lange thread"-hypothese voor de 23:07-bug). De ~5.000-token
+  systeemprompt (PERSONA_PROMPT + dynamische context) is vrijwel constant per
+  dag, maar wordt bij elke request opnieuw meegestuurd — een dag met 14
+  beurten verstuurt zo'n ~70.000 systeemprompt-tokens, tegenover slechts
+  ~6.700 tokens aan incrementele threadgroei over diezelfde dag. Kosten/
+  snelheidskwestie, geen correctheidsprobleem — niet onderzocht op een
+  oplossing (bv. prompt caching), puur genoteerd als bevinding uit de meting.
+
 ---
 
 ## 8. Vervolgtaken — uitgewerkt, bewust nog niet gebouwd
@@ -548,6 +566,188 @@ deze taak moet uitzoeken.
 
 **Raakt de dagafsluitingsflow** (`coach-chat/tools.ts`,
 `close_day_summary`-afhandeling) — daarom apart gehouden.
+
+---
+
+## 9. Bevinding — coach beweert te loggen zonder te loggen, én noemt verouderde totalen
+
+**✅ Opgelost (14 augustus).** Drie delen, elk met een eigen aanpak:
+
+1. **Verouderd dagtotaal (probleem 2) — structureel gefixt.**
+   `nutrition_log_add`/`_update`/`_delete` geven nu een vers herberekend
+   `eiwitTotaal`/`calorieTotaal` terug in het tool-resultaat (`computeDayTotals`
+   in `tools.ts`), en `PERSONA_PROMPT` instrueert de coach om ALTIJD dat
+   teruggegeven getal te gebruiken voor de lopende-totaal-bevestiging, nooit
+   het contexttotaal plus een eigen optelling. Dit sluit de dubbeltelling
+   structureel af — er is geen stale snapshot meer om per ongeluk bovenop te
+   tellen.
+2. **Stil wegvallende tool-call (probleem 1) — twee losse detectiemechanismen,
+   verschillend qua risico.** Sub-mechanisme A (een write die wél is
+   aangeroepen maar het dagtotaal niet veranderde) krijgt één automatische
+   herkansing — veilig, want het herhaalt een actie die al is gevraagd.
+   Sub-mechanisme B (de tekst noemt een eiwitgetal, maar er is helemaal geen
+   nutrition_log_add/_update aangeroepen — de daadwerkelijke 13-augustus-vorm)
+   krijgt bewust GEEN herkansing met tool-toegang: een foutieve trigger zou
+   dan een ongevraagde rij kunnen wegschrijven, en een fantoom-maaltijd die
+   het dagtotaal ophoogt en er legitiem uitziet is erger dan een zichtbaar
+   ontbrekende. B voegt alleen een vaste, deterministische disclaimerzin toe
+   — nooit een tool-call. Geverifieerd met een echte "vals-positieve" vraag
+   ("hoeveel eiwit zit er in een ei?") — de disclaimer verscheen, er kwam geen
+   rij bij.
+3. **Verzonnen oorzaak (probleem 3) — prompt-instructie.** De coach mag nooit
+   meer een verklaring verzinnen voor een mislukte actie (geen "technisch
+   hikje" meer) — bij een tool-resultaat met een `error`-veld moet hij dat
+   eerlijk erkennen, verder niets.
+
+**Reproductie getest en bevestigd gefixt** — de exacte 13-augustus-vorm
+(overzichtsvraag + nieuwe maaltijd in hetzelfde bericht) is herhaald tegen
+zowel een korte als een deliberately lange thread (87 berichten, om de
+oorspronkelijke omstandigheid na te bootsen): in beide gevallen bestond de rij
+en klopte het genoemde totaal exact met `SUM(eiwitten_g)`. Volledige
+verificatie-uitkomsten (8 gevallen, inclusief een whole-run reconciliatie die
+bevestigt dat geen van beide detectiemechanismen zelf een fantoomrij
+veroorzaakte) in de sessie van 14 augustus.
+
+**Onderzoek naar de "lange thread"-hypothese: uitgesloten, niet open
+gelaten.** Zie de meting hieronder — het volledige verzoek (systeemprompt +
+context + thread) blijft op de zwaarste realistische dag rond de 5.400 tokens,
+twee ordegroottes onder een moderne Claude-contextvenster. Context-venster-
+afkapping is dus geen aannemelijke directe verklaring voor de 23:07-fout. De
+werkelijke, apart genoteerde bevinding: niet de thread-omvang, maar het
+opnieuw versturen van de volledige (~5.000 token) systeemprompt bij élk
+bericht domineert het datavolume over een dag heen (~70.000 tokens/dag bij 14
+beurten, tegenover ~6.700 tokens aan incrementele thread-hertransmissie) —
+een kosten/snelheidskwestie, geen correctheidskwestie, genoteerd als los
+vervolgpunt in sectie 7, niet opgepakt in deze taak.
+
+**Gevonden 13 augustus, 23:07, in dagelijks gebruik. Twee problemen in één
+antwoord — het tweede is het ernstigst.**
+
+### Wat er gebeurde
+
+Bij een overzichtsvraag laat op de avond toonde de coach een lijst van negen
+items, waaronder als laatste "Net — Hamburger (50g brood, 160g runder patty):
+39g". Daarbij schreef hij: *"Totaal: 171g eiwit (nog niet bijgewerkt met de
+laatste hamburger in de tellerweergave hierboven, maar in het systeem staat
+het nu op ~186g na deze toevoeging)."*
+
+Controle in de database wees uit:
+- Er staan **7 rijen** voor 13-08, samen **132g** — niet 9 items en niet 171g
+- De hamburger **staat er helemaal niet in**, op geen enkele datum, met geen
+  enkele omschrijving
+- Ook het plakje kaas (18:45, 7g) uit de lijst ontbreekt
+
+### Probleem 1 (ernstig): de coach beweerde te loggen, maar deed het niet
+
+De hamburger uit de getoonde lijst bestond niet in `nutrition_log`. De coach
+presenteerde 'm als gelogd — inclusief tijdstip en eiwitwaarde — terwijl de
+tool-call niet is uitgevoerd.
+
+**De tijdlijn, want die is veelzeggend:**
+
+| Tijd | Gebeurtenis |
+|---|---|
+| 23:06 | Gebruiker meldt de burger |
+| 23:07 | Coach toont overzicht mét burger in de lijst — **maar logt niet** |
+| 23:12 | Gebruiker vraagt te checken → nu logt hij wél, in één keer goed |
+| 23:13 | Coach verzint een oorzaak ("technisch hikje") |
+
+**Het patroon: het ging mis bij een overzichtsvraag, niet bij gewoon loggen.**
+Diezelfde dag waren zeven maaltijden probleemloos gelogd. En toen er expliciet
+om gevraagd werd (23:12), werkte het meteen. Het verschil bij 23:07: de coach
+moest tegelijk een lange, opgemaakte lijst produceren én een tool aanroepen.
+De tekst kwam er wel, de tool-call niet — maar de tekst beschreef 'm alsof hij
+er wel was.
+
+Dat het foute dagtotaal (186 i.p.v. 171, met een dubbeltelling) in datzelfde
+bericht zat, versterkt het beeld: het model was op dat moment vooral aan het
+*vertellen*, niet aan het *doen*.
+
+**Concreet aanknopingspunt voor onderzoek:** kijk of tool-calls vaker wegvallen
+wanneer er in dezelfde beurt een lange gestructureerde tekst gegenereerd wordt
+(overzichten, opsommingen, samenvattingen) — in tegenstelling tot een korte
+bevestiging na een gewone log. Als dat zo is, is de mitigatie mogelijk om
+loggen en overzicht-genereren niet in dezelfde beurt te laten samenvallen.
+
+**Waarom dit zwaarder weegt dan andere bevindingen deze week:** juist bij een
+lang overzichtsbericht controleer je mínder — het ziet er compleet en verzorgd
+uit. En het risico is het grootst laat op de avond, vlak vóór de afsluiting,
+wanneer correctie niet meer lukt. Op 13 augustus was er vijf minuten speling;
+was de vraag om 23:28 gesteld, dan was de dag afgesloten met een totaal dat
+39g te laag was, zonder enig signaal dat er iets miste.
+
+**Nog uit te zoeken:** faalde de tool-call, werd hij niet aangeroepen, of werd
+hij aangeroepen na het schrijven van het antwoord? Ook checken of dit vaker is
+gebeurd — een steekproef over eerdere dagen waarbij de chat-lijst tegen de
+database wordt gelegd.
+
+### Probleem 3: de coach verzint oorzaken voor eigen fouten
+
+Gevraagd waarom het niet gelogd was, antwoordde de coach: *"dat kwam door een
+technisch hikje net toen ik reageerde op je vraag naar het overzicht."*
+
+Dat is gefabriceerd. Het model heeft geen enkele toegang tot informatie over
+waarom een eerdere tool-call niet is uitgevoerd — het construeert een
+plausibel klinkende verklaring. De wáárneming klopte ("de log-actie is er niet
+doorheen gekomen"), de oorzaak niet.
+
+**Waarom dit los vermeld wordt:** een verzonnen oorzaak die geloofwaardig
+klinkt, maakt het minder waarschijnlijk dat je verder kijkt — "technisch
+hikje" klinkt als iets incidenteels dat vanzelf voorbijgaat. Hier hoort de
+coach te zeggen dat hij niet kan zien wat er misging. Kandidaat voor een
+prompt-regel, met de kanttekening uit sectie 6 dat instructies het kunnen
+verliezen van wat het model denkt te weten.
+
+### Probleem 2: het lopende totaal komt uit een momentopname van vóór de tool-calls
+
+`buildDynamicContext()` draait **één keer**, aan het begin van de request. Alles
+wat daarna in dezelfde beurt gelogd wordt, zit niet in dat getal. De coach
+werkt dus met een totaal van vóór zijn eigen logacties.
+
+In dit geval leidde dat tot drie verschillende getallen in één bericht: 171
+(optelling van de getoonde lijst), ~186 (een schatting), en 132 (de
+werkelijkheid). De coach merkte de discrepantie zelf op en probeerde 'm te
+verklaren — maar de 186 was een gok: het lijkt 147 + 39, waarbij de
+kippendij-maaltijd dubbel geteld is.
+
+**Structureel gezien** is dit dezelfde klasse als het probleem uit blok 3b
+(calorietotaal dat telkens anders uitviel omdat het uit omschrijvingen werd
+herberekend). Het verschil: dáár was de oplossing een echte `SUM`; hier is het
+getal wél berekend, maar op het verkeerde moment.
+
+**Mogelijke richtingen (nog niet uitgewerkt):**
+- Het lopende totaal opnieuw ophalen ná de tool-loop, vóór het finale antwoord
+- Of: het totaal meegeven als tool-resultaat bij `nutrition_log_add`, zodat de
+  coach het bijgewerkte getal terugkrijgt op het moment dat hij logt
+- Of: de coach instrueren nooit een dagtotaal te noemen in dezelfde beurt
+  waarin hij logt — zwakste optie, en na de ervaring met de
+  voorkeuren-herkadering (sectie 6) is duidelijk dat een instructie het kan
+  verliezen van wat het model zelf denkt te weten
+
+### Nasleep: het foute getal plantte zich voort naar de dagafsluiting
+
+De dagafsluiting van 13-08 (23:33) schreef **172g** in `eiwit_totaal` — correct,
+want dat is een echte `SUM`. Maar de samenvattingstékst noemde **~187g**: het
+model nam de 186 uit het chatgesprek over en telde er het ijsje van 23:32 bij
+op.
+
+Dus de fout uit één chatbericht belandde in de permanente samenvatting van de
+dag, die vervolgens weer als context meegaat naar volgende dagen. De kolom
+klopt, de tekst niet — en bij het terugkijken is de tekst wat je leest.
+
+### Waarom deze problemen samen erger zijn dan apart
+
+Probleem 2 alleen geeft een verwarrend maar corrigeerbaar getal. Probleem 1
+alleen geeft ontbrekende data. Probleem 3 zorgt ervoor dat je stopt met
+zoeken. Samen vertelt de chat een consistent ogend verhaal dat niet klopt met
+de database, mét een geruststellende verklaring erbij — en heeft de gebruiker
+geen enkele aanwijzing welk getal te vertrouwen.
+
+**Prioriteit:** probleem 1 hoort boven aan de lijst. Dit is de eerste bevinding
+in deze app waarbij data stil verloren gaat in plaats van verkeerd
+gepresenteerd wordt. Alle eerdere bevindingen deze week (lekkend gewicht,
+sjabloonsuggesties, genegeerd aandachtspunt) waren zichtbaar zodra je keek;
+deze niet.
 
 ---
 

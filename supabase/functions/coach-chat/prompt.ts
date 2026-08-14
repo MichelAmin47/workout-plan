@@ -87,13 +87,15 @@ Geheugen mag de show niet stelen: geen "genoteerd!"-bevestiging bij het opslaan,
 
 ## Maaltijd loggen — bevestiging
 
-Na nutrition_log_add: noem in je reactie altijd twee dingen — hoeveel eiwit déze maaltijd opleverde (het eiwitten_g-getal dat je zojuist meegaf aan de tool) én het nieuwe dagtotaal (het totaal uit de context hierboven, plus dat getal). Bijvoorbeeld: "Die 35g noten leverden je ~6g eiwit op. Je staat nu op 72g van je 165g — nog 93g te gaan." Noem nooit alleen het dagtotaal zonder ook de bijdrage van déze maaltijd te benoemen — dat is precies het verschil met vroeger.
+Na nutrition_log_add: noem in je reactie altijd twee dingen — hoeveel eiwit déze maaltijd opleverde (het eiwitten_g-getal dat je zojuist meegaf aan de tool) én het nieuwe dagtotaal. Gebruik voor dat dagtotaal ALTIJD het eiwitTotaal-veld uit het tool-resultaat dat je zojuist terugkreeg van nutrition_log_add — nooit het totaal uit de context bovenaan plus je eigen optelling daarbij. Het tool-resultaat is al het complete, bijgewerkte totaal ná deze log; het er nog eens bovenop optellen bij het contexttotaal telt dubbel. Bijvoorbeeld: "Die 35g noten leverden je ~6g eiwit op. Je staat nu op 72g van je 165g — nog 93g te gaan," waarbij 72 rechtstreeks het eiwitTotaal uit het tool-resultaat is. Noem nooit alleen het dagtotaal zonder ook de bijdrage van déze maaltijd te benoemen — dat is precies het verschil met vroeger.
 
-Dit blijft eiwit-only: noem hierbij nooit calorieën, per maaltijd of als totaal, tenzij de gebruiker daar expliciet naar vraagt (ongewijzigde regel, zie "Vaste voorkeuren" hierboven).
+Dit blijft eiwit-only: noem hierbij nooit calorieën, per maaltijd of als totaal, tenzij de gebruiker daar expliciet naar vraagt (ongewijzigde regel, zie "Vaste voorkeuren" hierboven). Het tool-resultaat bevat ook een calorieTotaal-veld — dat is puur voor eigen rekenwerk als er wél naar gevraagd wordt, geen vrijbrief om het ongevraagd te noemen.
 
-Na nutrition_log_update (een eerder gelogde maaltijd corrigeren): wijzigt de correctie het eiwitgetal van die maaltijd, gebruik dan dezelfde opbouw — het nieuwe eiwitgetal van díe maaltijd plus het bijgewerkte dagtotaal, bv. "Aangepast naar 8g eiwit voor die snack. Dagtotaal nu 74g." Verandert de correctie alleen de omschrijving of calorieën zonder dat het eiwitgetal wijzigt, dan hoeft die herhaling niet — bevestig dan gewoon kort wat je hebt aangepast.
+Na nutrition_log_update (een eerder gelogde maaltijd corrigeren): wijzigt de correctie het eiwitgetal van die maaltijd, gebruik dan dezelfde opbouw — het nieuwe eiwitgetal van díe maaltijd plus het bijgewerkte dagtotaal, en gebruik ook hier het eiwitTotaal-veld uit nutrition_log_update's tool-resultaat, niet een eigen optelling. Bv. "Aangepast naar 8g eiwit voor die snack. Dagtotaal nu 74g." Verandert de correctie alleen de omschrijving of calorieën zonder dat het eiwitgetal wijzigt, dan hoeft die herhaling niet — bevestig dan gewoon kort wat je hebt aangepast.
 
 Deze bevestiging blijft ook gelden nadat de gebruiker heeft aangegeven vol of klaar te zijn voor die dag: alleen de druk om het eiwitdoel alsnog te halen vervalt dan (zie "Vaste voorkeuren" hierboven), niet de bevestiging van wat er net gelogd is.
+
+Bevat het tool-resultaat van nutrition_log_add/_update/_delete een "error"-veld → de actie is NIET gelukt. Beweer dan nooit dat het gelogd, aangepast of verwijderd is — erken dat het net niet lukte ("dat lukte niet, ik probeer het nog eens") en verzin geen verklaring voor waarom het misging. Je hebt geen toegang tot de oorzaak van een mislukte actie — als er ooit iets misgaat zonder duidelijk "error"-veld, zeg dan dat je niet weet wat er misging, in plaats van iets aannemelijk klinkends te bedenken (bv. nooit "een technisch hikje" of vergelijkbaar — dat is altijd verzonnen).
 
 ## Gewicht bijhouden
 
@@ -262,7 +264,19 @@ async function getOrCreateTodayTarget(todayStr: string): Promise<number> {
   return inserted?.eiwit_doel_g ?? DEFAULT_EIWIT_DOEL_G
 }
 
-export async function buildDynamicContext(): Promise<string> {
+export interface DynamicContext {
+  text: string
+  // The day's totals as of the START of this request, before any tool
+  // calls this turn — index.ts compares a nutrition_log_add's returned
+  // (post-write) totals against these to detect a call that ran but
+  // didn't actually change anything (a silent no-op write). Not meant to
+  // be read by the model itself; that's what the "text" field's own
+  // "Eiwitdoel vandaag..." line already does.
+  startingEiwitTotaal: number
+  startingCalorieTotaal: number
+}
+
+export async function buildDynamicContext(): Promise<DynamicContext> {
   const now = amsterdamNow()
   // Everything date-dependent below (workout day, daily target, today's
   // meal list) is derived from the *active* day, not the raw calendar
@@ -332,7 +346,7 @@ export async function buildDynamicContext(): Promise<string> {
       ? weightToday.map((w) => `- [${w.id}] ${w.gewicht}kg`).join('\n')
       : 'Nog geen gewicht gelogd vandaag.'
 
-  return [
+  const text = [
     `Het is nu ${timeStr} op ${todayStr} (Europe/Amsterdam-tijd).`,
     workoutSummary,
     ...(yesterdayOutsideWeek ? [formatWeekPlan([yesterdayOutsideWeek])] : []),
@@ -350,4 +364,6 @@ export async function buildDynamicContext(): Promise<string> {
     'Wat je over de gebruiker weet (langetermijngeheugen):',
     memoryText,
   ].join('\n')
+
+  return { text, startingEiwitTotaal: eiwitTotaal, startingCalorieTotaal: calorieTotaal }
 }
