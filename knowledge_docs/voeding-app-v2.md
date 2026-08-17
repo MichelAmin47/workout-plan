@@ -373,6 +373,41 @@ meerdere plekken kan leven zonder dat iets bewaakt dat ze overeenkomen.
 
 Te bespreken voordat er een CC-prompt van gemaakt wordt.
 
+### Praktijkobservaties (14 augustus) — één bevestiging, één verbreding
+
+**De migratiewinst is bevestigd in echt gebruik.** De gebruiker gaf aan
+'s avonds geen kwark meer te eten ("te zwaar, niet lekker, red het doel ook
+zonder"). De coach werkte de juiste geseede rij bij — geen tweede rij, geen
+genegeerd verzoek — en verwerkte in dezelfde rij ook een vervolgnuance uit het
+gesprek erna: *"Meestal pakt hij 's avonds nog wel gewoon een gekookt ei als
+lichte aanvulling, per dag wisselend."* Reden én nuance zijn dus meegenomen.
+Ook het gesprek zelf verliep goed: geen aandringen, wel een open vraag naar wat
+er dan wél past, geen alternatievenlijstje. Vóór de migratie was dit
+structureel onmogelijk.
+
+**Maar de faalmodus is breder dan de tests lieten zien.** De verificatie ging
+over expliciete suggestievragen. In dagelijks gebruik kwam het ook
+**ongevraagd** langs, midden in een gewoon bevestigingsbericht:
+
+> *"...en straks nog ruimte voor een shake of je vaste kwark+ei, ligt dat doel
+> prima binnen bereik."*
+
+Twee dingen daaraan:
+- Het was niet gevraagd — het lekt dus ook in bevestigingen, waar je er veel
+  minder op let dan bij een suggestievraag
+- De formulering *"je vaste kwark+ei"* is precies de framing die de herkadering
+  moest wegnemen: niet "een optie" maar "wat jij doet"
+
+Verzachtend: het werd genoemd als één van twee opties en paste bij de situatie
+(training om 20u, doel nog niet gehaald). Minder sjabloonmatig dan een kale
+"neem kwark met ei", maar de trek naar het bekende patroon is onmiskenbaar.
+
+*Let op bij het beoordelen of dit ooit opgelost is:* het kwark-voorbeeld is
+inmiddels uitgezet, dus dit specifieke geval keert niet terug. Dat zegt niets
+over het onderliggende patroon — bij een volgende gewoonte (snack vooraf,
+shake na training) kan hetzelfde gebeuren, en dan zonder dat er een eerdere
+klacht ligt om het aan te herkennen.
+
 ---
 
 ## 7. Featureideeën (fase 2, nog niet uitgewerkt of gepland)
@@ -415,7 +450,8 @@ zoals bij blok 5) — dat is werk voor wanneer een van deze opgepakt wordt.
   gelogd na middernacht). Naïef groeperen op `datum` telt die mee als
   "ochtend" en maakt het ochtendcijfer kunstmatig rooskleurig. Voorstel:
   logs vóór ~04:00 toerekenen aan de vorige dag, te bevestigen bij het plan.
-  Let op dat dit dezelfde grens raakt als de dagafsluiting/cron van 02:00 —
+  Let op dat dit dezelfde grens raakt als de dagafsluiting/cron (die op
+  `0 1 * * *` UTC staat = 03:00 lokaal in zomertijd, 02:00 in wintertijd) —
   uitzoeken of die twee dezelfde definitie van "dag" moeten hanteren.
 
   **Ontwerpspanning: dit mag geen tweede doel worden.** Vier tijdvensters met
@@ -748,6 +784,99 @@ in deze app waarbij data stil verloren gaat in plaats van verkeerd
 gepresenteerd wordt. Alle eerdere bevindingen deze week (lekkend gewicht,
 sjabloonsuggesties, genegeerd aandachtspunt) waren zichtbaar zodra je keek;
 deze niet.
+
+**✅ Opgelost (14 augustus, `coach-chat` v26).** Beide problemen zijn
+structureel aangepakt: het dagtotaal komt nu rechtstreeks uit de tool terug, en
+twee detectiemechanismen vangen een niet-uitgevoerde schrijfactie op. Zie de
+bouwgeschiedenis in `voeding-app-volledige-documentatie.md` voor de volledige
+uitwerking, inclusief waarom mechanisme B bewust géén herhaalpoging doet.
+Probleem 3 (verzonnen oorzaken) is afgedekt met een prompt-regel — dat is een
+feitelijke-eerlijkheidsinstructie, niet het soort suggestie-sturende regel dat
+in sectie 6 sneuvelde, maar het blijft een instructie en dus niet hard
+gegarandeerd.
+
+---
+
+## 10. Bevinding — ochtend check-in kaart: niet-getoetste overname + verkeerde antwoordknoppen
+
+**Gevonden 15 augustus in dagelijks gebruik. Twee losse problemen op één
+kaart, beide voortkomend uit de aandachtspunt-overdracht van 13 augustus.**
+
+### Wat er op de kaart stond
+
+> **Op welke tijd train je vandaag?** Dan kan ik je eiwitmomenten daar goed
+> omheen plannen — en na gisteren mag het gerust weer eiwitrijk zijn, je
+> herstel profiteert er nu nog van.
+>
+> **Vandaag:** Rustdag na Rug & Biceps — spieropbouw draait door.
+
+De vraag en de contextregel spreken elkaar tegen: er wordt gevraagd hoe laat je
+traint, op een dag die de kaart zélf als rustdag benoemt.
+
+### Probleem 1 — de overname wordt niet getoetst aan vandaag
+
+**Oorzaak achterhaald, en het model verzon niets.** Het aandachtspunt van 14-08
+bevatte letterlijk: *"Trainingstijd varieert per dag, dus even navragen."* Dat
+is netjes overgenomen — de overdracht werkt precies zoals gebouwd.
+
+Het probleem zit een laag dieper: dat aandachtspunt is geschreven ná een
+trainingsdag en gaat over trainingsdagen. Op een rustdag is de instructie niet
+van toepassing, en niets toetst dat. De informatie om de tegenstrijdigheid te
+zien stond wél op dezelfde kaart — de contextregel zegt "Rustdag".
+
+**Richting voor de fix:** niet "wees voorzichtiger met overnemen", maar *toets
+een overgenomen instructie tegen de dagcontext voordat je hem gebruikt*. Een
+aandachtspunt is guidance van gisteren, geen opdracht voor vandaag.
+
+### Probleem 2 — de antwoordknoppen passen niet bij de vraag
+
+De pillen ("Niet zo goed / Prima! / Heel goed 💪") verschenen onder een vraag
+naar een *tijdstip*. Het `heeft_vraag`-mechanisme werkte correct — er wórdt
+iets gevraagd — maar de labels zijn stemmingsantwoorden.
+
+**Dit is precies de geaccepteerde vereenvoudiging uit de bouw**, die nu niet
+meer houdbaar is. De aanname was dat de coach vooral welzijnsvragen zou stellen
+("hoe voel je je", "hoe heb je geslapen"). Nu de kaart het aandachtspunt kan
+overnemen, kan hij willekeurige vragen stellen — en dan klopt die aanname niet.
+
+**Twee richtingen:** de labels laten meekomen met de vraag (model-gegenereerd,
+met de risico's die eerder zijn afgewogen), óf `heeft_vraag` splitsen in
+"stemmingsvraag" (pillen tonen) en "andere vraag" (geen pillen, gewoon typen).
+
+**Nog geen CC-prompt van gemaakt.** Beide punten horen in één opdracht: ze
+komen uit dezelfde wijziging en raken dezelfde bestanden, en de oplossingen
+hangen samen — de beslissing wélke vraag gesteld wordt, bepaalt of
+stemmingsknoppen passen.
+
+---
+
+## 11. Verzoek — dagafsluiting schakelt te snel door
+
+**Gevonden 14 augustus in dagelijks gebruik.**
+
+Bij een handmatige afsluiting stuurt de coach nog een afsluitend bericht ("rust
+goed uit"), maar direct daarna wordt de thread gewist en opent de nieuwe dag
+met de samenvattingskaart. Die twee zijn niet hetzelfde: het afsluitende
+bericht is conversatie en verdwijnt, de samenvatting is een record en blijft.
+In de praktijk kon de gebruiker het afsluitende bericht nog net half lezen
+voordat het weg was.
+
+**Twee varianten, allebei overwogen:**
+- *Vertraging (5-10s)* — makkelijk te bouwen, maar een timer is altijd fout:
+  te kort bij afleiding, te lang als je door wilt. En onherstelbaar zodra weg.
+- *Een knop* — de afsluitende tekst blijft staan tot je zelf de nieuwe dag
+  start. **Voorkeur**, want het lost ook een tweede ding op: de dag wordt nu
+  afgesloten op het moment dat het model de tool aanroept, niet wanneer jij
+  klaar bent. Met een knop kun je tussen "ik ben klaar" en de daadwerkelijke
+  afsluiting nog iets loggen.
+
+*Dit stond al als "toekomstige verbetering" in de oude testlijst* (dagafsluiting
+als bewuste klik op de samenvattingskaart) — nu met een concrete aanleiding.
+
+**Uit te zoeken bij de bouw:** wat gebeurt er als de knop niet ingedrukt wordt
+en de cron 's nachts draait? De dag moet dan alsnog afsluiten zonder dat er
+iets verloren gaat. *Bij een cron-afsluiting speelt dit probleem overigens
+niet* — dan is er geen afsluitend bericht, alleen de kaart.
 
 ---
 

@@ -120,15 +120,18 @@ export default function Coach() {
     messagesRef.current = messages
   }, [messages])
 
-  // Quick replies only make sense while the most recent thing in the thread
-  // is a check-in card that actually asked something nobody has answered
-  // yet — `isQuestion` comes from the model itself (morning-checkin's
-  // heeft_vraag), since a checkin-card is often a plain statement ("Vandaag
-  // staan de schouders op het programma...") with nothing to reply to.
-  // Keying off message type alone would show mood pills for a question
-  // that was never asked.
+  // Quick replies (fixed mood buttons) only make sense while the most
+  // recent thing in the thread is a check-in card whose question is
+  // specifically a mood/wellbeing one — `questionType` comes from the
+  // model itself (morning-checkin's vraag_type: 'geen'/'stemming'/
+  // 'anders'), since a checkin-card can be a plain statement ("Vandaag
+  // staan de schouders op het programma...") with nothing to reply to, or
+  // a non-mood question (e.g. "hoe laat train je vandaag?") where mood
+  // buttons wouldn't make sense as answers. Keying off message type alone
+  // would show mood pills for a question that was never asked, or for the
+  // wrong kind of question.
   const lastMessage = messages[messages.length - 1]
-  const showQuickReplies = !isTyping && lastMessage?.type === 'checkin-card' && lastMessage?.isQuestion === true
+  const showQuickReplies = !isTyping && lastMessage?.type === 'checkin-card' && lastMessage?.questionType === 'mood'
 
   useEffect(() => {
     const el = scrollRef.current

@@ -46,12 +46,14 @@ const RENDER_CHECKIN_TOOL = {
       boodschap: { type: 'string', description: 'The main reasoning/advice for the card, 1-2 sentences, Dutch.' },
       context_label: { type: 'string', description: 'Short label for the supporting context line, e.g. "Vandaag:"' },
       context_tekst: { type: 'string', description: 'The supporting context line itself, e.g. "Rustdag — mooi moment voor herstel."' },
-      heeft_vraag: {
-        type: 'boolean',
-        description: 'True if boodschap is phrased as a question inviting a reply from the user, false if it is a statement.',
+      vraag_type: {
+        type: 'string',
+        enum: ['geen', 'stemming', 'anders'],
+        description:
+          'Whether boodschap poses a question, and what kind. "geen": a statement, nothing to reply to. "stemming": a mood/wellbeing question the user could answer with a general feeling (e.g. how did you sleep, how are you feeling) — the client shows fixed mood-reply buttons for this case. "anders": any other kind of question (e.g. asking for a specific time, a yes/no unrelated to mood) — mood buttons would not make sense as answers, so the client shows free text input only.',
       },
     },
-    required: ['boodschap', 'context_label', 'context_tekst', 'heeft_vraag'],
+    required: ['boodschap', 'context_label', 'context_tekst', 'vraag_type'],
   },
 }
 
@@ -84,12 +86,45 @@ function aandachtspuntHasQuestion(text: string | null): boolean {
   return /\?/.test(text) || /\bvraag\b/i.test(text)
 }
 
+// Real bug (17 augustus): a carried-over aandachtspunt written after a
+// training day ("vraag hoe laat hij vandaag traint") surfaced unchanged on
+// a morning where today turned out to be a rest day — the card's own
+// context line said "Rustdag" right next to a question about training
+// time, a contradiction visible on the card itself. aandachtspunt is free
+// text with no structured "which day type does this assume" field, so
+// this is the same style of cheap, non-exhaustive keyword heuristic as
+// aandachtspuntHasQuestion above — a false negative (missing an implicit
+// day-type assumption) just means no change from before this fix; a false
+// positive drops back to the existing, already-safe generic fallback, so
+// erring toward suppressing is the safe direction here.
+//
+// Deliberately does NOT feed into the trigger check below (whether the
+// function is called at all) — only into what buildSystemPrompt is given
+// to work with. See the Deno.serve handler for why: the trigger decision
+// must stay exactly as it was before this fix.
+//
+// Known limitation, verified not fixed: negation isn't understood, so
+// "geen training vandaag" still matches assumesTraining. This can
+// over-suppress a valid rest-day note on an actual rest day — but that's
+// the same "safe" error direction as everything else here (falls back to
+// the generic template, doesn't surface a mismatched note), so left as-is
+// rather than adding negation-parsing complexity for a heuristic that's
+// deliberately cheap.
+function aandachtspuntDayTypeMismatch(text: string | null, todayDayType: string | null): boolean {
+  if (!text) return false
+  const assumesTraining = /\btrain(t|en)?\b|\btraining\b|\bsessie\b|\bworkout\b/i.test(text)
+  const assumesRest = /\brustdag\b/i.test(text)
+  if (assumesTraining && todayDayType !== 'training') return true
+  if (assumesRest && todayDayType === 'training') return true
+  return false
+}
+
 // Own short prompt, not the full PERSONA_PROMPT — same reasoning
 // _shared/summary.ts already uses its own narrower prompts for the
 // day-summary rather than the persona block. This task is much smaller
 // than a full conversation: a few facts in, three-to-four fields out.
 function buildSystemPrompt(yesterday: DayFact, today: DayFact, isThursday: boolean, aandachtspunt: string | null): string {
-  return `Je schrijft een korte ochtend check-in kaart voor de voedingscoach-app "Coach" — het eerste wat de gebruiker ziet bij het openen van de app, in plaats van een generieke groet. Drie velden: een boodschap (1-2 zinnen, de kern van het advies), een context-regel (label + tekst, een korte ondersteunende regel), en heeft_vraag (of de boodschap een vraag stelt die om een antwoord vraagt).
+  return `Je schrijft een korte ochtend check-in kaart voor de voedingscoach-app "Coach" — het eerste wat de gebruiker ziet bij het openen van de app, in plaats van een generieke groet. Vier velden: een boodschap (1-2 zinnen, de kern van het advies), een context-regel (label + tekst, een korte ondersteunende regel), en vraag_type (of de boodschap een vraag stelt, en zo ja wat voor soort).
 
 Feiten om op te baseren (gebruik alleen wat hier staat, verzin niets):
 - Gisteren was een ${dayLabel(yesterday)}.
@@ -101,7 +136,7 @@ ${aandachtspunt ? `- Aandachtspunt van gisteren, wat de coach vandaag moet ontho
 Hoe je het aandachtspunt weegt tegenover de trainingsfeiten:
 ${
   aandachtspunt
-    ? `- Bevat het aandachtspunt hierboven iets om te vragen of een concrete actie voor vandaag → leid de boodschap daarmee in (natuurlijk geformuleerd, geen letterlijke kopie), en gebruik de trainingsfeiten als ondersteunende context-regel. Zet heeft_vraag op true.
+    ? `- Bevat het aandachtspunt hierboven iets om te vragen of een concrete actie voor vandaag → leid de boodschap daarmee in (natuurlijk geformuleerd, geen letterlijke kopie), en gebruik de trainingsfeiten als ondersteunende context-regel.
 - Bevat het alleen achtergrond, voorkeuren of constateringen zonder iets te vragen → negeer het voor deze kaart en val terug op de gewone trainingsgerichte boodschap hieronder. Niet alles uit het aandachtspunt proppen — één kaart, één focus, niet een opsomming.`
     : '- Geen aandachtspunt beschikbaar, gebruik de trainingsfeiten hierboven zoals gebruikelijk.'
 }
@@ -111,7 +146,7 @@ Regels:
 - Noem NOOIT gewicht, een gewichtstrend of onderhoudsniveau — ook niet als dit in het aandachtspunt hierboven voorkomt. Dit wordt bewust nergens teruggegeven, ook niet hier.
 - Geen schuldgevoel-taal, geen "je zat ver onder/boven je doel" — dit gaat over training en herstel, niet over hoe gisteren scoorde tegenover een doel.
 - Motiverende, warme toon, kort en concreet — geen algemeenheid die net zo goed op elke willekeurige dag zou passen.
-- heeft_vraag: alleen true als de boodschap daadwerkelijk iets vraagt waar de gebruiker kort op kan reageren — niet bij een statement of constatering.
+- vraag_type: "geen" als de boodschap een statement of constatering is, zonder iets te vragen. Stelt de boodschap wél een vraag, kies dan tussen "stemming" (een vraag over hoe iemand zich voelt of geslapen heeft — iets waar een algemeen gevoel een passend antwoord op is) en "anders" (elke andere vraag, bijvoorbeeld naar een tijdstip, een keuze, of iets specifieks dat niets met stemming te maken heeft).
 - Gebruik het render_checkin_card tool om dit vast te leggen.`
 }
 
@@ -165,11 +200,22 @@ Deno.serve(async (req: Request) => {
     const isThursday = todayWeekday === 4
     const yesterdayTraining = yesterdayInfo.dayType === 'training'
     const todayTraining = todayInfo.dayType === 'training'
+    // Trigger decision deliberately uses the RAW aandachtspunt, not the
+    // day-type-filtered one below — this must stay exactly as it was
+    // before this fix (whether the function/Claude call happens at all is
+    // out of scope for the day-type-mismatch fix, only what the card says
+    // is in scope).
     const hasHandoverQuestion = aandachtspuntHasQuestion(aandachtspunt)
 
     if (!yesterdayTraining && !todayTraining && !isThursday && !hasHandoverQuestion) {
       return jsonResponse({ card: null })
     }
+
+    // A carried-over note that assumes a day type today doesn't actually
+    // have gets dropped entirely rather than surfaced or reworded — see
+    // aandachtspuntDayTypeMismatch's comment. buildSystemPrompt's existing
+    // "geen aandachtspunt beschikbaar" branch is the fallback, unchanged.
+    const effectiveAandachtspunt = aandachtspuntDayTypeMismatch(aandachtspunt, todayInfo.dayType) ? null : aandachtspunt
 
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
     if (!apiKey) {
@@ -179,7 +225,7 @@ Deno.serve(async (req: Request) => {
 
     const result = await callClaude(apiKey, {
       model: 'claude-sonnet-5',
-      system: buildSystemPrompt(yesterdayInfo, todayInfo, isThursday, aandachtspunt),
+      system: buildSystemPrompt(yesterdayInfo, todayInfo, isThursday, effectiveAandachtspunt),
       messages: [{ role: 'user', content: 'Genereer de ochtend check-in kaart voor vandaag.' }],
       tools: [RENDER_CHECKIN_TOOL],
       toolChoice: { type: 'tool', name: 'render_checkin_card' },
@@ -196,18 +242,24 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ card: null })
     }
 
-    const { boodschap, context_label, context_tekst, heeft_vraag } = toolUse.input as {
+    const { boodschap, context_label, context_tekst, vraag_type } = toolUse.input as {
       boodschap?: string
       context_label?: string
       context_tekst?: string
-      heeft_vraag?: boolean
+      vraag_type?: 'geen' | 'stemming' | 'anders'
     }
-    if (!boodschap || !context_label || !context_tekst || typeof heeft_vraag !== 'boolean') {
+    if (!boodschap || !context_label || !context_tekst || !vraag_type || !['geen', 'stemming', 'anders'].includes(vraag_type)) {
       return jsonResponse({ card: null })
     }
 
+    // 'mood' gets the client's fixed mood-reply buttons; 'other' is a real
+    // question but not one those buttons make sense as answers to (e.g.
+    // asking for a time) — free text only; 'none' is a plain statement.
+    // See Coach.jsx's showQuickReplies for the one place this is consumed.
+    const questionType = vraag_type === 'stemming' ? 'mood' : vraag_type === 'anders' ? 'other' : 'none'
+
     return jsonResponse({
-      card: { eyebrow: 'Ochtend check-in', question: boodschap, contextLabel: context_label, contextText: context_tekst, isQuestion: heeft_vraag },
+      card: { eyebrow: 'Ochtend check-in', question: boodschap, contextLabel: context_label, contextText: context_tekst, questionType },
     })
   } catch (err) {
     console.error('morning-checkin error', err)
