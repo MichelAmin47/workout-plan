@@ -17,7 +17,6 @@ import { todayDateString, loadStoredThread, saveThread, clearThread } from '../l
 import { shouldShowCheckin, hasShownCheckinToday, markCheckinShown, fetchMorningCheckin } from '../lib/morningCheckin.js'
 
 const FALLBACK_ERROR_TEXT = 'Sorry, ik kan even niet reageren — probeer het zo nog eens.'
-const CLOSE_DAY_RESET_DELAY_MS = 1500
 // Same intent as the block 4b opening variant, phrased for arriving
 // mid-conversation (via a notification tap) rather than as a greeting.
 const NOTIFICATION_TAP_QUESTION = 'Is er nog iets dat je vandaag hebt gegeten dat ik nog niet weet, zodat ik de dag kan samenvatten? 🌿'
@@ -55,7 +54,14 @@ async function buildRolloverTransition(previousMessages, previousDate, today) {
   const [progress, summaryId] = await Promise.all([fetchProteinProgress(today, previousDate), fetchSummaryId(today)])
   const marker = { id: makeMessageId(), type: 'day-marker', label: 'Vandaag' }
   const opening = await buildDailyOpening(summaryId !== null, progress, today)
-  return { messages: [...previousMessages, marker, ...opening], summaryId }
+  // A day-close-button left untapped from a manual close on `previousDate`
+  // is stale by the time a rollover fires — this transition already starts
+  // the new day itself (via the opening below), and tapping the stale
+  // button afterwards would clearThread() and wipe the new day's
+  // just-appended messages using a now-outdated activeDate. Drop it rather
+  // than carry it forward as dead history.
+  const carryOver = previousMessages.filter((m) => m.type !== 'day-close-button')
+  return { messages: [...carryOver, marker, ...opening], summaryId }
 }
 
 // Block 5: wraps buildOpeningMessages with the morning check-in card
@@ -297,6 +303,31 @@ export default function Coach() {
     }
   }, [threadDate, messages])
 
+  // Runs when the user taps the day-close-button message, not automatically
+  // — previously this ran unconditionally 1.5s after the closing reply
+  // (CLOSE_DAY_RESET_DELAY_MS), which cleared the thread before anyone could
+  // finish reading the closing message. The DB write (coach_sessions) has
+  // already happened by the time the button exists — see close_day_summary
+  // in coach-chat/tools.ts — so this only ever does client-side reads +
+  // state changes, never a write.
+  async function handleStartNewDay(activeDate) {
+    clearThread()
+    // Use the date the server actually closed, not a locally-recomputed
+    // one — this is exactly the flow the "closed after midnight, filed
+    // under the wrong date" bug was found in, so it's the one spot
+    // where trusting agreement between two independent clocks isn't
+    // good enough. Falls back to a local computation only if the
+    // server response is ever missing this field.
+    const today = activeDate ?? todayDateString()
+    const [summary, progress] = await Promise.all([fetchTodaySummary(today), fetchProteinProgress(today)])
+    summaryIdAtStartRef.current = summary?.id ?? null
+    setJustClosedSummary(
+      summary ? { eyebrow: 'Dag afgesloten', text: summary.samenvatting, note: summary.aandachtspunt } : null,
+    )
+    setMessages(buildOpeningMessages(summary != null, progress))
+    setThreadDate(today)
+  }
+
   async function sendMessage(text) {
     const trimmed = text.trim()
     if (!trimmed) return
@@ -329,33 +360,20 @@ export default function Coach() {
     // `messages` array as the plain-text case, so the existing saveThread
     // effect persists the card exactly like any other message — no separate
     // persistence path needed.
+    //
+    // A confirmed close (daySummaryWritten) appends a day-close-button
+    // message instead of auto-clearing the thread — the closing text stays
+    // on screen, fully persisted (saveThread covers this array like any
+    // other message), until the user taps it. Chat stays usable in the
+    // meantime; nothing here blocks sendMessage from being called again.
     setMessages((prev) => [
       ...prev,
       ...(mealCard ? [{ id: makeMessageId(), type: 'meal-card', ...mealCard }] : []),
       { id: makeMessageId(), type: 'coach', text: replyText, time: nowTime() },
+      ...(daySummaryWritten
+        ? [{ id: makeMessageId(), type: 'day-close-button', activeDate: closedActiveDate ?? todayDateString() }]
+        : []),
     ])
-
-    // Only clear on a confirmed successful close — a failed close_day_summary
-    // call must leave the thread exactly as it was, so nothing is lost.
-    if (daySummaryWritten) {
-      clearThread()
-      setTimeout(async () => {
-        // Use the date the server actually closed, not a locally-recomputed
-        // one — this is exactly the flow the "closed after midnight, filed
-        // under the wrong date" bug was found in, so it's the one spot
-        // where trusting agreement between two independent clocks isn't
-        // good enough. Falls back to a local computation only if the
-        // server response is ever missing this field.
-        const today = closedActiveDate ?? todayDateString()
-        const [summary, progress] = await Promise.all([fetchTodaySummary(today), fetchProteinProgress(today)])
-        summaryIdAtStartRef.current = summary?.id ?? null
-        setJustClosedSummary(
-          summary ? { eyebrow: 'Dag afgesloten', text: summary.samenvatting, note: summary.aandachtspunt } : null,
-        )
-        setMessages(buildOpeningMessages(summary != null, progress))
-        setThreadDate(today)
-      }, CLOSE_DAY_RESET_DELAY_MS)
-    }
   }
 
   function handleSubmit(e) {
@@ -426,6 +444,14 @@ export default function Coach() {
               return <UserBubble key={msg.id} text={msg.text} time={msg.time} />
             case 'coach':
               return <CoachBubble key={msg.id} text={msg.text} time={msg.time} />
+            case 'day-close-button':
+              return (
+                <div key={msg.id} className="day-close-button-row">
+                  <button type="button" className="day-close-button" onClick={() => handleStartNewDay(msg.activeDate)}>
+                    Start nieuwe dag
+                  </button>
+                </div>
+              )
             default:
               return null
           }

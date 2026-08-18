@@ -425,6 +425,27 @@
   font-weight: 600;
 }
 
+/* Day close button */
+.day-close-button-row {
+  display: flex;
+  justify-content: center;
+  margin: 4px 0 20px;
+}
+.day-close-button {
+  background: var(--accent);
+  border: none;
+  border-radius: 20px;
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+}
+.day-close-button:active {
+  opacity: 0.85;
+}
+
 /* Quick replies */
 .quick-replies {
   display: flex;
