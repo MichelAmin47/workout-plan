@@ -168,6 +168,11 @@ const KB_EXERCISES = [
   "KB Thruster", "KB Turkish Get-Up", "KB Windmill", "KB Wood Chop",
 ];
 
+// Bumped from v2: v2's cached JSON was built before exercises.weight_hint
+// existed, so it would keep serving weight hints as missing indefinitely
+// without this. See the mount effect below for the matching v2 cleanup.
+const SCHEMA_CACHE_KEY = "cached_schema_v3";
+
 function buildWeeks(schemas, schemaDays, exercises, weekOverrides = []) {
   const allWeeks = [];
   for (const s of schemas) {
@@ -208,13 +213,19 @@ function buildWeeks(schemas, schemaDays, exercises, weekOverrides = []) {
           name: e.naam,
           sets: e.sets || "",
           note: e.note || "",
+          // Separate from `note`: note is superset grouping ("Superset 1"/
+          // "Superset 2") or empty for schema 2, while weight_hint carries
+          // the "+gewicht" / "+gewicht piek" text — these used to be the
+          // same overloaded `note` column, split into two columns so
+          // grouping and hint display don't collide.
+          weight_hint: e.weight_hint || "",
           ...(e.optioneel ? { optional: true } : {}),
           ...(e.hiit_work != null ? { hiitInterval: { work: e.hiit_work, rest: e.hiit_rest } } : {}),
         });
         const barEx = dayExs.find(e => e.categorie === "barbell");
         return {
           ...base,
-          barbell: barEx ? toEx(barEx) : { name: "", sets: "", note: "" },
+          barbell: barEx ? toEx(barEx) : { name: "", sets: "", note: "", weight_hint: "" },
           spiergroep: dayExs.filter(e => e.categorie === "spiergroep").map(toEx),
           kettlebell: dayExs.filter(e => e.categorie === "kettlebell").map(toEx),
           core: dayExs.filter(e => e.categorie === "core").map(toEx),
@@ -318,7 +329,7 @@ export default function FitnessSchema() {
   const refreshAll = async () => {
     try {
       const { weeks: allWeeks, restDayGoals } = await fetchSchemaData();
-      localStorage.setItem("cached_schema_v2", JSON.stringify({ weeks: allWeeks, restDayGoals }));
+      localStorage.setItem(SCHEMA_CACHE_KEY, JSON.stringify({ weeks: allWeeks, restDayGoals }));
       setSchema({ weeks: allWeeks, restDayGoals });
       setSchemaGen(g => g + 1);
       setSchemaOffline(false);
@@ -329,9 +340,16 @@ export default function FitnessSchema() {
   };
 
   useEffect(() => {
+    // v2 -> v3: v2's cached JSON predates the exercises.weight_hint column,
+    // so a stale v2 cache would keep serving schema data with no hints even
+    // after the fresh fetch below lands. Removing it (rather than just
+    // moving on to a new key) also stops it lingering in localStorage
+    // forever for users who never hit a cache-miss code path again.
+    try { localStorage.removeItem("cached_schema_v2"); } catch {}
+
     let hasCache = false;
     try {
-      const raw = localStorage.getItem("cached_schema_v2");
+      const raw = localStorage.getItem(SCHEMA_CACHE_KEY);
       if (raw) {
         const { weeks, restDayGoals } = JSON.parse(raw);
         if (weeks?.length) {
@@ -346,7 +364,7 @@ export default function FitnessSchema() {
 
     fetchSchemaData()
       .then(({ weeks: allWeeks, restDayGoals }) => {
-        localStorage.setItem("cached_schema_v2", JSON.stringify({ weeks: allWeeks, restDayGoals }));
+        localStorage.setItem(SCHEMA_CACHE_KEY, JSON.stringify({ weeks: allWeeks, restDayGoals }));
         setSchema({ weeks: allWeeks, restDayGoals });
         if (!hasCache) {
           const idx = currentWeekIndex(allWeeks);
@@ -720,7 +738,7 @@ export default function FitnessSchema() {
                           num={superset1.length + superset2.length + i + 1}
                           name={ex.name}
                           sets={ex.sets}
-                          note=""
+                          note={ex.weight_hint}
                           accent={colors.accent}
                           light={colors.light}
                           optional={ex.optional}
@@ -1309,9 +1327,12 @@ function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExer
                 onClick={() => onToggle(ex.name)}
               >
                 <ExCircle num={i + 1} completed={isCompleted} accent={accentColor} onLongPress={() => toggleCompletion(ex.name, weekNum, dayId)} />
-                <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", fontFamily: "sans-serif" }}>{ex.name}</span>
-                  <TypeBadge type={type} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", fontFamily: "sans-serif" }}>{ex.name}</span>
+                    <TypeBadge type={type} />
+                  </div>
+                  {ex.weight_hint && <div style={{ fontSize: 11, color: accentColor, fontFamily: "sans-serif", marginTop: 1 }}>{ex.weight_hint}</div>}
                 </div>
                 <div style={{ background: accentColor, color: "#fff", padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap", flexShrink: 0 }}>
                   {ex.sets}
