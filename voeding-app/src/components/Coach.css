@@ -472,7 +472,7 @@
 /* Input bar */
 .input-bar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 10px;
   padding: 12px 20px calc(max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px)) + 16px);
   background: var(--bg);
@@ -489,6 +489,15 @@
   color: var(--text);
   font-family: inherit;
   outline: none;
+  /* Auto-grow (Coach.jsx resizes the element via scrollHeight on every
+     change) up to roughly a third of the viewport, so a long paste can't
+     crowd the message list or push the send button off-screen — beyond
+     that it scrolls internally like any other textarea. resize:none since
+     growth is driven by content, not a user-draggable handle. */
+  resize: none;
+  overflow-y: auto;
+  max-height: 30vh;
+  line-height: 1.4;
 }
 .input-field::placeholder {
   color: var(--text-dim);

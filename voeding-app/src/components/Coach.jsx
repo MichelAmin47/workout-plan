@@ -115,6 +115,7 @@ export default function Coach() {
   const [notificationTapToken, setNotificationTapToken] = useState(0)
   const consumedTapTokenRef = useRef(0)
   const scrollRef = useRef(null)
+  const inputRef = useRef(null)
   // Not rendered, so a ref is enough — read at save time, written whenever a
   // thread is (re)stamped fresh. See threadStorage.js for why this exists.
   const summaryIdAtStartRef = useRef(null)
@@ -376,9 +377,35 @@ export default function Coach() {
     ])
   }
 
+  // Auto-grow: re-measure on every inputValue change, whether from typing,
+  // a quick-reply fill, or the post-send reset to ''. Resetting to 'auto'
+  // first (rather than only ever growing) is what lets scrollHeight shrink
+  // back down as text is deleted — without it the browser keeps the tallest
+  // height it ever computed. CSS's max-height on .input-field is the actual
+  // cap (30vh) — this just feeds it the content's natural height, and
+  // overflow-y:auto takes over once that exceeds the cap.
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [inputValue])
+
   function handleSubmit(e) {
     e.preventDefault()
     sendMessage(inputValue)
+  }
+
+  // Enter sends (matches the single-line input's native behavior, so
+  // existing muscle memory doesn't break); Shift+Enter inserts a newline,
+  // the standard convention this app had no prior pattern for (WhatsApp/
+  // Slack/ChatGPT-style) — otherwise a growable field with no way to add a
+  // deliberate line break would only ever grow from wrapping.
+  function handleInputKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      sendMessage(inputValue)
+    }
   }
 
   function handleQuickReply(option) {
@@ -470,12 +497,14 @@ export default function Coach() {
       )}
 
       <form className="input-bar" onSubmit={handleSubmit}>
-        <input
+        <textarea
+          ref={inputRef}
           className="input-field"
-          type="text"
+          rows={1}
           placeholder="Typ een bericht…"
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
+          onKeyDown={handleInputKeyDown}
         />
         <button className="send-btn" type="submit" disabled={!inputValue.trim()}>
           <SendIcon />
