@@ -138,18 +138,48 @@ function withTimeout(promise, ms) {
   ])
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// Real miss (18 augustus): confirmed via Supabase's edge-function logs that
+// the client-side gate worked correctly (its own day-type queries
+// succeeded, it decided to show a card, the browser sent the CORS
+// preflight to morning-checkin) — but the actual POST never landed
+// (OPTIONS 204 logged, no POST after it), a one-off network drop on the
+// mobile connection, not a logic bug. Cost the entire day because
+// Coach.jsx's restoreThread() only ever attempts a check-in on the first
+// genuine open of a day — once that single attempt's fallback thread is
+// saved, no later reopen the same day tries again (see restoreThread's
+// resume branch, which just replays the stored thread). One retry here is
+// contained, cheap insurance against exactly that kind of transient
+// failure, without touching the once-per-day thread logic at all.
+const CHECKIN_RETRY_DELAY_MS = 1500
+
+async function invokeMorningCheckin() {
+  const { data, error } = await withTimeout(supabase.functions.invoke('morning-checkin'), CHECKIN_TIMEOUT_MS)
+  if (error || !data) throw error ?? new Error('No response from morning-checkin')
+  return data
+}
+
 // Best-effort, same pattern as dayProgress.js's fetchProteinProgress — a
 // greeting is not worth a spinner or an error state. Any failure or
-// slowness (8s budget, longer than dayProgress's 3s since this is an LLM
-// call, not a DB query) falls back to {ok:false}, letting the caller use
-// the point-7 template instead.
+// slowness (8s budget per attempt, longer than dayProgress's 3s since this
+// is an LLM call, not a DB query) falls back to {ok:false} after one
+// retry, letting the caller use the point-7 template instead.
 export async function fetchMorningCheckin() {
   try {
-    const { data, error } = await withTimeout(supabase.functions.invoke('morning-checkin'), CHECKIN_TIMEOUT_MS)
-    if (error || !data) throw error ?? new Error('No response from morning-checkin')
+    const data = await invokeMorningCheckin()
     return { ok: true, card: data.card ?? null }
-  } catch (err) {
-    console.error('fetchMorningCheckin failed, falling back to template opening', err)
-    return { ok: false }
+  } catch (firstErr) {
+    console.error('fetchMorningCheckin: first attempt failed, retrying once', firstErr)
+    await delay(CHECKIN_RETRY_DELAY_MS)
+    try {
+      const data = await invokeMorningCheckin()
+      return { ok: true, card: data.card ?? null }
+    } catch (secondErr) {
+      console.error('fetchMorningCheckin failed after retry, falling back to template opening', secondErr)
+      return { ok: false }
+    }
   }
 }
