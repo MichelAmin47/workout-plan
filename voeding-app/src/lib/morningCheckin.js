@@ -27,14 +27,20 @@ async function resolveSchemaForWeek(calWeek) {
   return (data ?? []).find((s) => calWeek >= s.start_week && calWeek <= s.eind_week) ?? null
 }
 
-// Deliberate narrow duplicate of _shared/today.ts's pickDayPlan — different
-// runtime (browser vs. Deno), can't literally share the module. Scoped down
-// to just dayType: the trigger decision doesn't need muscle group or
-// completion status, only the server-side card content does (and that's
-// resolved authoritatively server-side in morning-checkin's own index.ts,
-// not trusted from here). One call per day, not batched — this only ever
-// resolves two days (today, yesterday), so the extra round trips don't
-// matter.
+// DEAD CODE, kept intentionally (not deleted) — see shouldShowCheckin below
+// for why. resolveDayType/resolveSchemaForWeek/currentCalWeek and
+// aandachtspuntHasQuestion below were the client-side half of a two-tier
+// trigger gate (this file decided cheaply whether to call morning-checkin
+// at all; the Edge Function re-checked the same conditions against real
+// data before spending a Claude call). The trigger gate itself silently
+// failed twice on the same "yesterday was a training day" path
+// (2026-08-18, 2026-08-21) and was removed rather than debugged further —
+// morning-checkin is now called unconditionally every day. Left in place,
+// unused, in case the decision to gate is ever revisited; not repurposed
+// for anything else since this file only ever decides whether to call the
+// server, never what the card says (that's server-side, in
+// morning-checkin/index.ts, which still needs — and keeps — its own
+// day-type resolution for card content).
 async function resolveDayType(calWeek, weekday) {
   const schema = await resolveSchemaForWeek(calWeek)
   if (!schema) return null
@@ -57,56 +63,29 @@ async function resolveDayType(calWeek, weekday) {
   return schemaDays && schemaDays.length > 0 ? schemaDays[0].type : null
 }
 
-// Cheap pre-call heuristic duplicated from morning-checkin/index.ts's
-// aandachtspuntHasQuestion (that copy has the full reasoning/limitations
-// comment) — same runtime-duplication precedent as currentCalWeek above.
-// Needed here too, not just server-side: if only the server gains this
-// trigger condition, a day where only the aandachtspunt-question applies
-// never gets called in the first place, since this function is what
-// decides whether to call the Edge Function at all.
+// DEAD CODE, kept intentionally — see the comment above resolveDayType.
 function aandachtspuntHasQuestion(text) {
   if (!text) return false
   return /\?/.test(text) || /\bvraag\b/i.test(text)
 }
 
-// Client-side cost gate — no Edge Function call is made just to decide
-// whether to make the (expensive) Edge Function call, only direct table
-// reads. Cross-week correctness for "yesterday" (bouwplan-voeding-app.md
-// "Blok 5" point 1): this deliberately does NOT port
-// resolveYesterdayIfOutsideWeek's Monday-only special case from
-// _shared/today.ts. The server needed that patch because it first builds a
-// whole Mon-Sun grid for the week and then has to backfill the one day that
-// grid structurally can't hold. This function never builds a grid — it
-// only ever resolves two individual days, so deriving yesterday's OWN
-// calWeek from yesterday's OWN Date (rather than assuming it equals today's
-// calWeek) is simply the general case, correct on every day of the week
-// including Monday, not a special case bolted on afterward.
+// Unconditional now — this used to gate on yesterday/today being a
+// training day, today being Thursday, or a carried-over aandachtspunt
+// having a question. That gate silently failed twice on the same
+// "yesterday was a training day" path (2026-08-18, 2026-08-21); a retry
+// fix after the first miss didn't prevent the second. Rather than keep
+// debugging an intermittent trigger-evaluation bug, the gate is removed
+// entirely: morning-checkin is called every day. An unnecessary call on a
+// plain day is a minor cost; a missing check-in on a day it mattered was
+// the actual problem. isLateEvening() stays — that's a time-of-day
+// suppression (no "goedemorgen" card at 23:00), not one of the four
+// removed triggers. morning-checkin/index.ts had its own independent
+// server-side re-check of the same four conditions and was updated
+// alongside this file — a client-only change here would still have been
+// silently gated server-side.
 export async function shouldShowCheckin() {
   if (isLateEvening()) return { show: false }
-
-  const today = activeDate()
-  const yesterday = new Date(today)
-  yesterday.setDate(yesterday.getDate() - 1)
-
-  const todayWeekday = today.getDay() || 7
-  const todayCalWeek = currentCalWeek(today)
-  const yesterdayWeekday = yesterday.getDay() || 7
-  const yesterdayCalWeek = currentCalWeek(yesterday)
-
-  const pad = (n) => String(n).padStart(2, '0')
-  const yesterdayDateStr = `${yesterday.getFullYear()}-${pad(yesterday.getMonth() + 1)}-${pad(yesterday.getDate())}`
-
-  const [todayType, yesterdayType, yesterdaySession] = await Promise.all([
-    resolveDayType(todayCalWeek, todayWeekday),
-    resolveDayType(yesterdayCalWeek, yesterdayWeekday),
-    supabase.from('coach_sessions').select('aandachtspunt').eq('datum', yesterdayDateStr).limit(1),
-  ])
-
-  const aandachtspunt = yesterdaySession.data && yesterdaySession.data.length > 0 ? yesterdaySession.data[0].aandachtspunt : null
-
-  const isThursday = todayWeekday === 4
-  const show = todayType === 'training' || yesterdayType === 'training' || isThursday || aandachtspuntHasQuestion(aandachtspunt)
-  return { show }
+  return { show: true }
 }
 
 export function hasShownCheckinToday(today) {

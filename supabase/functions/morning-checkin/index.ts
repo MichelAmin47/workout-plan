@@ -6,11 +6,19 @@
 // closeDayWithSummary in _shared/summary.ts, just its own function since it
 // only has one caller (the client, on app open).
 //
-// The client makes its own cheap, DB-only trigger decision before ever
-// calling this (voeding-app/src/lib/morningCheckin.js) so the LLM cost only
-// happens when something's worth saying — but this function re-checks the
-// same conditions independently against real data before spending a Claude
-// call, rather than trusting the client called it for a good reason.
+// Called unconditionally now, once per day (voeding-app/src/lib/
+// morningCheckin.js calls it on every genuine first open) — this used to be
+// a two-tier trigger gate (client decided cheaply whether to call at all;
+// this function re-checked the same four conditions against real data
+// before spending a Claude call, "rather than trusting the client called it
+// for a good reason"). That gate silently failed twice on the same
+// "yesterday was a training day" path (2026-08-18, 2026-08-21) and was
+// removed on both sides rather than debugged further. An unnecessary call
+// on a plain day is a minor cost; a missing check-in on a day it mattered
+// was the actual problem. See buildSystemPrompt's hasNotableSignal for how
+// this function now handles a day where none of the old trigger conditions
+// hold — it no longer means "don't call," it means "write a plain opening
+// instead of manufacturing a hook."
 
 import {
   amsterdamNow,
@@ -66,13 +74,15 @@ function dayLabel(info: DayFact): string {
   return 'onbekend'
 }
 
-// Cheap pre-call heuristic for "does yesterday's aandachtspunt contain
-// something worth asking about" — used to decide whether the aandachtspunt
-// alone should trigger a card (see the trigger check below). Duplicated
-// client-side in voeding-app/src/lib/morningCheckin.js's shouldShowCheckin
-// (that copy has a comment pointing back here) — same runtime-duplication
-// precedent as currentCalWeek in that file, not moved to a shared module
-// for the same reasons.
+// Cheap heuristic for "does the aandachtspunt contain something worth
+// asking about." Originally fed the old client+server trigger gate
+// (removed — see the file header); now repurposed inside buildSystemPrompt
+// to help decide hasNotableSignal, i.e. whether there's anything to hook
+// the card on today, since this function can no longer assume the old gate
+// already guaranteed that. The client-side copy in voeding-app/src/lib/
+// morningCheckin.js is genuinely dead now (that file no longer computes any
+// signal at all, unconditional there) — kept, unused, in a comment noting
+// why, same runtime-duplication precedent as currentCalWeek in that file.
 //
 // Not exhaustive by design: catches the actual reproduction case ("vraag
 // hoe hij geslapen heeft" has no "?" but contains "vraag"), misses other
@@ -98,10 +108,13 @@ function aandachtspuntHasQuestion(text: string | null): boolean {
 // positive drops back to the existing, already-safe generic fallback, so
 // erring toward suppressing is the safe direction here.
 //
-// Deliberately does NOT feed into the trigger check below (whether the
-// function is called at all) — only into what buildSystemPrompt is given
-// to work with. See the Deno.serve handler for why: the trigger decision
-// must stay exactly as it was before this fix.
+// This function's own mismatch check has no special case for
+// hasNotableSignal — but since a dropped note becomes null before reaching
+// buildSystemPrompt, and hasNotableSignal partly depends on whether that
+// (possibly-dropped) aandachtspunt has a question in it, dropping a note
+// here does indirectly remove it as a potential signal too. That's
+// intentional, not accidental: a note the model isn't even shown shouldn't
+// be able to justify a manufactured hook either.
 //
 // Known limitation, verified not fixed: negation isn't understood, so
 // "geen training vandaag" still matches assumesTraining. This can
@@ -124,14 +137,26 @@ function aandachtspuntDayTypeMismatch(text: string | null, todayDayType: string 
 // day-summary rather than the persona block. This task is much smaller
 // than a full conversation: a few facts in, three-to-four fields out.
 function buildSystemPrompt(yesterday: DayFact, today: DayFact, isThursday: boolean, aandachtspunt: string | null): string {
+  const yesterdayTraining = yesterday.dayType === 'training'
+  const todayTraining = today.dayType === 'training'
+  // Was only ever computed (as yesterdayTraining/todayTraining/
+  // hasHandoverQuestion) to feed the old trigger gate in the Deno.serve
+  // handler below — that gate is gone (see file header), and this function
+  // now runs on days none of these hold. hasNotableSignal is the
+  // replacement question: not "should I even call Claude" (always yes
+  // now), but "is there something real to hook the card's content on, or
+  // should it just be a plain opening." Computed here, from data this
+  // function already receives, rather than threaded in as a handler-level
+  // param — nothing outside this function needs it.
+  const hasNotableSignal = yesterdayTraining || todayTraining || isThursday || aandachtspuntHasQuestion(aandachtspunt)
+
   return `Je schrijft een korte ochtend check-in kaart voor de voedingscoach-app "Coach" — het eerste wat de gebruiker ziet bij het openen van de app, in plaats van een generieke groet. Vier velden: een boodschap (1-2 zinnen, de kern van het advies), een context-regel (label + tekst, een korte ondersteunende regel), en vraag_type (of de boodschap een vraag stelt, en zo ja wat voor soort).
 
 Feiten om op te baseren (gebruik alleen wat hier staat, verzin niets):
 - Gisteren was een ${dayLabel(yesterday)}.
 - Vandaag is een ${dayLabel(today)}.
 ${isThursday ? '- Vandaag is donderdag: Power Hour bokstraining om 19:00, dus niet nuchter trainen die dag — een normale eetdag met een snack rond 17:30 en de hoofdmaaltijd na de training.\n' : ''}- Zondag is de vaste beendag, altijd nuchter — de norm, niet de uitzondering.
-- Spiereiwitsynthese blijft 24-48 uur verhoogd na een zware trainingssessie — de dag ná een trainingsdag mag ook eiwitrijk zijn.
-${aandachtspunt ? `- Aandachtspunt van gisteren, wat de coach vandaag moet onthouden: "${aandachtspunt}"` : '- Geen aandachtspunt van gisteren beschikbaar.'}
+${(yesterdayTraining || todayTraining) ? '- Spiereiwitsynthese blijft 24-48 uur verhoogd na een zware trainingssessie — de dag ná een trainingsdag mag ook eiwitrijk zijn.\n' : ''}${aandachtspunt ? `- Meegenomen aandachtspunt uit een eerdere dagafsluiting, wat de coach moet onthouden: "${aandachtspunt}" — dit kan over gisteren gaan, maar ook over een eerdere dag; gebruik alleen een dagaanduiding die letterlijk in deze tekst zelf staat, verzin er zelf geen bij.` : '- Geen aandachtspunt beschikbaar.'}
 
 Hoe je het aandachtspunt weegt tegenover de trainingsfeiten:
 ${
@@ -145,7 +170,9 @@ Regels:
 - Focus op eiwitten. Noem GEEN calorieën en GEEN dagtotaal.
 - Noem NOOIT gewicht, een gewichtstrend of onderhoudsniveau — ook niet als dit in het aandachtspunt hierboven voorkomt. Dit wordt bewust nergens teruggegeven, ook niet hier.
 - Geen schuldgevoel-taal, geen "je zat ver onder/boven je doel" — dit gaat over training en herstel, niet over hoe gisteren scoorde tegenover een doel.
-- Motiverende, warme toon, kort en concreet — geen algemeenheid die net zo goed op elke willekeurige dag zou passen.
+- Gebruik een dagwoord als "gisteren" of "vandaag" alleen als dat rechtstreeks klopt met de "Gisteren was..."/"Vandaag is..."-feiten hierboven, of met een dagaanduiding die letterlijk in het aandachtspunt zelf staat. Verwijs je naar iets uit het aandachtspunt waarvan de dag niet met zekerheid vaststaat, gebruik dan gewoon geen dagwoord ("na de boksles" in plaats van "gisteren na de boksles") — verzin er nooit een bij.
+- De boodschap en de context-regel mogen elkaar nooit tegenspreken over welke dag iets was.
+${!hasNotableSignal ? '- Niets bijzonders vandaag: geen training gisteren of vandaag, geen donderdag, geen aandachtspunt met iets te vragen. Schrijf dan een gewone, rustige opening die simpelweg aansluit bij het dag-type van vandaag hierboven, zonder een kunstmatige vraag, haak of trainingsverwijzing te verzinnen die er niet is. vraag_type is in dit geval altijd "geen".\n' : ''}- Motiverende, warme toon, kort en concreet — geen algemeenheid die net zo goed op elke willekeurige dag zou passen.
 - vraag_type: "geen" als de boodschap een statement of constatering is, zonder iets te vragen. Stelt de boodschap wél een vraag, kies dan tussen "stemming" (een vraag over hoe iemand zich voelt of geslapen heeft — iets waar een algemeen gevoel een passend antwoord op is) en "anders" (elke andere vraag, bijvoorbeeld naar een tijdstip, een keuze, of iets specifieks dat niets met stemming te maken heeft).
 - Gebruik het render_checkin_card tool om dit vast te leggen.`
 }
@@ -198,18 +225,6 @@ Deno.serve(async (req: Request) => {
     const aandachtspunt: string | null = yesterdaySession && yesterdaySession.length > 0 ? yesterdaySession[0].aandachtspunt ?? null : null
 
     const isThursday = todayWeekday === 4
-    const yesterdayTraining = yesterdayInfo.dayType === 'training'
-    const todayTraining = todayInfo.dayType === 'training'
-    // Trigger decision deliberately uses the RAW aandachtspunt, not the
-    // day-type-filtered one below — this must stay exactly as it was
-    // before this fix (whether the function/Claude call happens at all is
-    // out of scope for the day-type-mismatch fix, only what the card says
-    // is in scope).
-    const hasHandoverQuestion = aandachtspuntHasQuestion(aandachtspunt)
-
-    if (!yesterdayTraining && !todayTraining && !isThursday && !hasHandoverQuestion) {
-      return jsonResponse({ card: null })
-    }
 
     // A carried-over note that assumes a day type today doesn't actually
     // have gets dropped entirely rather than surfaced or reworded — see

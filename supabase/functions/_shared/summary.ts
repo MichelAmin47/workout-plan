@@ -24,6 +24,16 @@ function dateFromIsoString(iso: string): Date {
   return new Date(y, m - 1, d)
 }
 
+// Full Dutch weekday names, indexed by getDay()||7 - 1 (Ma=0..Zo=6). No
+// existing export to reuse: _shared/today.ts's WEEKDAY_LABELS is
+// abbreviated ("Ma"/"Di") and module-private, needed here in full-word
+// form so the day-anchor instruction below reads as natural prose.
+const WEEKDAG_NAMEN = ['maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag', 'zondag']
+
+function weekdagNaam(d: Date): string {
+  return WEEKDAG_NAMEN[(d.getDay() || 7) - 1]
+}
+
 async function resolveWorkoutForDate(datum: string): Promise<string> {
   const d = dateFromIsoString(datum)
   const calWeek = currentCalWeek(d)
@@ -31,14 +41,39 @@ async function resolveWorkoutForDate(datum: string): Promise<string> {
   return resolveTodayWorkout(calWeek, weekday)
 }
 
-function buildRichSystemPrompt(workoutSummary: string, mealsText: string): string {
+// Real bug (2026-08-22): an aandachtspunt referencing a training session
+// from two days earlier ("de boksles") got carried into morning-checkin's
+// prompt with no day attached, which then invented "gisteren" for it — the
+// event was actually Thursday, not literally the day before. Without an
+// absolute anchor (a weekday name or date), "name the day" is
+// unenforceable — the model closing this day has no other way to know
+// what weekday it even is, only relative "vandaag"/"trainingsdag" framing.
+// This single line is that anchor, shared by both prompt variants below.
+function dagAnchorLine(datum: string): string {
+  return `Dit is de samenvatting voor ${weekdagNaam(dateFromIsoString(datum))} ${datum}.`
+}
+
+// Shared by both prompt variants — the anchoring instruction itself, right
+// next to where aandachtspunt is generated (point-of-use, same pattern as
+// every other rule in this codebase). A relative day word ("gisteren")
+// written into the note is only ever read correctly on the one day it was
+// written; carried into a later day's context (which is the whole point of
+// aandachtspunt) it silently means the wrong day. Naming the actual weekday
+// survives that carry-over; "gisteren" doesn't.
+const AANDACHTSPUNT_ANKER_REGEL =
+  '- Verwijst het aandachtspunt naar een gebeurtenis op een specifieke dag (een training, maaltijd, klacht) → noem die dag erbij (bv. "de boksles van donderdag"), nooit de gebeurtenis kaal. Gebruik zelf GEEN relatief dagwoord als "gisteren" of "vandaag" in het aandachtspunt — dit wordt op een latere dag door een ander proces gelezen, waar zo\'n woord een andere dag zou betekenen.'
+
+function buildRichSystemPrompt(datum: string, workoutSummary: string, mealsText: string): string {
   return `Je bent een samenvattingsmodel voor de voedingscoach-app "Coach". Je taak: comprimeer één dag naar twee korte velden voor coach_sessions — samenvatting en aandachtspunt. Dit vervangt het bewaren van de losse chatberichten; wat je hier niet vastlegt is morgen weg.
+
+${dagAnchorLine(datum)}
 
 Je krijgt hieronder het volledige gesprek van vandaag, plus de daadwerkelijk gelogde maaltijden en trainingsdata.
 
 Regels:
 - samenvatting: 1-2 zinnen, reflectief — wat ging er goed, hoe verliep de dag.
 - aandachtspunt: wat de coach morgen moet onthouden — concreet, geen open zin.
+${AANDACHTSPUNT_ANKER_REGEL}
 - Zodra de gebruiker in het gesprek heeft aangegeven vol of klaar te zijn voor die dag: sluit af op wat goed ging. Noem GEEN manieren om het eiwitdoel alsnog te halen en geen "je had nog wat kunnen eten" — dat is precies het gedrag dat de coach zelf ook al vermijdt.
 - De caloriewaarden hieronder staan erbij voor nauwkeurigheid, niet om standaard te noemen. Focus zoals gebruikelijk op eiwitten en hoe de dag verliep — noem calorieën alleen als dat al onderdeel was van het gesprek zelf.
 - Noem NOOIT gewicht, een gewichtstrend of onderhoudsniveau in samenvatting of aandachtspunt — ook niet als dit in het gesprek zelf ter sprake kwam (bv. een weegmoment). Dit wordt bewust nergens teruggegeven, ook niet hier.
@@ -49,14 +84,17 @@ Gelogde maaltijden vandaag:
 ${mealsText}`
 }
 
-function buildThinSystemPrompt(workoutSummary: string, mealsText: string): string {
+function buildThinSystemPrompt(datum: string, workoutSummary: string, mealsText: string): string {
   return `Je bent een samenvattingsmodel voor de voedingscoach-app "Coach". Je taak: schrijf een korte dagsamenvatting voor coach_sessions voor een dag waarin GEEN gesprek beschikbaar is — dit is het automatische vangnet, de gebruiker heeft die dag niet zelf "sluit de dag af" gezegd.
+
+${dagAnchorLine(datum)}
 
 BELANGRIJK: je hebt het gesprek van die dag niet gezien. Verzin GEEN stemming, gevoel of iets dat alleen uit een gesprek af te leiden zou zijn. Blijf feitelijk: alleen wat er gegeten en getraind is.
 
 Regels:
 - samenvatting: 1-2 zinnen, feitelijk — gelogde maaltijden/eiwitten en trainingsdata van die dag.
 - aandachtspunt: een feitelijke observatie op basis van de cijfers (bv. eiwitdoel wel/niet gehaald), geen gok over intentie of stemming.
+${AANDACHTSPUNT_ANKER_REGEL}
 - De caloriewaarden hieronder staan erbij voor nauwkeurigheid, niet om standaard te noemen — focus zoals gebruikelijk op eiwitten, niet op calorieën.
 - Gebruik het record_summary tool om dit vast te leggen.
 
@@ -100,8 +138,8 @@ export async function closeDayWithSummary(
   const calorieTotaal = meals.reduce((sum, m) => sum + (Number(m.calorieen) || 0), 0)
 
   const systemPrompt = conversationTranscript
-    ? buildRichSystemPrompt(workoutSummary, mealsText)
-    : buildThinSystemPrompt(workoutSummary, mealsText)
+    ? buildRichSystemPrompt(datum, workoutSummary, mealsText)
+    : buildThinSystemPrompt(datum, workoutSummary, mealsText)
 
   const userMessage = conversationTranscript
     ? `Gesprek van vandaag:\n\n${conversationTranscript}`
