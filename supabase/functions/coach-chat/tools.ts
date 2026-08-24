@@ -37,14 +37,18 @@ export const TOOLS = [
         omschrijving: { type: 'string', description: 'Short description of what was eaten, e.g. "2 boterhammen met kaas"' },
         eiwitten_g: { type: 'number', description: 'Estimated grams of protein for this meal/snack' },
         calorieen: { type: 'number', description: 'Estimated calories (kcal) for this meal/snack' },
-        tijdstip: { type: 'string', description: 'Time eaten, 24h HH:MM, Europe/Amsterdam. Use the current time from context if the user does not name one.' },
+        tijdstip: {
+          type: 'string',
+          description:
+            'Time the meal was EATEN, not when it is being logged, 24h HH:MM, Europe/Amsterdam. If the user states a time, or says "net"/"zojuist" and clearly means right now, use that directly — do not ask. Otherwise, ask one short question for the actual eating time (e.g. "was dat vanochtend, of net?") instead of defaulting to the current time from context, but only when there is a real signal the two might diverge: the meal is described with an earlier-moment word ("ontbijt", "lunch", "vanochtend", "tussen de middag") while the current time is well past that window, or several meals are being logged in one message. Do not ask this on every log — only when one of those signals is present.',
+        },
       },
       required: ['omschrijving', 'eiwitten_g', 'calorieen', 'tijdstip'],
     },
   },
   {
     name: 'nutrition_log_update',
-    description: 'Correct an existing nutrition_log entry — its description, protein estimate, and/or calorie estimate. Use the id from the "vandaag gelogde maaltijden" context list.',
+    description: 'Correct an existing nutrition_log entry — its description, protein estimate, calorie estimate, and/or eating time. Use the id from the "vandaag gelogde maaltijden" context list.',
     input_schema: {
       type: 'object',
       properties: {
@@ -52,6 +56,11 @@ export const TOOLS = [
         omschrijving: { type: 'string' },
         eiwitten_g: { type: 'number' },
         calorieen: { type: 'number' },
+        tijdstip: {
+          type: 'string',
+          description:
+            'Corrected eating time, 24h HH:MM, Europe/Amsterdam — only when the user is stating/correcting the time for this specific row (e.g. "dat was eigenlijk om 8 uur"). Apply directly, don\'t ask for confirmation of a time they just gave. Never volunteer a time correction unprompted for a row the user hasn\'t questioned.',
+        },
       },
       required: ['id'],
     },
@@ -233,6 +242,7 @@ export async function executeTool(
       if (input.omschrijving !== undefined) patch.omschrijving = input.omschrijving
       if (input.eiwitten_g !== undefined) patch.eiwitten_g = input.eiwitten_g
       if (input.calorieen !== undefined) patch.calorieen = input.calorieen
+      if (input.tijdstip !== undefined) patch.tijdstip = input.tijdstip
       const { error } = await supabase.from('nutrition_log').update(patch).eq('id', input.id)
       if (error) return { error: error.message }
       const totals = await computeDayTotals(todayStr)
