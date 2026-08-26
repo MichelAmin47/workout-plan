@@ -20,6 +20,8 @@
 // hold — it no longer means "don't call," it means "write a plain opening
 // instead of manufacturing a hook."
 
+import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
+import { createClient } from 'npm:@supabase/supabase-js@2'
 import {
   amsterdamNow,
   currentCalWeek,
@@ -31,6 +33,13 @@ import {
 } from '../_shared/today.ts'
 import { callClaude } from '../_shared/anthropic.ts'
 import { supabase } from '../_shared/supabaseClient.ts'
+
+// Diagnostic-only client, separate from the shared `supabase` (anon-key)
+// client above. checkin_diag has RLS enabled with zero policies — only a
+// service-role-authenticated client (BYPASSRLS) can read/write it, by
+// design (see logCheckinDiag below). Kept local to this file rather than
+// added to _shared/supabaseClient.ts, since nothing else needs it.
+const diagServiceClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -123,13 +132,22 @@ function aandachtspuntHasQuestion(text: string | null): boolean {
 // the generic template, doesn't surface a mismatched note), so left as-is
 // rather than adding negation-parsing complexity for a heuristic that's
 // deliberately cheap.
-function aandachtspuntDayTypeMismatch(text: string | null, todayDayType: string | null): boolean {
-  if (!text) return false
+//
+// Returns the specific reason instead of a bare bool (was
+// aandachtspuntDayTypeMismatch) so the checkin-diag log below can report
+// *which* branch fired, not just that the note was dropped — same regexes,
+// same drop conditions, `!== null` at the call site is exactly the old
+// `=== true`.
+function aandachtspuntDropReason(
+  text: string | null,
+  todayDayType: string | null,
+): 'dagtype_mismatch_verwacht_training' | 'dagtype_mismatch_verwacht_rust' | null {
+  if (!text) return null
   const assumesTraining = /\btrain(t|en)?\b|\btraining\b|\bsessie\b|\bworkout\b/i.test(text)
   const assumesRest = /\brustdag\b/i.test(text)
-  if (assumesTraining && todayDayType !== 'training') return true
-  if (assumesRest && todayDayType === 'training') return true
-  return false
+  if (assumesTraining && todayDayType !== 'training') return 'dagtype_mismatch_verwacht_training'
+  if (assumesRest && todayDayType === 'training') return 'dagtype_mismatch_verwacht_rust'
+  return null
 }
 
 // Own short prompt, not the full PERSONA_PROMPT — same reasoning
@@ -175,6 +193,55 @@ Regels:
 ${!hasNotableSignal ? '- Niets bijzonders vandaag: geen training gisteren of vandaag, geen donderdag, geen aandachtspunt met iets te vragen. Schrijf dan een gewone, rustige opening die simpelweg aansluit bij het dag-type van vandaag hierboven, zonder een kunstmatige vraag, haak of trainingsverwijzing te verzinnen die er niet is. vraag_type is in dit geval altijd "geen".\n' : ''}- Motiverende, warme toon, kort en concreet — geen algemeenheid die net zo goed op elke willekeurige dag zou passen.
 - vraag_type: "geen" als de boodschap een statement of constatering is, zonder iets te vragen. Stelt de boodschap wél een vraag, kies dan tussen "stemming" (een vraag over hoe iemand zich voelt of geslapen heeft — iets waar een algemeen gevoel een passend antwoord op is) en "anders" (elke andere vraag, bijvoorbeeld naar een tijdstip, een keuze, of iets specifieks dat niets met stemming te maken heeft).
 - Gebruik het render_checkin_card tool om dit vast te leggen.`
+}
+
+interface CheckinDiagPayload {
+  v: 1
+  ts_utc: string
+  datum_lokaal: string
+  vandaag: { type: string | null; naam: string | null }
+  gisteren: { datum: string; type: string | null; naam: string | null }
+  cond: {
+    gisterenGetraind: boolean
+    vandaagTrainingsdag: boolean
+    vandaagPowerHour: boolean
+    aandachtspuntGeeftSignaal: boolean
+  }
+  hasNotableSignal: boolean
+  aandachtspunt: {
+    ruwAanwezig: boolean
+    effectiefAanwezig: boolean
+    gedroptReden: 'dagtype_mismatch_verwacht_training' | 'dagtype_mismatch_verwacht_rust' | null
+  }
+  vraag_type: string | null
+  modelOk: boolean
+}
+
+// Diagnostic-only: distinguishes "the model returned vraag_type: 'geen'"
+// from "the model returned a question that failed to render" — currently
+// indistinguishable from the client's perspective. console.log line is the
+// same-day debugging copy; the checkin_diag row (diagServiceClient, RLS
+// locked to service-role) is the durable copy, since this project's log
+// retention (Free plan, 1 day) can't support the open-ended observation
+// window this feeds. Two independent failure boundaries rather than one
+// shared try/catch, so an insert failure can never suppress the console
+// line or vice versa. The insert is not awaited — EdgeRuntime.waitUntil is
+// Supabase's documented mechanism for background work that must not add
+// latency to the response but must still reliably complete.
+function logCheckinDiag(payload: CheckinDiagPayload) {
+  try {
+    console.log('[checkin-diag] ' + JSON.stringify(payload))
+  } catch (err) {
+    console.error('checkin-diag console logging failed', err)
+  }
+  const insert = diagServiceClient
+    .from('checkin_diag')
+    .insert({ datum: payload.datum_lokaal, ts_utc: payload.ts_utc, payload })
+    .then(({ error }) => {
+      if (error) console.error('checkin-diag insert failed', error)
+    })
+    .catch((err) => console.error('checkin-diag insert threw', err))
+  EdgeRuntime.waitUntil(insert)
 }
 
 Deno.serve(async (req: Request) => {
@@ -228,13 +295,38 @@ Deno.serve(async (req: Request) => {
 
     // A carried-over note that assumes a day type today doesn't actually
     // have gets dropped entirely rather than surfaced or reworded — see
-    // aandachtspuntDayTypeMismatch's comment. buildSystemPrompt's existing
+    // aandachtspuntDropReason's comment. buildSystemPrompt's existing
     // "geen aandachtspunt beschikbaar" branch is the fallback, unchanged.
-    const effectiveAandachtspunt = aandachtspuntDayTypeMismatch(aandachtspunt, todayInfo.dayType) ? null : aandachtspunt
+    const dropReason = aandachtspuntDropReason(aandachtspunt, todayInfo.dayType)
+    const effectiveAandachtspunt = dropReason ? null : aandachtspunt
+
+    // checkin-diag: computed once here from data this handler already has,
+    // deliberately duplicating (not reusing) buildSystemPrompt's identical
+    // internal booleans — same precedent as aandachtspuntHasQuestion/
+    // currentCalWeek elsewhere in this codebase, so buildSystemPrompt's own
+    // signature and behavior stay completely untouched by this diagnostic.
+    const gisterenGetraind = yesterdayInfo.dayType === 'training'
+    const vandaagTrainingsdag = todayInfo.dayType === 'training'
+    const vandaagPowerHour = isThursday
+    const aandachtspuntGeeftSignaal = aandachtspuntHasQuestion(effectiveAandachtspunt)
+    const diagBasePayload = {
+      v: 1,
+      datum_lokaal: isoDateString(activeDate),
+      vandaag: { type: todayInfo.dayType, naam: todayInfo.naam },
+      gisteren: { datum: yesterdayDateStr, type: yesterdayInfo.dayType, naam: yesterdayInfo.naam },
+      cond: { gisterenGetraind, vandaagTrainingsdag, vandaagPowerHour, aandachtspuntGeeftSignaal },
+      hasNotableSignal: gisterenGetraind || vandaagTrainingsdag || vandaagPowerHour || aandachtspuntGeeftSignaal,
+      aandachtspunt: {
+        ruwAanwezig: Boolean(aandachtspunt),
+        effectiefAanwezig: Boolean(effectiveAandachtspunt),
+        gedroptReden: dropReason,
+      },
+    }
 
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
     if (!apiKey) {
       console.error('ANTHROPIC_API_KEY secret is not set')
+      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: null, modelOk: false })
       return jsonResponse({ card: null })
     }
 
@@ -249,11 +341,13 @@ Deno.serve(async (req: Request) => {
 
     if (!result.ok) {
       console.error('morning-checkin: Claude call failed', result.status, result.errorText)
+      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: null, modelOk: false })
       return jsonResponse({ card: null })
     }
 
     const toolUse = result.data?.content.find((b) => b.type === 'tool_use')
     if (!toolUse || !toolUse.input) {
+      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: null, modelOk: false })
       return jsonResponse({ card: null })
     }
 
@@ -264,6 +358,7 @@ Deno.serve(async (req: Request) => {
       vraag_type?: 'geen' | 'stemming' | 'anders'
     }
     if (!boodschap || !context_label || !context_tekst || !vraag_type || !['geen', 'stemming', 'anders'].includes(vraag_type)) {
+      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: vraag_type ?? null, modelOk: false })
       return jsonResponse({ card: null })
     }
 
@@ -272,6 +367,8 @@ Deno.serve(async (req: Request) => {
     // asking for a time) — free text only; 'none' is a plain statement.
     // See Coach.jsx's showQuickReplies for the one place this is consumed.
     const questionType = vraag_type === 'stemming' ? 'mood' : vraag_type === 'anders' ? 'other' : 'none'
+
+    logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type, modelOk: true })
 
     return jsonResponse({
       card: { eyebrow: 'Ochtend check-in', question: boodschap, contextLabel: context_label, contextText: context_tekst, questionType },
