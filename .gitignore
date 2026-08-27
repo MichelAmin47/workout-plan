@@ -31,3 +31,7 @@ preview-app/
 
 # Capacitor
 android/
+
+# Point-in-time snapshots for supabase/scripts/verify-edge-function-bundles.ts —
+# working input, not something to commit or keep in sync.
+supabase/scripts/.live-snapshots/
