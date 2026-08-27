@@ -54,6 +54,15 @@ function jsonResponse(body: unknown, status = 200) {
   })
 }
 
+// Longest existing fixed mood label ("Niet zo goed") is 12 characters
+// (code-point length); this gives ~1.5-2x headroom for a model-supplied
+// answer option while still guaranteeing a single-line, non-wrapping pill
+// (.quick-reply in Coach.css is white-space: nowrap) at any supported phone
+// width. Referenced from both RENDER_CHECKIN_TOOL's schema description and
+// buildSystemPrompt's prompt text below, so the model-facing number and the
+// validator's enforced number can never drift apart.
+const ANTWOORD_OPTIE_MAX_LENGTH = 20
+
 const RENDER_CHECKIN_TOOL = {
   name: 'render_checkin_card',
   description: 'Render the morning check-in card.',
@@ -68,6 +77,11 @@ const RENDER_CHECKIN_TOOL = {
         enum: ['geen', 'stemming', 'anders'],
         description:
           'Whether boodschap poses a question, and what kind. "geen": a statement, nothing to reply to. "stemming": a mood/wellbeing question the user could answer with a general feeling (e.g. how did you sleep, how are you feeling) — the client shows fixed mood-reply buttons for this case. "anders": any other kind of question (e.g. asking for a specific time, a yes/no unrelated to mood) — mood buttons would not make sense as answers, so the client shows free text input only.',
+      },
+      antwoord_opties: {
+        type: 'array',
+        items: { type: 'string' },
+        description: `Alleen invullen als vraag_type "anders" is en de vraag 2 of 3 natuurlijke, korte antwoorden heeft waarmee de gebruiker met één tik kan reageren (bijv. een keuze tussen twee tijdstippen, of een simpele ja/nee-variant). Elk label max ${ANTWOORD_OPTIE_MAX_LENGTH} tekens. Heeft de vraag geen natuurlijke korte antwoorden, laat dit veld dan gewoon weg — de gebruiker typt dan vrij.`,
       },
     },
     required: ['boodschap', 'context_label', 'context_tekst', 'vraag_type'],
@@ -150,6 +164,74 @@ function aandachtspuntDropReason(
   return null
 }
 
+export type AntwoordOptieAfkeurReden =
+  | 'geen_array'
+  | 'te_weinig_opties'
+  | 'te_veel_opties'
+  | 'leeg_label'
+  | 'label_te_lang'
+  | 'duplicaat_label'
+  | null
+
+export interface AntwoordOptiesResultaat {
+  opties: string[] | null
+  aangeboden: number // 0 when absent, empty array, or not an array
+  validatie: 'nvt' | 'geaccepteerd' | 'afgekeurd'
+  afkeurReden: AntwoordOptieAfkeurReden
+}
+
+// Validates the model's optional antwoord_opties field (see
+// RENDER_CHECKIN_TOOL's schema above) — only ever called when vraag_type ===
+// 'anders' (see the Deno.serve handler below); 'stemming'/'geen' never touch
+// this, by design. Fails closed: any check failing drops the whole field
+// (opties: null), never a partial/truncated list — a malformed set must
+// degrade to today's no-pills behavior, not a repaired or truncated row.
+//
+// Absent/empty ('nvt') and "the model supplied something but it didn't pass"
+// ('afgekeurd') are deliberately different validatie values even though both
+// end in "no pills" — that distinction is the whole point of recording this
+// in checkin_diag: otherwise "the model supplied nothing" and "validation
+// rejected what it supplied" are indistinguishable after the fact.
+export function validateAntwoordOpties(raw: unknown): AntwoordOptiesResultaat {
+  if (raw == null) return { opties: null, aangeboden: 0, validatie: 'nvt', afkeurReden: null }
+  if (!Array.isArray(raw)) return { opties: null, aangeboden: 0, validatie: 'afgekeurd', afkeurReden: 'geen_array' }
+  if (raw.length === 0) return { opties: null, aangeboden: 0, validatie: 'nvt', afkeurReden: null }
+
+  const aangeboden = raw.length
+  if (!raw.every((item): item is string => typeof item === 'string')) {
+    return { opties: null, aangeboden, validatie: 'afgekeurd', afkeurReden: 'geen_array' }
+  }
+  if (aangeboden < 2) return { opties: null, aangeboden, validatie: 'afgekeurd', afkeurReden: 'te_weinig_opties' }
+  if (aangeboden > 3) return { opties: null, aangeboden, validatie: 'afgekeurd', afkeurReden: 'te_veel_opties' }
+
+  // Trim before every check below, and store the trimmed values rather than
+  // raw — otherwise " Ja " passes the empty check and is stored with its
+  // padding, and worse, "Ja" vs "Ja " pass the duplicate check (distinct by
+  // Set identity) while rendering as two pills the user can't tell apart.
+  // Trimming is the only normalization applied — still fails closed, no
+  // other repair.
+  const trimmed = raw.map((label) => label.trim())
+  if (trimmed.some((label) => label.length === 0)) {
+    return { opties: null, aangeboden, validatie: 'afgekeurd', afkeurReden: 'leeg_label' }
+  }
+  if (trimmed.some((label) => [...label].length > ANTWOORD_OPTIE_MAX_LENGTH)) {
+    return { opties: null, aangeboden, validatie: 'afgekeurd', afkeurReden: 'label_te_lang' }
+  }
+  if (new Set(trimmed).size !== aangeboden) {
+    return { opties: null, aangeboden, validatie: 'afgekeurd', afkeurReden: 'duplicaat_label' }
+  }
+  return { opties: trimmed, aangeboden, validatie: 'geaccepteerd', afkeurReden: null }
+}
+
+// Counts what the model supplied without validating it — used on paths
+// where antwoord_opties is known to be irrelevant (vraag_type isn't
+// 'anders') or the response is otherwise malformed, so the diagnostic can
+// still record "the model supplied N options here" instead of collapsing
+// that fact into a hardcoded 0. No validation, no behavior change.
+function ongevalideerdeAantal(raw: unknown): number {
+  return Array.isArray(raw) ? raw.length : 0
+}
+
 // Own short prompt, not the full PERSONA_PROMPT — same reasoning
 // _shared/summary.ts already uses its own narrower prompts for the
 // day-summary rather than the persona block. This task is much smaller
@@ -192,11 +274,12 @@ Regels:
 - De boodschap en de context-regel mogen elkaar nooit tegenspreken over welke dag iets was.
 ${!hasNotableSignal ? '- Niets bijzonders vandaag: geen training gisteren of vandaag, geen donderdag, geen aandachtspunt met iets te vragen. Schrijf dan een gewone, rustige opening die simpelweg aansluit bij het dag-type van vandaag hierboven, zonder een kunstmatige vraag, haak of trainingsverwijzing te verzinnen die er niet is. vraag_type is in dit geval altijd "geen".\n' : ''}- Motiverende, warme toon, kort en concreet — geen algemeenheid die net zo goed op elke willekeurige dag zou passen.
 - vraag_type: "geen" als de boodschap een statement of constatering is, zonder iets te vragen. Stelt de boodschap wél een vraag, kies dan tussen "stemming" (een vraag over hoe iemand zich voelt of geslapen heeft — iets waar een algemeen gevoel een passend antwoord op is) en "anders" (elke andere vraag, bijvoorbeeld naar een tijdstip, een keuze, of iets specifieks dat niets met stemming te maken heeft).
+- Als vraag_type "anders" is en de vraag 2 of 3 natuurlijke, korte antwoorden heeft waarmee de gebruiker met één tik kan reageren, geef die dan mee in antwoord_opties (2 of 3 korte labels, elk max ${ANTWOORD_OPTIE_MAX_LENGTH} tekens). Heeft de vraag geen natuurlijke korte antwoorden, of twijfel je, laat antwoord_opties dan gewoon weg — vrij typen is een prima uitkomst. Verzin geen opties die de vraag versimpelen of een keuze suggereren die er niet is.
 - Gebruik het render_checkin_card tool om dit vast te leggen.`
 }
 
 interface CheckinDiagPayload {
-  v: 1
+  v: 2
   ts_utc: string
   datum_lokaal: string
   vandaag: { type: string | null; naam: string | null }
@@ -214,6 +297,11 @@ interface CheckinDiagPayload {
     gedroptReden: 'dagtype_mismatch_verwacht_training' | 'dagtype_mismatch_verwacht_rust' | null
   }
   vraag_type: string | null
+  antwoordOpties: {
+    aangeboden: number
+    validatie: 'nvt' | 'geaccepteerd' | 'afgekeurd'
+    afkeurReden: AntwoordOptieAfkeurReden
+  }
   modelOk: boolean
 }
 
@@ -310,7 +398,7 @@ Deno.serve(async (req: Request) => {
     const vandaagPowerHour = isThursday
     const aandachtspuntGeeftSignaal = aandachtspuntHasQuestion(effectiveAandachtspunt)
     const diagBasePayload = {
-      v: 1,
+      v: 2,
       datum_lokaal: isoDateString(activeDate),
       vandaag: { type: todayInfo.dayType, naam: todayInfo.naam },
       gisteren: { datum: yesterdayDateStr, type: yesterdayInfo.dayType, naam: yesterdayInfo.naam },
@@ -323,10 +411,15 @@ Deno.serve(async (req: Request) => {
       },
     }
 
+    // No model output exists yet at any of these three early exits, so
+    // there is genuinely nothing to count — 0 here isn't a hardcoded
+    // shortcut, it's simply true.
+    const NO_ANTWOORD_OPTIES = { aangeboden: 0, validatie: 'nvt' as const, afkeurReden: null }
+
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
     if (!apiKey) {
       console.error('ANTHROPIC_API_KEY secret is not set')
-      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: null, modelOk: false })
+      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: null, antwoordOpties: NO_ANTWOORD_OPTIES, modelOk: false })
       return jsonResponse({ card: null })
     }
 
@@ -341,24 +434,31 @@ Deno.serve(async (req: Request) => {
 
     if (!result.ok) {
       console.error('morning-checkin: Claude call failed', result.status, result.errorText)
-      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: null, modelOk: false })
+      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: null, antwoordOpties: NO_ANTWOORD_OPTIES, modelOk: false })
       return jsonResponse({ card: null })
     }
 
     const toolUse = result.data?.content.find((b) => b.type === 'tool_use')
     if (!toolUse || !toolUse.input) {
-      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: null, modelOk: false })
+      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: null, antwoordOpties: NO_ANTWOORD_OPTIES, modelOk: false })
       return jsonResponse({ card: null })
     }
 
-    const { boodschap, context_label, context_tekst, vraag_type } = toolUse.input as {
+    const { boodschap, context_label, context_tekst, vraag_type, antwoord_opties } = toolUse.input as {
       boodschap?: string
       context_label?: string
       context_tekst?: string
       vraag_type?: 'geen' | 'stemming' | 'anders'
+      antwoord_opties?: unknown
     }
     if (!boodschap || !context_label || !context_tekst || !vraag_type || !['geen', 'stemming', 'anders'].includes(vraag_type)) {
-      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: vraag_type ?? null, modelOk: false })
+      logCheckinDiag({
+        ...diagBasePayload,
+        ts_utc: new Date().toISOString(),
+        vraag_type: vraag_type ?? null,
+        antwoordOpties: { aangeboden: ongevalideerdeAantal(antwoord_opties), validatie: 'nvt', afkeurReden: null },
+        modelOk: false,
+      })
       return jsonResponse({ card: null })
     }
 
@@ -368,10 +468,38 @@ Deno.serve(async (req: Request) => {
     // See Coach.jsx's showQuickReplies for the one place this is consumed.
     const questionType = vraag_type === 'stemming' ? 'mood' : vraag_type === 'anders' ? 'other' : 'none'
 
-    logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type, modelOk: true })
+    // antwoord_opties is only ever validated for 'anders' — 'stemming'/
+    // 'geen' keep their proven, model-independent behavior untouched. The
+    // model may still have put something in antwoord_opties on those two
+    // (or the field could be malformed in some other way) — that's recorded
+    // via ongevalideerdeAantal (count only, no validation), not silently
+    // discarded as a hardcoded 0.
+    const antwoordOptiesResultaat: AntwoordOptiesResultaat =
+      vraag_type === 'anders'
+        ? validateAntwoordOpties(antwoord_opties)
+        : { opties: null, aangeboden: ongevalideerdeAantal(antwoord_opties), validatie: 'nvt', afkeurReden: null }
+
+    logCheckinDiag({
+      ...diagBasePayload,
+      ts_utc: new Date().toISOString(),
+      vraag_type,
+      antwoordOpties: {
+        aangeboden: antwoordOptiesResultaat.aangeboden,
+        validatie: antwoordOptiesResultaat.validatie,
+        afkeurReden: antwoordOptiesResultaat.afkeurReden,
+      },
+      modelOk: true,
+    })
 
     return jsonResponse({
-      card: { eyebrow: 'Ochtend check-in', question: boodschap, contextLabel: context_label, contextText: context_tekst, questionType },
+      card: {
+        eyebrow: 'Ochtend check-in',
+        question: boodschap,
+        contextLabel: context_label,
+        contextText: context_tekst,
+        questionType,
+        ...(antwoordOptiesResultaat.validatie === 'geaccepteerd' ? { answerOptions: antwoordOptiesResultaat.opties } : {}),
+      },
     })
   } catch (err) {
     console.error('morning-checkin error', err)

@@ -127,18 +127,28 @@ export default function Coach() {
     messagesRef.current = messages
   }, [messages])
 
-  // Quick replies (fixed mood buttons) only make sense while the most
-  // recent thing in the thread is a check-in card whose question is
-  // specifically a mood/wellbeing one — `questionType` comes from the
+  // Quick replies only make sense while the most recent thing in the thread
+  // is a check-in card with a question — `questionType` comes from the
   // model itself (morning-checkin's vraag_type: 'geen'/'stemming'/
   // 'anders'), since a checkin-card can be a plain statement ("Vandaag
-  // staan de schouders op het programma...") with nothing to reply to, or
-  // a non-mood question (e.g. "hoe laat train je vandaag?") where mood
-  // buttons wouldn't make sense as answers. Keying off message type alone
-  // would show mood pills for a question that was never asked, or for the
-  // wrong kind of question.
+  // staan de schouders op het programma...") with nothing to reply to.
+  // 'mood' always gets the fixed, proven labels (quickReplyOptions) —
+  // unchanged, never model-dependent, since those work and are stable.
+  // 'other' (vraag_type: 'anders') gets model-supplied labels only when
+  // morning-checkin validated them (lastMessage.answerOptions is simply
+  // absent otherwise, whether the model offered nothing or offered
+  // something invalid) — falls through to null exactly like today's plain
+  // open-question case either way. 'none' never shows pills.
   const lastMessage = messages[messages.length - 1]
-  const showQuickReplies = !isTyping && lastMessage?.type === 'checkin-card' && lastMessage?.questionType === 'mood'
+  const isCheckinCard = lastMessage?.type === 'checkin-card'
+  const quickReplyLabels = !isCheckinCard
+    ? null
+    : lastMessage.questionType === 'mood'
+      ? quickReplyOptions
+      : lastMessage.questionType === 'other' && lastMessage.answerOptions?.length
+        ? lastMessage.answerOptions
+        : null
+  const showQuickReplies = !isTyping && quickReplyLabels !== null
 
   useEffect(() => {
     const el = scrollRef.current
@@ -469,7 +479,7 @@ export default function Coach() {
 
       {showQuickReplies && (
         <div className="quick-replies">
-          {quickReplyOptions.map((option) => (
+          {quickReplyLabels.map((option) => (
             <button key={option} type="button" className="quick-reply" onClick={() => handleQuickReply(option)}>
               {option}
             </button>
