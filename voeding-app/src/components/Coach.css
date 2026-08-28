@@ -63,6 +63,61 @@
   display: inline-block;
 }
 
+/* Nutrition counters — pushed to the far right by margin-left: auto,
+   entirely independent of the identity block's own (unconditional, never
+   shrunk) width, so "Jouw voedingscoach" never wraps or truncates. */
+.coach-counters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+/* Fixed width, sized to the widest calorie state ("1985 kcal"), so the eye
+   button never shifts when the placeholder's own much shorter text swaps
+   in — the width lives here, on the invisible container, not as padding
+   on the placeholder itself (which stays its own small natural size).
+   justify-content: flex-end keeps both numbers right-aligned against the
+   eye button regardless of which calorie state is showing. */
+.counter-values {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 84px;
+  justify-content: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+.counter-protein {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+.counter-protein.at-target {
+  color: var(--protein-target-green);
+}
+.counter-calories {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.eye-toggle {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  appearance: none;
+}
+
 /* ── Day marker ── */
 .day-marker {
   text-align: center;

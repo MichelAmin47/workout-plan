@@ -67,5 +67,11 @@ export async function askCoach(messages) {
     daySummaryWritten: Boolean(data.daySummaryWritten),
     activeDate: data.activeDate,
     mealCard: data.mealCard ?? null,
+    // { eiwitTotaal, calorieTotaal } from the most recent nutrition_log
+    // write this turn, or null if none happened — see coach-chat/index.ts's
+    // lastNutritionTotals. The Coach header's counters update from this
+    // directly rather than re-querying, so they can never drift from what
+    // the coach itself just computed and (if asked) reported.
+    dayTotals: data.dayTotals ?? null,
   }
 }

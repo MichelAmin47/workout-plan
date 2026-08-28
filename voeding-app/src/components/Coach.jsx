@@ -9,6 +9,7 @@ import SummaryCard from './SummaryCard.jsx'
 import { UserBubble, CoachBubble } from './ChatBubble.jsx'
 import TypingIndicator from './TypingIndicator.jsx'
 import SendIcon from './SendIcon.jsx'
+import EyeIcon from './EyeIcon.jsx'
 import { buildOpeningMessages, quickReplyOptions, makeMessageId } from '../data/seedMessages.js'
 import { askCoach } from '../lib/chatApi.js'
 import { supabase } from '../supabase.js'
@@ -106,6 +107,19 @@ export default function Coach() {
   // ever set inside the daySummaryWritten branch below, so a normal mid-day
   // open or a failed close never touches it.
   const [justClosedSummary, setJustClosedSummary] = useState(null)
+  // Header nutrition counters. Plain component state, never read from or
+  // written to localStorage — a fresh mount always starts with
+  // caloriesRevealed: false regardless of how a previous session left it,
+  // which is the point (see Coach header spec: the reveal must be a
+  // deliberate act each time, not a standing preference). eiwitTotaal/
+  // eiwitDoel/calorieTotaal start null so the protein counter renders in
+  // the normal (non-green) colour until a real value arrives — including
+  // during the brief pre-fetch window and on a failed fetch, by
+  // construction, not as a special case (see the render below).
+  const [eiwitTotaal, setEiwitTotaal] = useState(null)
+  const [eiwitDoel, setEiwitDoel] = useState(null)
+  const [calorieTotaal, setCalorieTotaal] = useState(null)
+  const [caloriesRevealed, setCaloriesRevealed] = useState(false)
   // Bumped by the notification tap listener; consumed by the join-effect
   // below once thread restoration has also finished. Two independent async
   // signals (tap event, thread restore) that can arrive in either order —
@@ -156,6 +170,29 @@ export default function Coach() {
       el.scrollTop = el.scrollHeight
     }
   }, [messages, isTyping])
+
+  // Header counters' initial value for whatever date the thread ends up on
+  // — deliberately decoupled from restoreThread's own fresh/rollover/
+  // invalidated/resume branching below rather than threaded through each
+  // one: this runs uniformly on every path that sets threadDate, including
+  // plain resume (which today never calls fetchProteinProgress at all).
+  // Costs one duplicate fetchProteinProgress call on the other three
+  // paths (they already call it for the opening greeting's copy) — same
+  // function, same query, accepted in exchange for not touching that
+  // branching logic for this.
+  useEffect(() => {
+    if (!threadDate) return
+    let cancelled = false
+    fetchProteinProgress(threadDate).then((result) => {
+      if (cancelled || !result.ok) return
+      setEiwitTotaal(result.eiwitTotaal)
+      setEiwitDoel(result.eiwitDoel)
+      setCalorieTotaal(result.calorieTotaal)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [threadDate])
 
   // On mount: resume a stored thread unless a summary appeared for its date
   // *after* the thread was stamped fresh (the cron fallback closed it out
@@ -359,6 +396,15 @@ export default function Coach() {
       daySummaryWritten = result.daySummaryWritten
       closedActiveDate = result.activeDate
       mealCard = result.mealCard
+      // Rides directly on the value coach-chat already computed for this
+      // turn's nutrition write (see chatApi.js) — null when no write
+      // happened, in which case the counters are simply left as they were.
+      // Never a fresh query here: that would reintroduce the second
+      // source of truth this is specifically meant to avoid.
+      if (result.dayTotals) {
+        setEiwitTotaal(result.dayTotals.eiwitTotaal)
+        setCalorieTotaal(result.dayTotals.calorieTotaal)
+      }
     } catch (err) {
       console.error('coach-chat call failed', err)
       replyText = FALLBACK_ERROR_TEXT
@@ -427,9 +473,27 @@ export default function Coach() {
       <div className="coach-header">
         <div className="coach-identity">
           <div className="coach-avatar">🌿</div>
-          <div>
+          <div className="coach-identity-text">
             <div className="coach-name">Coach</div>
             <div className="coach-status">Jouw voedingscoach</div>
+          </div>
+          <div className="coach-counters">
+            <div className="counter-values">
+              <span className={`counter-protein${eiwitTotaal !== null && eiwitDoel !== null && eiwitTotaal >= Number(eiwitDoel) ? ' at-target' : ''}`}>
+                {Math.round(eiwitTotaal ?? 0)}g
+              </span>
+              <span className="counter-calories">
+                {caloriesRevealed && calorieTotaal !== null ? `${Math.round(calorieTotaal)} kcal` : '•••'}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="eye-toggle"
+              onClick={() => setCaloriesRevealed((r) => !r)}
+              aria-label={caloriesRevealed ? 'Verberg calorieën' : 'Toon calorieën'}
+            >
+              <EyeIcon open={caloriesRevealed} />
+            </button>
           </div>
         </div>
       </div>

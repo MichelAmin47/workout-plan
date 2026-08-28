@@ -22,23 +22,39 @@ async function fetchProteinGoal(date) {
   return data && data.length > 0 ? (data[0].eiwit_doel_g ?? DEFAULT_EIWIT_DOEL_G) : DEFAULT_EIWIT_DOEL_G
 }
 
+// Same shape as fetchProteinTotal — added for the Coach header's calorie
+// counter, which (unlike the protein counter) has no separate goal to
+// resolve, just today's running total.
+async function fetchCalorieTotal(date) {
+  const { data, error } = await supabase.from('nutrition_log').select('calorieen').eq('datum', date)
+  if (error) throw error
+  return (data ?? []).reduce((sum, m) => sum + (Number(m.calorieen) || 0), 0)
+}
+
 // Best-effort protein progress for the opening message — a greeting is not
 // worth a spinner or an error state, so any failure or slowness (3s budget)
 // just falls back to { ok: false }, letting the caller use the generic
 // opening instead. yesterdayDate is optional — only passed for a rollover
 // transition, where "yesterday you got to Xg" is worth the extra query;
 // a normal same-day reopen doesn't need it.
+//
+// Also carries calorieTotaal (block: Coach header counters) — the greeting
+// text itself never used calories, but this is the same "today's nutrition
+// numbers, one query, best-effort" batch the header's initial load reuses
+// rather than issuing a second, parallel fetch. Existing callers (the
+// greeting-text logic) simply ignore the new field.
 export async function fetchProteinProgress(date, yesterdayDate) {
   try {
-    const [eiwitTotaal, eiwitDoel, yesterdayTotaal] = await withTimeout(
+    const [eiwitTotaal, eiwitDoel, calorieTotaal, yesterdayTotaal] = await withTimeout(
       Promise.all([
         fetchProteinTotal(date),
         fetchProteinGoal(date),
+        fetchCalorieTotal(date),
         yesterdayDate ? fetchProteinTotal(yesterdayDate) : Promise.resolve(null),
       ]),
       QUERY_TIMEOUT_MS,
     )
-    return { ok: true, eiwitTotaal, eiwitDoel, yesterdayTotaal }
+    return { ok: true, eiwitTotaal, eiwitDoel, calorieTotaal, yesterdayTotaal }
   } catch (err) {
     console.error('fetchProteinProgress failed, falling back to generic opening', err)
     return { ok: false }

@@ -272,7 +272,17 @@ Deno.serve(async (req: Request) => {
     // sync, but for the one flow where disagreement would actually misfile
     // data (fetching what was just closed), the client uses this value
     // directly instead of trusting that agreement.
-    return jsonResponse({ reply: finalReplyText, daySummaryWritten, activeDate: todayStr, mealCard })
+    //
+    // dayTotals: lastNutritionTotals was already computed (computeDayTotals,
+    // a real post-write SUM) for this function's own no-op-retry check above
+    // — it was just never sent anywhere. The Coach header's nutrition
+    // counters need exactly this value after a mid-conversation log, and
+    // the alternative (the client re-querying nutrition_log itself) would
+    // reintroduce a second source of truth for the same number this
+    // function already computed. Purely additive: null when no nutrition
+    // write happened this turn, no change to any other field, no prompt
+    // change.
+    return jsonResponse({ reply: finalReplyText, daySummaryWritten, activeDate: todayStr, mealCard, dayTotals: lastNutritionTotals })
   } catch (err) {
     console.error('coach-chat error', err)
     return jsonResponse({ error: 'Er ging iets mis.' }, 500)
