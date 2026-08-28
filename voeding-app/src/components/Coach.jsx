@@ -478,14 +478,6 @@ export default function Coach() {
             <div className="coach-status">Jouw voedingscoach</div>
           </div>
           <div className="coach-counters">
-            <div className="counter-values">
-              <span className={`counter-protein${eiwitTotaal !== null && eiwitDoel !== null && eiwitTotaal >= Number(eiwitDoel) ? ' at-target' : ''}`}>
-                {Math.round(eiwitTotaal ?? 0)}g
-              </span>
-              <span className="counter-calories">
-                {caloriesRevealed && calorieTotaal !== null ? `${Math.round(calorieTotaal)} kcal` : '•••'}
-              </span>
-            </div>
             <button
               type="button"
               className="eye-toggle"
@@ -494,6 +486,14 @@ export default function Coach() {
             >
               <EyeIcon open={caloriesRevealed} />
             </button>
+            <div className="counter-values">
+              <span className="counter-calories">
+                {caloriesRevealed && calorieTotaal !== null ? `${Math.round(calorieTotaal)} kcal` : '•••'}
+              </span>
+              <span className={`counter-protein${eiwitTotaal !== null && eiwitDoel !== null && eiwitTotaal >= Number(eiwitDoel) ? ' at-target' : ''}`}>
+                {Math.round(eiwitTotaal ?? 0)}g
+              </span>
+            </div>
           </div>
         </div>
       </div>

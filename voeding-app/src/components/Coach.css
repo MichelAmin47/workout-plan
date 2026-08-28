@@ -65,7 +65,10 @@
 
 /* Nutrition counters — pushed to the far right by margin-left: auto,
    entirely independent of the identity block's own (unconditional, never
-   shrunk) width, so "Jouw voedingscoach" never wraps or truncates. */
+   shrunk) width, so "Jouw voedingscoach" never wraps or truncates. Order
+   in the DOM (see Coach.jsx) is eye button, then the calorie/protein
+   values — the eye sits closest to the identity block, numbers hug the
+   screen's outer edge. */
 .coach-counters {
   display: flex;
   align-items: center;
@@ -73,17 +76,32 @@
   margin-left: auto;
   flex-shrink: 0;
 }
-/* Fixed width, sized to the widest calorie state ("1985 kcal"), so the eye
-   button never shifts when the placeholder's own much shorter text swaps
-   in — the width lives here, on the invisible container, not as padding
-   on the placeholder itself (which stays its own small natural size).
-   justify-content: flex-end keeps both numbers right-aligned against the
-   eye button regardless of which calorie state is showing. */
+/* Fixed width, sized to the widest calorie state ("1985 kcal") with some
+   headroom, so the eye button never shifts when the placeholder's own much
+   shorter text swaps in — the width lives here, on the invisible
+   container, not as padding on the placeholder itself (which stays its own
+   small natural size). justify-content: flex-end keeps both numbers
+   right-aligned against the screen's edge regardless of which calorie
+   state is showing.
+   min-width: 0 + overflow: hidden are load-bearing, not decorative: a flex
+   item's default min-width is "auto", which resolves to its content's own
+   minimum size — meaning without this, the box would silently grow past
+   its explicit width whenever "635 kcal" needs more room than the
+   placeholder did, consuming .coach-counters' margin-left: auto space and
+   shifting the whole group left. That's the exact jump this was meant to
+   prevent in the first place; min-width: 0 makes the width genuinely fixed
+   regardless of content or font-rendering differences across devices,
+   with overflow: hidden as a safety net (clip, don't spill) if a value is
+   ever wider than the box allows for. flex-shrink: 0 for the same
+   reason in the other direction — never squeezed smaller either. */
 .counter-values {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  width: 84px;
+  width: 92px;
+  min-width: 0;
+  flex-shrink: 0;
+  overflow: hidden;
   justify-content: flex-end;
   font-variant-numeric: tabular-nums;
 }
