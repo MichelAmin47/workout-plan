@@ -8,6 +8,7 @@ import {
   resolveTodayWorkout,
   resolveWeekPlan,
   resolveYesterdayIfOutsideWeek,
+  sortMealsByActiveDayOrder,
   type WeekDayInfo,
 } from '../_shared/today.ts'
 
@@ -131,7 +132,11 @@ Laat de kaart het voorstel dragen: geen tekst vooraf die het al beschrijft, alle
 const DAY_TYPE_LABELS: Record<string, string> = {
   training: 'Trainingsdag',
   rust: 'Rustdag',
-  cardio_fitness: 'Cardio/fitness',
+  // Transitional — 'cardio_fitness' is the pre-rename value, kept here only
+  // until the DB migration (rename plan §3) is confirmed done, then removed.
+  cardio_fitness: 'Power Hour',
+  power_hour: 'Power Hour',
+  boksen: 'Boksen',
 }
 
 function formatWeekPlan(days: WeekDayInfo[]): string {
@@ -323,7 +328,7 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
           .join('\n')
       : 'Nog geen eerdere dagafsluitingen beschikbaar.'
 
-  const meals = mealsRes.data ?? []
+  const meals = sortMealsByActiveDayOrder(mealsRes.data ?? [])
   const eiwitTotaal = meals.reduce((sum, m) => sum + (Number(m.eiwitten_g) || 0), 0)
   const calorieTotaal = meals.reduce((sum, m) => sum + (Number(m.calorieen) || 0), 0)
   const mealsText =

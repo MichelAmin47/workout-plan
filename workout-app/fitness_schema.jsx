@@ -168,10 +168,22 @@ const KB_EXERCISES = [
   "KB Thruster", "KB Turkish Get-Up", "KB Windmill", "KB Wood Chop",
 ];
 
-// Bumped from v2: v2's cached JSON was built before exercises.weight_hint
-// existed, so it would keep serving weight hints as missing indefinitely
-// without this. See the mount effect below for the matching v2 cleanup.
-const SCHEMA_CACHE_KEY = "cached_schema_v3";
+// Bumped from v3: v3's cached JSON still carries the old "Cardio Fitness"
+// naam/emoji/type from before the Power Hour rename + Boksen addition. See
+// the mount effect below for the matching v3 cleanup (mirrors the existing
+// v2 cleanup there).
+const SCHEMA_CACHE_KEY = "cached_schema_v4";
+
+// Fallback naam/emoji for a "special activity" day (Power Hour, Boksen) when
+// an override doesn't supply its own — mirrors the isTraining/isRust
+// fallback branches below. The legacy 'cardio_fitness' value (still
+// possible in the DB until the migration in the rename plan lands) maps to
+// the same identity as 'power_hour', since it *is* Power Hour under its old
+// name — transitional, remove once the DB migration is confirmed done.
+function specialActivityDefaults(type) {
+  if (type === "boksen") return { naam: "Boksen", emoji: "🥊" };
+  return { naam: "Power Hour", emoji: "🕐" };
+}
 
 function buildWeeks(schemas, schemaDays, exercises, weekOverrides = []) {
   const allWeeks = [];
@@ -192,7 +204,10 @@ function buildWeeks(schemas, schemaDays, exercises, weekOverrides = []) {
         const ov = overrideMap[`${calWeek}__${sd.dag_volgorde}`];
         const effectiveType = ov?.dag_van_week || sd.type || "training";
         const isTraining = effectiveType === "training";
-        const isCardio = effectiveType === "cardio_fitness";
+        // 'cardio_fitness' recognized here transitionally alongside the new
+        // values, until the DB migration in the rename plan is confirmed
+        // done — see §3 of that plan for removal.
+        const isSpecialActivity = effectiveType === "power_hour" || effectiveType === "boksen" || effectiveType === "cardio_fitness";
         // For training overrides with a naam, source exercises/colours from the matching schema_day
         const sourceSd = (ov && isTraining && ov.naam)
           ? (schDays.find(d => d.spiergroep_naam === ov.naam && d.type === "training") || sd)
@@ -203,8 +218,8 @@ function buildWeeks(schemas, schemaDays, exercises, weekOverrides = []) {
           type: effectiveType,
           dag_label: sd.dag_label,
           dag_volgorde: sd.dag_volgorde,
-          emoji: ov ? (ov.emoji || (isCardio ? "🥊" : isTraining ? (sourceSd.type === "training" ? sourceSd.emoji : "🏋️") : "🏖️")) : sd.emoji,
-          naam: ov ? (ov.naam || (isCardio ? "Cardio Fitness" : isTraining ? (sourceSd.type === "training" ? sourceSd.spiergroep_naam : "Training") : "Vrije dag")) : sd.spiergroep_naam,
+          emoji: ov ? (ov.emoji || (isSpecialActivity ? specialActivityDefaults(effectiveType).emoji : isTraining ? (sourceSd.type === "training" ? sourceSd.emoji : "🏋️") : "🏖️")) : sd.emoji,
+          naam: ov ? (ov.naam || (isSpecialActivity ? specialActivityDefaults(effectiveType).naam : isTraining ? (sourceSd.type === "training" ? sourceSd.spiergroep_naam : "Training") : "Vrije dag")) : sd.spiergroep_naam,
           kleur: isTraining ? sourceSd.kleur : null,
         };
         if (!isTraining) return base;
@@ -346,6 +361,10 @@ export default function FitnessSchema() {
     // moving on to a new key) also stops it lingering in localStorage
     // forever for users who never hit a cache-miss code path again.
     try { localStorage.removeItem("cached_schema_v2"); } catch {}
+    // v3 -> v4: v3's cached JSON still carries "Cardio Fitness" naam/emoji/
+    // type from before the Power Hour rename + Boksen addition — same
+    // stale-cache reasoning as the v2 cleanup above.
+    try { localStorage.removeItem("cached_schema_v3"); } catch {}
 
     let hasCache = false;
     try {
@@ -695,7 +714,9 @@ export default function FitnessSchema() {
             : <VrijeDagCard goals={restGoals("vrije_dag")} day={day} />;
         })()}
 
-        {day.type === "cardio_fitness" && <CardioFitnessCard day={day} />}
+        {/* 'cardio_fitness' recognized transitionally until the DB migration lands — see rename plan §3 */}
+        {(day.type === "power_hour" || day.type === "cardio_fitness") && <PowerHourCard day={day} />}
+        {day.type === "boksen" && <BoksenCard day={day} />}
 
         {day.type === "training" && (<>
 
@@ -1471,16 +1492,35 @@ function VrijeDagCard({ goals, day }) {
   );
 }
 
-function CardioFitnessCard({ day }) {
+// Header color #ea580c is intentionally NOT the shared #f97316 used
+// elsewhere for these day types — a pre-existing, known inconsistency
+// carried forward unchanged (see rename plan §1, "Card copy" — flagged,
+// not part of this migration's scope).
+function PowerHourCard({ day }) {
   return (
     <div style={{ background: "#fff7ed", border: "2px solid #fed7aa", borderRadius: 14, padding: "28px 20px", textAlign: "center", boxShadow: "0 1px 4px #0001", marginBottom: 12 }}>
       <div style={{ fontSize: 48, marginBottom: 12 }}>{day.emoji}</div>
-      <div style={{ fontWeight: 700, fontSize: 18, color: "#ea580c", marginBottom: 8, fontFamily: "sans-serif" }}>Cardio Fitness</div>
+      <div style={{ fontWeight: 700, fontSize: 18, color: "#ea580c", marginBottom: 8, fontFamily: "sans-serif" }}>Power Hour</div>
       <div style={{ fontSize: 14, color: "#7c2d12", fontFamily: "sans-serif", lineHeight: 1.5, marginBottom: 12 }}>
         Externe sportzaal — buiten dit trainingsschema.
       </div>
       <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#ffedd5", borderRadius: 20, padding: "5px 14px", fontSize: 12, color: "#9a3412", fontFamily: "sans-serif", fontWeight: 600 }}>
-        <span>🥊</span><span>Cardio &amp; vrij trainen</span>
+        <span>🕐</span><span>HIIT</span>
+      </div>
+    </div>
+  );
+}
+
+function BoksenCard({ day }) {
+  return (
+    <div style={{ background: "#fff7ed", border: "2px solid #fed7aa", borderRadius: 14, padding: "28px 20px", textAlign: "center", boxShadow: "0 1px 4px #0001", marginBottom: 12 }}>
+      <div style={{ fontSize: 48, marginBottom: 12 }}>{day.emoji}</div>
+      <div style={{ fontWeight: 700, fontSize: 18, color: "#ea580c", marginBottom: 8, fontFamily: "sans-serif" }}>Boksen</div>
+      <div style={{ fontSize: 14, color: "#7c2d12", fontFamily: "sans-serif", lineHeight: 1.5, marginBottom: 12 }}>
+        Boksen in Beverwijk
+      </div>
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#ffedd5", borderRadius: 20, padding: "5px 14px", fontSize: 12, color: "#9a3412", fontFamily: "sans-serif", fontWeight: 600 }}>
+        <span>🥊</span><span>Boksen &amp; Zaktraining</span>
       </div>
     </div>
   );
@@ -1491,11 +1531,13 @@ function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPr
   const longPressed = useRef(false);
   const startPos = useRef({ x: 0, y: 0 });
   const isRust = day.type === "rust";
-  const isCardio = day.type === "cardio_fitness";
-  const tileColor = day.kleur || (day.dag_nummer ? dayColors[day.dag_nummer].accent : null) || (isCardio ? "#f97316" : "#94a3b8");
+  // 'cardio_fitness' recognized transitionally alongside the new values,
+  // until the DB migration in the rename plan is confirmed done.
+  const isSpecialActivity = day.type === "power_hour" || day.type === "boksen" || day.type === "cardio_fitness";
+  const tileColor = day.kleur || (day.dag_nummer ? dayColors[day.dag_nummer].accent : null) || (isSpecialActivity ? "#f97316" : "#94a3b8");
 
   const startPress = (e) => {
-    if (isRust || isCardio) return;
+    if (isRust || isSpecialActivity) return;
     longPressed.current = false;
     const t = e.touches?.[0];
     if (t) startPos.current = { x: t.clientX, y: t.clientY };
@@ -1546,7 +1588,7 @@ function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPr
       </div>
 
       {/* Name zone — fixed 30px (3 × 10px lines), always 3 rows so all tiles align */}
-      <div style={{ height: 30, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", overflow: "hidden", fontSize: 10, fontWeight: 700, lineHeight: "10px", fontFamily: "sans-serif", color: isCardio ? "#f97316" : isRust ? "#94a3b8" : tileColor }}>
+      <div style={{ height: 30, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", overflow: "hidden", fontSize: 10, fontWeight: 700, lineHeight: "10px", fontFamily: "sans-serif", color: isSpecialActivity ? "#f97316" : isRust ? "#94a3b8" : tileColor }}>
         {(() => { const words = (day.naam || "").split(" "); while (words.length < 3) words.push(" "); return words.map((w, i) => <div key={i}>{w}</div>); })()}
       </div>
     </button>

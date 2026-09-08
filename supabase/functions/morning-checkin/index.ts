@@ -93,7 +93,10 @@ type DayFact = Pick<WeekDayInfo, 'dayType' | 'naam'>
 function dayLabel(info: DayFact): string {
   if (info.dayType === 'training') return `trainingsdag${info.naam ? ` (${info.naam})` : ''}`
   if (info.dayType === 'rust') return `rustdag${info.naam ? ` (${info.naam})` : ''}`
-  if (info.dayType === 'cardio_fitness') return `cardio/fitness${info.naam ? ` (${info.naam})` : ''}`
+  // 'cardio_fitness' recognized transitionally alongside 'power_hour' until
+  // the DB migration (rename plan §3) is confirmed done.
+  if (info.dayType === 'power_hour' || info.dayType === 'cardio_fitness') return `Power Hour${info.naam ? ` (${info.naam})` : ''}`
+  if (info.dayType === 'boksen') return `Boksen${info.naam ? ` (${info.naam})` : ''}`
   return 'onbekend'
 }
 
@@ -123,46 +126,19 @@ function aandachtspuntHasQuestion(text: string | null): boolean {
 // training day ("vraag hoe laat hij vandaag traint") surfaced unchanged on
 // a morning where today turned out to be a rest day — the card's own
 // context line said "Rustdag" right next to a question about training
-// time, a contradiction visible on the card itself. aandachtspunt is free
-// text with no structured "which day type does this assume" field, so
-// this is the same style of cheap, non-exhaustive keyword heuristic as
-// aandachtspuntHasQuestion above — a false negative (missing an implicit
-// day-type assumption) just means no change from before this fix; a false
-// positive drops back to the existing, already-safe generic fallback, so
-// erring toward suppressing is the safe direction here.
-//
-// This function's own mismatch check has no special case for
-// hasNotableSignal — but since a dropped note becomes null before reaching
-// buildSystemPrompt, and hasNotableSignal partly depends on whether that
-// (possibly-dropped) aandachtspunt has a question in it, dropping a note
-// here does indirectly remove it as a potential signal too. That's
-// intentional, not accidental: a note the model isn't even shown shouldn't
-// be able to justify a manufactured hook either.
-//
-// Known limitation, verified not fixed: negation isn't understood, so
-// "geen training vandaag" still matches assumesTraining. This can
-// over-suppress a valid rest-day note on an actual rest day — but that's
-// the same "safe" error direction as everything else here (falls back to
-// the generic template, doesn't surface a mismatched note), so left as-is
-// rather than adding negation-parsing complexity for a heuristic that's
-// deliberately cheap.
-//
-// Returns the specific reason instead of a bare bool (was
-// aandachtspuntDayTypeMismatch) so the checkin-diag log below can report
-// *which* branch fired, not just that the note was dropped — same regexes,
-// same drop conditions, `!== null` at the call site is exactly the old
-// `=== true`.
-function aandachtspuntDropReason(
-  text: string | null,
-  todayDayType: string | null,
-): 'dagtype_mismatch_verwacht_training' | 'dagtype_mismatch_verwacht_rust' | null {
-  if (!text) return null
-  const assumesTraining = /\btrain(t|en)?\b|\btraining\b|\bsessie\b|\bworkout\b/i.test(text)
-  const assumesRest = /\brustdag\b/i.test(text)
-  if (assumesTraining && todayDayType !== 'training') return 'dagtype_mismatch_verwacht_training'
-  if (assumesRest && todayDayType === 'training') return 'dagtype_mismatch_verwacht_rust'
-  return null
-}
+// time, a contradiction visible on the card itself. This used to be
+// handled by a pre-model keyword regex (aandachtspuntDropReason) that
+// dropped the note entirely on a detected mismatch — removed (2026-09-02)
+// after two real false positives: a note describing a boxing class outside
+// the formal schema (no actual contradiction, just the word "sessie") and
+// a note that explicitly said "ZONDER TRAINING" in the same sentence the
+// regex matched "boksles" in — a negation a keyword match can't see. The
+// model already receives today's actual resolved day type in the facts
+// above and is better equipped to judge this than a pre-model heuristic;
+// see the reconciliation bullet in buildSystemPrompt below, added at the
+// point the aandachtspunt is actually weighed rather than as a persona-wide
+// rule. aandachtspunt now always reaches the model unfiltered — nothing
+// upstream of buildSystemPrompt drops it anymore.
 
 export type AntwoordOptieAfkeurReden =
   | 'geen_array'
@@ -232,6 +208,38 @@ function ongevalideerdeAantal(raw: unknown): number {
   return Array.isArray(raw) ? raw.length : 0
 }
 
+export type AntwoordOptieLabelDiag =
+  | { waarde: string; lengte: number }
+  | { waarde: null; ruwType: string }
+
+// Per-option diagnostic view of whatever the model supplied in
+// antwoord_opties, independent of validateAntwoordOpties's pass/fail
+// verdict — logged on BOTH the accepted and rejected path (a limit tuned
+// only on rejections is tuned on half the distribution). `lengte` reuses
+// validateAntwoordOpties's own [...label].length code-point count (not
+// .length — see that function's comment), so the logged number and the
+// enforced number can never disagree for the same input. `waarde` is
+// post-trim, the only normalisation the validator performs, so it's what
+// was actually measured against the limit.
+//
+// Two different malformed shapes both fail validateAntwoordOpties with
+// 'geen_array' and must stay distinguishable here, not collapse into the
+// same logged output: raw not being an array at all, vs. an array
+// containing a non-string item. The non-array case logs the fixed marker
+// ruwType: 'geen_array' — not typeof raw — precisely so it can never read
+// the same as an array holding one non-string item (which logs its own
+// typeof, e.g. 'object'/'number'). Using typeof for both would make
+// `{foo: 1}` and `[{foo: 1}]` produce an identical entry.
+export function diagnoseAntwoordOptieLabels(raw: unknown): AntwoordOptieLabelDiag[] {
+  if (raw == null) return []
+  if (!Array.isArray(raw)) return [{ waarde: null, ruwType: 'geen_array' }]
+  return raw.map((item): AntwoordOptieLabelDiag => {
+    if (typeof item !== 'string') return { waarde: null, ruwType: typeof item }
+    const trimmed = item.trim()
+    return { waarde: trimmed, lengte: [...trimmed].length }
+  })
+}
+
 // Own short prompt, not the full PERSONA_PROMPT — same reasoning
 // _shared/summary.ts already uses its own narrower prompts for the
 // day-summary rather than the persona block. This task is much smaller
@@ -248,6 +256,14 @@ function buildSystemPrompt(yesterday: DayFact, today: DayFact, isThursday: boole
   // should it just be a plain opening." Computed here, from data this
   // function already receives, rather than threaded in as a handler-level
   // param — nothing outside this function needs it.
+  //
+  // `aandachtspunt` here must always be the raw value straight from
+  // coach_sessions (see the Deno.serve handler's fetch below) — never a
+  // filtered or presentation-adjusted variant. A signal input must never be
+  // silently suppressed by a display decision; this held by accident once
+  // (the now-removed drop filter fed its filtered text into this exact
+  // calculation), so it's called out explicitly here rather than left to be
+  // true only because nothing currently filters this parameter.
   const hasNotableSignal = yesterdayTraining || todayTraining || isThursday || aandachtspuntHasQuestion(aandachtspunt)
 
   return `Je schrijft een korte ochtend check-in kaart voor de voedingscoach-app "Coach" — het eerste wat de gebruiker ziet bij het openen van de app, in plaats van een generieke groet. Vier velden: een boodschap (1-2 zinnen, de kern van het advies), een context-regel (label + tekst, een korte ondersteunende regel), en vraag_type (of de boodschap een vraag stelt, en zo ja wat voor soort).
@@ -255,13 +271,14 @@ function buildSystemPrompt(yesterday: DayFact, today: DayFact, isThursday: boole
 Feiten om op te baseren (gebruik alleen wat hier staat, verzin niets):
 - Gisteren was een ${dayLabel(yesterday)}.
 - Vandaag is een ${dayLabel(today)}.
-${isThursday ? '- Vandaag is donderdag: Power Hour bokstraining om 19:00, dus niet nuchter trainen die dag — een normale eetdag met een snack rond 17:30 en de hoofdmaaltijd na de training.\n' : ''}- Zondag is de vaste beendag, altijd nuchter — de norm, niet de uitzondering.
+${isThursday ? '- Vandaag is donderdag: Power Hour (trainer-geleide HIIT, kracht en cardio) om 19:00, dus niet nuchter trainen die dag — een normale eetdag met een snack rond 17:30 en de hoofdmaaltijd na de training.\n' : ''}- Zondag is de vaste beendag, altijd nuchter — de norm, niet de uitzondering.
 ${(yesterdayTraining || todayTraining) ? '- Spiereiwitsynthese blijft 24-48 uur verhoogd na een zware trainingssessie — de dag ná een trainingsdag mag ook eiwitrijk zijn.\n' : ''}${aandachtspunt ? `- Meegenomen aandachtspunt uit een eerdere dagafsluiting, wat de coach moet onthouden: "${aandachtspunt}" — dit kan over gisteren gaan, maar ook over een eerdere dag; gebruik alleen een dagaanduiding die letterlijk in deze tekst zelf staat, verzin er zelf geen bij.` : '- Geen aandachtspunt beschikbaar.'}
 
 Hoe je het aandachtspunt weegt tegenover de trainingsfeiten:
 ${
   aandachtspunt
-    ? `- Bevat het aandachtspunt hierboven iets om te vragen of een concrete actie voor vandaag → leid de boodschap daarmee in (natuurlijk geformuleerd, geen letterlijke kopie), en gebruik de trainingsfeiten als ondersteunende context-regel.
+    ? `- Het aandachtspunt is op een eerder moment geschreven en kan een dagtype aannemen dat niet meer klopt — vergelijk het eerst zelf met de "Vandaag is..."-feiten hierboven. Bevat de tekst zelf al een ontkenning die aansluit bij vandaag (bv. "zonder training", "geen training", "rustdag"), gebruik hem dan gewoon — dat is geen tegenspraak. Is de tekst écht in tegenspraak met vandaag (bv. hij veronderstelt een training terwijl vandaag geen trainingsdag is, zonder zo'n ontkenning), gebruik dan alleen het deel dat nog wel klopt, of val terug op de trainingsfeiten hieronder als er niets bruikbaars overblijft — verzin nooit een training of rustdag die niet in de feiten hierboven staat.
+- Bevat het aandachtspunt hierboven iets om te vragen of een concrete actie voor vandaag → leid de boodschap daarmee in (natuurlijk geformuleerd, geen letterlijke kopie), en gebruik de trainingsfeiten als ondersteunende context-regel.
 - Bevat het alleen achtergrond, voorkeuren of constateringen zonder iets te vragen → negeer het voor deze kaart en val terug op de gewone trainingsgerichte boodschap hieronder. Niet alles uit het aandachtspunt proppen — één kaart, één focus, niet een opsomming.`
     : '- Geen aandachtspunt beschikbaar, gebruik de trainingsfeiten hierboven zoals gebruikelijk.'
 }
@@ -271,6 +288,7 @@ Regels:
 - Noem NOOIT gewicht, een gewichtstrend of onderhoudsniveau — ook niet als dit in het aandachtspunt hierboven voorkomt. Dit wordt bewust nergens teruggegeven, ook niet hier.
 - Geen schuldgevoel-taal, geen "je zat ver onder/boven je doel" — dit gaat over training en herstel, niet over hoe gisteren scoorde tegenover een doel.
 - Gebruik een dagwoord als "gisteren" of "vandaag" alleen als dat rechtstreeks klopt met de "Gisteren was..."/"Vandaag is..."-feiten hierboven, of met een dagaanduiding die letterlijk in het aandachtspunt zelf staat. Verwijs je naar iets uit het aandachtspunt waarvan de dag niet met zekerheid vaststaat, gebruik dan gewoon geen dagwoord ("na de boksles" in plaats van "gisteren na de boksles") — verzin er nooit een bij.
+- Schrijf natuurlijk Nederlands: vorm nooit een bezitsvorm door 's of se aan een dagnaam of bijwoord te plakken (fout: "gisteren se rustdag", "gisteren's sessie") — gebruik in plaats daarvan "de rustdag van gisteren" of "gisteren was een rustdag".
 - De boodschap en de context-regel mogen elkaar nooit tegenspreken over welke dag iets was.
 ${!hasNotableSignal ? '- Niets bijzonders vandaag: geen training gisteren of vandaag, geen donderdag, geen aandachtspunt met iets te vragen. Schrijf dan een gewone, rustige opening die simpelweg aansluit bij het dag-type van vandaag hierboven, zonder een kunstmatige vraag, haak of trainingsverwijzing te verzinnen die er niet is. vraag_type is in dit geval altijd "geen".\n' : ''}- Motiverende, warme toon, kort en concreet — geen algemeenheid die net zo goed op elke willekeurige dag zou passen.
 - vraag_type: "geen" als de boodschap een statement of constatering is, zonder iets te vragen. Stelt de boodschap wél een vraag, kies dan tussen "stemming" (een vraag over hoe iemand zich voelt of geslapen heeft — iets waar een algemeen gevoel een passend antwoord op is) en "anders" (elke andere vraag, bijvoorbeeld naar een tijdstip, een keuze, of iets specifieks dat niets met stemming te maken heeft).
@@ -278,8 +296,17 @@ ${!hasNotableSignal ? '- Niets bijzonders vandaag: geen training gisteren of van
 - Gebruik het render_checkin_card tool om dit vast te leggen.`
 }
 
+// v3 (2026-09-02): added vraagTekst and kaart. Before this, checkin_diag
+// stored the CLASSIFICATION of a checkin (vraag_type, antwoordOpties'
+// counts/validation) but never its CONTENT — so e.g. antwoordOpties.
+// aangeboden === 0 on a vraag_type "anders" row was ambiguous (a closed
+// question with no options offered, a missed opportunity, vs. an open
+// question with none needed, correct behaviour) with no way to tell them
+// apart after the fact, and "the advice got generic" had no way to be
+// checked at all. v1/v2 rows are untouched and coexist — readers filter on
+// payload->>'v'.
 interface CheckinDiagPayload {
-  v: 2
+  v: 3
   ts_utc: string
   datum_lokaal: string
   vandaag: { type: string | null; naam: string | null }
@@ -293,14 +320,48 @@ interface CheckinDiagPayload {
   hasNotableSignal: boolean
   aandachtspunt: {
     ruwAanwezig: boolean
+    // Kept alongside ruwAanwezig for schema stability with historical rows
+    // (was: "did the note survive the day-type-mismatch filter"). That
+    // filter is gone (2026-09-02, see aandachtspuntHasQuestion's neighbouring
+    // comment) — nothing is filtered anymore, so this is now always equal
+    // to ruwAanwezig. Not removed since v1/v2 rows use it and the schema
+    // stays stable across versions.
     effectiefAanwezig: boolean
+    // Stops being populated for the day-type-mismatch reason (2026-09-02)
+    // — always null on new rows now. Field/type kept as-is; historical rows
+    // still carry the old enum values.
     gedroptReden: 'dagtype_mismatch_verwacht_training' | 'dagtype_mismatch_verwacht_rust' | null
   }
   vraag_type: string | null
+  // The literal question text the model asked — `boodschap` doubles as the
+  // question when vraag_type !== 'geen' (there's no separate "question"
+  // field in the model's own output, see RENDER_CHECKIN_TOOL). null when
+  // vraag_type is 'geen', or on any early exit where no model output exists.
+  vraagTekst: string | null
+  // The full check-in card as returned to the client, mirrored field-for-
+  // field from the same variables the `card:` response object below is
+  // built from — never re-derived separately, so the two can't drift.
+  // null wherever no card was built (every early-exit path).
+  kaart: {
+    eyebrow: string
+    boodschap: string
+    contextLabel: string
+    contextTekst: string
+    vraagType: string
+    antwoordOpties: string[] | null
+  } | null
   antwoordOpties: {
     aangeboden: number
     validatie: 'nvt' | 'geaccepteerd' | 'afgekeurd'
     afkeurReden: AntwoordOptieAfkeurReden
+    // Per-option content (label + measured length), logged on both the
+    // accepted and rejected path — see diagnoseAntwoordOptieLabels. Added
+    // 2026-09-08 after the first real rejection (06-09, label_te_lang)
+    // proved unanswerable from `afkeurReden` alone: it names which rule
+    // failed first, never what the label actually said or how long it was.
+    // No version bump — a sibling key on an existing object, absent (not
+    // misleading) on every row before this shipped.
+    labels: AntwoordOptieLabelDiag[]
   }
   modelOk: boolean
 }
@@ -381,13 +442,6 @@ Deno.serve(async (req: Request) => {
 
     const isThursday = todayWeekday === 4
 
-    // A carried-over note that assumes a day type today doesn't actually
-    // have gets dropped entirely rather than surfaced or reworded — see
-    // aandachtspuntDropReason's comment. buildSystemPrompt's existing
-    // "geen aandachtspunt beschikbaar" branch is the fallback, unchanged.
-    const dropReason = aandachtspuntDropReason(aandachtspunt, todayInfo.dayType)
-    const effectiveAandachtspunt = dropReason ? null : aandachtspunt
-
     // checkin-diag: computed once here from data this handler already has,
     // deliberately duplicating (not reusing) buildSystemPrompt's identical
     // internal booleans — same precedent as aandachtspuntHasQuestion/
@@ -396,9 +450,13 @@ Deno.serve(async (req: Request) => {
     const gisterenGetraind = yesterdayInfo.dayType === 'training'
     const vandaagTrainingsdag = todayInfo.dayType === 'training'
     const vandaagPowerHour = isThursday
-    const aandachtspuntGeeftSignaal = aandachtspuntHasQuestion(effectiveAandachtspunt)
+    // Raw aandachtspunt, straight from the coach_sessions query above —
+    // never a filtered/presentation-adjusted variant. See buildSystemPrompt's
+    // matching comment on its own hasNotableSignal line: a signal input must
+    // never be silently suppressed by a display decision.
+    const aandachtspuntGeeftSignaal = aandachtspuntHasQuestion(aandachtspunt)
     const diagBasePayload = {
-      v: 2,
+      v: 3 as const,
       datum_lokaal: isoDateString(activeDate),
       vandaag: { type: todayInfo.dayType, naam: todayInfo.naam },
       gisteren: { datum: yesterdayDateStr, type: yesterdayInfo.dayType, naam: yesterdayInfo.naam },
@@ -406,26 +464,27 @@ Deno.serve(async (req: Request) => {
       hasNotableSignal: gisterenGetraind || vandaagTrainingsdag || vandaagPowerHour || aandachtspuntGeeftSignaal,
       aandachtspunt: {
         ruwAanwezig: Boolean(aandachtspunt),
-        effectiefAanwezig: Boolean(effectiveAandachtspunt),
-        gedroptReden: dropReason,
+        effectiefAanwezig: Boolean(aandachtspunt),
+        gedroptReden: null,
       },
     }
 
-    // No model output exists yet at any of these three early exits, so
-    // there is genuinely nothing to count — 0 here isn't a hardcoded
-    // shortcut, it's simply true.
-    const NO_ANTWOORD_OPTIES = { aangeboden: 0, validatie: 'nvt' as const, afkeurReden: null }
+    // No model output exists yet at any of these four early exits, so
+    // there is genuinely nothing to count/show — 0/null/[] here isn't a
+    // hardcoded shortcut, it's simply true.
+    const NO_ANTWOORD_OPTIES = { aangeboden: 0, validatie: 'nvt' as const, afkeurReden: null, labels: [] }
+    const NO_KAART = null
 
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
     if (!apiKey) {
       console.error('ANTHROPIC_API_KEY secret is not set')
-      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: null, antwoordOpties: NO_ANTWOORD_OPTIES, modelOk: false })
+      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: null, vraagTekst: null, kaart: NO_KAART, antwoordOpties: NO_ANTWOORD_OPTIES, modelOk: false })
       return jsonResponse({ card: null })
     }
 
     const result = await callClaude(apiKey, {
       model: 'claude-sonnet-5',
-      system: buildSystemPrompt(yesterdayInfo, todayInfo, isThursday, effectiveAandachtspunt),
+      system: buildSystemPrompt(yesterdayInfo, todayInfo, isThursday, aandachtspunt),
       messages: [{ role: 'user', content: 'Genereer de ochtend check-in kaart voor vandaag.' }],
       tools: [RENDER_CHECKIN_TOOL],
       toolChoice: { type: 'tool', name: 'render_checkin_card' },
@@ -434,13 +493,13 @@ Deno.serve(async (req: Request) => {
 
     if (!result.ok) {
       console.error('morning-checkin: Claude call failed', result.status, result.errorText)
-      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: null, antwoordOpties: NO_ANTWOORD_OPTIES, modelOk: false })
+      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: null, vraagTekst: null, kaart: NO_KAART, antwoordOpties: NO_ANTWOORD_OPTIES, modelOk: false })
       return jsonResponse({ card: null })
     }
 
     const toolUse = result.data?.content.find((b) => b.type === 'tool_use')
     if (!toolUse || !toolUse.input) {
-      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: null, antwoordOpties: NO_ANTWOORD_OPTIES, modelOk: false })
+      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: null, vraagTekst: null, kaart: NO_KAART, antwoordOpties: NO_ANTWOORD_OPTIES, modelOk: false })
       return jsonResponse({ card: null })
     }
 
@@ -456,7 +515,14 @@ Deno.serve(async (req: Request) => {
         ...diagBasePayload,
         ts_utc: new Date().toISOString(),
         vraag_type: vraag_type ?? null,
-        antwoordOpties: { aangeboden: ongevalideerdeAantal(antwoord_opties), validatie: 'nvt', afkeurReden: null },
+        vraagTekst: null,
+        kaart: NO_KAART,
+        antwoordOpties: {
+          aangeboden: ongevalideerdeAantal(antwoord_opties),
+          validatie: 'nvt',
+          afkeurReden: null,
+          labels: diagnoseAntwoordOptieLabels(antwoord_opties),
+        },
         modelOk: false,
       })
       return jsonResponse({ card: null })
@@ -483,10 +549,25 @@ Deno.serve(async (req: Request) => {
       ...diagBasePayload,
       ts_utc: new Date().toISOString(),
       vraag_type,
+      // boodschap doubles as the question when there is one — see the
+      // CheckinDiagPayload field comment.
+      vraagTekst: vraag_type === 'geen' ? null : boodschap,
+      // Mirrors the `card:` response object below field-for-field, from the
+      // same variables — never re-derived separately, so this can't drift
+      // from what the client actually receives.
+      kaart: {
+        eyebrow: 'Ochtend check-in',
+        boodschap,
+        contextLabel: context_label,
+        contextTekst: context_tekst,
+        vraagType: vraag_type,
+        antwoordOpties: antwoordOptiesResultaat.validatie === 'geaccepteerd' ? antwoordOptiesResultaat.opties : null,
+      },
       antwoordOpties: {
         aangeboden: antwoordOptiesResultaat.aangeboden,
         validatie: antwoordOptiesResultaat.validatie,
         afkeurReden: antwoordOptiesResultaat.afkeurReden,
+        labels: diagnoseAntwoordOptieLabels(antwoord_opties),
       },
       modelOk: true,
     })
