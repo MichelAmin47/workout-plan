@@ -40,7 +40,7 @@ export function isoTimeString(d: Date): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-const ACTIVE_DAY_CUTOFF_HOUR = 4
+export const ACTIVE_DAY_CUTOFF_HOUR = 4
 
 // The calendar day currently "in play" for logging, closing, and dynamic
 // context — mirrors the reasoning close-day-cron already applies (it only
@@ -59,6 +59,25 @@ export function resolveActiveDate(now: Date): Date {
     return shifted
   }
   return now
+}
+
+// Sorts a day's meals into the order they actually happened, not raw
+// tijdstip order. A meal logged after midnight but before the cutoff keeps
+// *yesterday's* datum (by resolveActiveDate's own design above) but a small
+// tijdstip that would otherwise sort first. Treat any tijdstip before the
+// cutoff as occurring after 24:00 of the same logical day for ordering
+// purposes only — never rewrites tijdstip or datum.
+function sortKey(tijdstip: string): number {
+  const [h, m] = tijdstip.split(':').map(Number)
+  return h < ACTIVE_DAY_CUTOFF_HOUR ? h * 60 + m + 24 * 60 : h * 60 + m
+}
+
+export function sortMealsByActiveDayOrder<T extends { tijdstip: string | null }>(meals: T[]): T[] {
+  return [...meals].sort((a, b) => {
+    const ka = a.tijdstip == null ? Infinity : sortKey(a.tijdstip)
+    const kb = b.tijdstip == null ? Infinity : sortKey(b.tijdstip)
+    return ka - kb
+  })
 }
 
 interface SchemaRef {
@@ -126,7 +145,14 @@ export async function resolveTodayWorkout(calWeek: number, weekday: number): Pro
 
   if (dayType !== 'training' || dagNummer == null) {
     if (dayType === 'rust') return 'Vandaag is een rustdag.'
-    if (dayType === 'cardio_fitness') return 'Vandaag staat cardio/fitness gepland (geen krachttraining).'
+    // 'cardio_fitness' recognized transitionally alongside 'power_hour'
+    // until the DB migration (rename "Cardio Fitness" -> "Power Hour", add
+    // "Boksen") is confirmed done — see that plan's §3. Power Hour is a
+    // trainer-led HIIT circuit with real strength load, not "no resistance
+    // training" as the old wording claimed.
+    if (dayType === 'power_hour' || dayType === 'cardio_fitness')
+      return 'Vandaag staat Power Hour gepland — een trainer-geleide HIIT-les met kracht- én cardio-elementen.'
+    if (dayType === 'boksen') return 'Vandaag staat Boksen gepland — overwegend cardio, hoge intensiteit.'
     return 'Vandaag is geen trainingsdag.'
   }
 
