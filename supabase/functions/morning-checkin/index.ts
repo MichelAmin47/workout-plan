@@ -93,9 +93,7 @@ type DayFact = Pick<WeekDayInfo, 'dayType' | 'naam'>
 function dayLabel(info: DayFact): string {
   if (info.dayType === 'training') return `trainingsdag${info.naam ? ` (${info.naam})` : ''}`
   if (info.dayType === 'rust') return `rustdag${info.naam ? ` (${info.naam})` : ''}`
-  // 'cardio_fitness' recognized transitionally alongside 'power_hour' until
-  // the DB migration (rename plan §3) is confirmed done.
-  if (info.dayType === 'power_hour' || info.dayType === 'cardio_fitness') return `Power Hour${info.naam ? ` (${info.naam})` : ''}`
+  if (info.dayType === 'power_hour') return `Power Hour${info.naam ? ` (${info.naam})` : ''}`
   if (info.dayType === 'boksen') return `Boksen${info.naam ? ` (${info.naam})` : ''}`
   return 'onbekend'
 }

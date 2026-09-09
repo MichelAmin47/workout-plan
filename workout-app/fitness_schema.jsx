@@ -176,10 +176,7 @@ const SCHEMA_CACHE_KEY = "cached_schema_v4";
 
 // Fallback naam/emoji for a "special activity" day (Power Hour, Boksen) when
 // an override doesn't supply its own — mirrors the isTraining/isRust
-// fallback branches below. The legacy 'cardio_fitness' value (still
-// possible in the DB until the migration in the rename plan lands) maps to
-// the same identity as 'power_hour', since it *is* Power Hour under its old
-// name — transitional, remove once the DB migration is confirmed done.
+// fallback branches below.
 function specialActivityDefaults(type) {
   if (type === "boksen") return { naam: "Boksen", emoji: "🥊" };
   return { naam: "Power Hour", emoji: "🕐" };
@@ -204,10 +201,7 @@ function buildWeeks(schemas, schemaDays, exercises, weekOverrides = []) {
         const ov = overrideMap[`${calWeek}__${sd.dag_volgorde}`];
         const effectiveType = ov?.dag_van_week || sd.type || "training";
         const isTraining = effectiveType === "training";
-        // 'cardio_fitness' recognized here transitionally alongside the new
-        // values, until the DB migration in the rename plan is confirmed
-        // done — see §3 of that plan for removal.
-        const isSpecialActivity = effectiveType === "power_hour" || effectiveType === "boksen" || effectiveType === "cardio_fitness";
+        const isSpecialActivity = effectiveType === "power_hour" || effectiveType === "boksen";
         // For training overrides with a naam, source exercises/colours from the matching schema_day
         const sourceSd = (ov && isTraining && ov.naam)
           ? (schDays.find(d => d.spiergroep_naam === ov.naam && d.type === "training") || sd)
@@ -714,8 +708,7 @@ export default function FitnessSchema() {
             : <VrijeDagCard goals={restGoals("vrije_dag")} day={day} />;
         })()}
 
-        {/* 'cardio_fitness' recognized transitionally until the DB migration lands — see rename plan §3 */}
-        {(day.type === "power_hour" || day.type === "cardio_fitness") && <PowerHourCard day={day} />}
+        {day.type === "power_hour" && <PowerHourCard day={day} />}
         {day.type === "boksen" && <BoksenCard day={day} />}
 
         {day.type === "training" && (<>
@@ -1531,9 +1524,7 @@ function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPr
   const longPressed = useRef(false);
   const startPos = useRef({ x: 0, y: 0 });
   const isRust = day.type === "rust";
-  // 'cardio_fitness' recognized transitionally alongside the new values,
-  // until the DB migration in the rename plan is confirmed done.
-  const isSpecialActivity = day.type === "power_hour" || day.type === "boksen" || day.type === "cardio_fitness";
+  const isSpecialActivity = day.type === "power_hour" || day.type === "boksen";
   const tileColor = day.kleur || (day.dag_nummer ? dayColors[day.dag_nummer].accent : null) || (isSpecialActivity ? "#f97316" : "#94a3b8");
 
   const startPress = (e) => {

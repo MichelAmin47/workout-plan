@@ -145,12 +145,7 @@ export async function resolveTodayWorkout(calWeek: number, weekday: number): Pro
 
   if (dayType !== 'training' || dagNummer == null) {
     if (dayType === 'rust') return 'Vandaag is een rustdag.'
-    // 'cardio_fitness' recognized transitionally alongside 'power_hour'
-    // until the DB migration (rename "Cardio Fitness" -> "Power Hour", add
-    // "Boksen") is confirmed done — see that plan's §3. Power Hour is a
-    // trainer-led HIIT circuit with real strength load, not "no resistance
-    // training" as the old wording claimed.
-    if (dayType === 'power_hour' || dayType === 'cardio_fitness')
+    if (dayType === 'power_hour')
       return 'Vandaag staat Power Hour gepland — een trainer-geleide HIIT-les met kracht- én cardio-elementen.'
     if (dayType === 'boksen') return 'Vandaag staat Boksen gepland — overwegend cardio, hoge intensiteit.'
     return 'Vandaag is geen trainingsdag.'
