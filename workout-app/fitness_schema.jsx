@@ -734,47 +734,46 @@ export default function FitnessSchema() {
             lightColor: colors.light,
           };
           return (
+            <>
             <Section title="Supersets" icon="⚡" accent={colors.accent} timerSeconds={90} timerActive={activeTimer === "spiergroep"} onTimerClick={() => handleTimerClick("spiergroep", "Supersets", "⚡", 90, colors.accent)}>
               <SupersetBlock title="SUPERSET 1" exercises={superset1} accentColor={colors.accent} {...ssProps} />
               <SupersetBlock title="SUPERSET 2" exercises={superset2} accentColor={colors.accent} {...ssProps} />
-              {los.length > 0 && (
-                <div style={{ marginTop: 4 }}>
-                  <div style={{ fontSize: 10, color: "#aaa", fontWeight: 700, letterSpacing: 1, paddingLeft: 4, marginBottom: 6, fontFamily: "sans-serif" }}>LOSSE OEFENINGEN</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {los.map((ex, i) => {
-                      const k = wKey(ex.name, week.week);
-                      const w = weights[k] || { M: "", Z: "" };
-                      const prevResult = findPrevWeight(ex.name, week.week, weights);
-                      const prevW = prevResult || { M: null, Z: null };
-                      return (
-                        <ExRow
-                          key={i}
-                          num={superset1.length + superset2.length + i + 1}
-                          name={ex.name}
-                          sets={ex.sets}
-                          note={ex.weight_hint}
-                          accent={colors.accent}
-                          light={colors.light}
-                          optional={ex.optional}
-                          expanded={expandedExercise === ex.name}
-                          onToggle={() => handleExerciseClick(ex.name)}
-                          weightM={w.M}
-                          weightZ={w.Z}
-                          onWeightChange={(person, value) => handleWeightChange(ex.name, week.week, person, value)}
-                          prevWeightM={prevW.M}
-                          prevWeightZ={prevW.Z}
-                          prevWeekLabel={prevResult?.label}
-                          savedM={!!savedIndicators[`${ex.name}__${week.week}__M`]}
-                          savedZ={!!savedIndicators[`${ex.name}__${week.week}__Z`]}
-                          completed={completedExercises.has(eKey(ex.name, week.week, day.dag_nummer))}
-                          onLongPress={() => toggleExerciseCompletion(ex.name, week.week, day.dag_nummer)}
-                        />
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
             </Section>
+            {los.length > 0 && (
+              <Section title="Losse oefeningen" icon="🎯" accent={colors.accent} timerSeconds={90} timerActive={activeTimer === "losse"} onTimerClick={() => handleTimerClick("losse", "Losse oefeningen", "🎯", 90, colors.accent)}>
+                {los.map((ex, i) => {
+                  const k = wKey(ex.name, week.week);
+                  const w = weights[k] || { M: "", Z: "" };
+                  const prevResult = findPrevWeight(ex.name, week.week, weights);
+                  const prevW = prevResult || { M: null, Z: null };
+                  return (
+                    <ExRow
+                      key={i}
+                      num={i + 1}
+                      name={ex.name}
+                      sets={ex.sets}
+                      note={ex.weight_hint}
+                      accent={colors.accent}
+                      light={colors.light}
+                      optional={ex.optional}
+                      expanded={expandedExercise === ex.name}
+                      onToggle={() => handleExerciseClick(ex.name)}
+                      weightM={w.M}
+                      weightZ={w.Z}
+                      onWeightChange={(person, value) => handleWeightChange(ex.name, week.week, person, value)}
+                      prevWeightM={prevW.M}
+                      prevWeightZ={prevW.Z}
+                      prevWeekLabel={prevResult?.label}
+                      savedM={!!savedIndicators[`${ex.name}__${week.week}__M`]}
+                      savedZ={!!savedIndicators[`${ex.name}__${week.week}__Z`]}
+                      completed={completedExercises.has(eKey(ex.name, week.week, day.dag_nummer))}
+                      onLongPress={() => toggleExerciseCompletion(ex.name, week.week, day.dag_nummer)}
+                    />
+                  );
+                })}
+              </Section>
+            )}
+            </>
           );
         })() : (
           <>
@@ -957,6 +956,7 @@ export default function FitnessSchema() {
                         note={ex.note}
                         accent="#c05621"
                         light="#fed7aa"
+                        optional={ex.optional}
                         expanded={expandedExercise === displayName}
                         onToggle={() => handleExerciseClick(displayName)}
                         weightM={w.M}
@@ -1000,6 +1000,7 @@ export default function FitnessSchema() {
                 note={ex.note}
                 accent="#7c3aed"
                 light="#ede9fe"
+                optional={ex.optional}
                 completed={completedExercises.has(eKey(ex.name, week.week, day.dag_nummer))}
                 onLongPress={() => toggleExerciseCompletion(ex.name, week.week, day.dag_nummer)}
               />
@@ -1250,7 +1251,7 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
         </div>
         {hiitInterval ? (
           <div style={{ display: "flex" }}>
-            <div style={{ background: "#f37121", color: "#fff", padding: "4px 8px", borderRadius: "10px 0 0 10px", fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap" }}>
+            <div style={{ background: optional ? "#fff0e6" : "#f37121", color: optional ? "#f37121" : "#fff", border: optional ? "1px solid #f37121" : "none", padding: "4px 8px", borderRadius: "10px 0 0 10px", fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap" }}>
               {hiitInterval.work}s
             </div>
             <div style={{ background: "#888", color: "#fff", padding: "4px 8px", borderRadius: "0 10px 10px 0", fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap" }}>
