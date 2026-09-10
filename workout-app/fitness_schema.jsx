@@ -455,6 +455,16 @@ export default function FitnessSchema() {
     : { bg: "#f1f5f9", accent: "#94a3b8", light: "#e2e8f0" };
   const phase = phaseColors[week.phase];
 
+  // Swap alternatives for core exercises — derived from every core exercise
+  // programmed across the schemas (same flatMap the Progressie chart uses),
+  // not a hand-curated list like KB_EXERCISES. Core has no single-equipment
+  // constraint: anything ever programmed is doable at the gym, so there is
+  // nothing to curate out. Zero-maintenance: a new block's core exercises
+  // join the swap options automatically.
+  const CORE_EXERCISES = [...new Set(
+    (schema.weeks || []).flatMap(w => w.days.filter(d => d.type === "training").flatMap(d => d.core.map(e => e.name)))
+  )].sort();
+
   const saveWeight = (exercise, weekNum, person, value) => {
     if (value === "" || value === null || value === undefined) return;
     supabase.from("weights").upsert(
@@ -946,7 +956,7 @@ export default function FitnessSchema() {
                   return (
                     <SwipeableRow
                       key={i}
-                      onSwipeRight={() => { closeAndSave(); setSwapModal({ original: ex.name, week: week.week, day: day.dag_nummer }); }}
+                      onSwipeRight={() => { closeAndSave(); setSwapModal({ original: ex.name, week: week.week, day: day.dag_nummer, options: KB_EXERCISES }); }}
                       onSwipeLeft={swappedName ? () => revertSwap(ex.name, week.week, day.dag_nummer) : undefined}
                     >
                       <ExRow
@@ -991,19 +1001,29 @@ export default function FitnessSchema() {
           onTimerClick={() => handleTimerClick("core", "Core Finisher", "🔥", 45, "#7c3aed")}
         >
           {day.core.map((ex, i) => {
+            const sk = sKey(ex.name, week.week, day.dag_nummer);
+            const swappedName = swaps[sk];
+            const displayName = swappedName || ex.name;
             return (
-              <ExRow
+              <SwipeableRow
                 key={i}
-                num={i + 1}
-                name={ex.name}
-                sets={ex.sets}
-                note={ex.note}
-                accent="#7c3aed"
-                light="#ede9fe"
-                optional={ex.optional}
-                completed={completedExercises.has(eKey(ex.name, week.week, day.dag_nummer))}
-                onLongPress={() => toggleExerciseCompletion(ex.name, week.week, day.dag_nummer)}
-              />
+                onSwipeRight={() => { closeAndSave(); setSwapModal({ original: ex.name, week: week.week, day: day.dag_nummer, options: CORE_EXERCISES }); }}
+                onSwipeLeft={swappedName ? () => revertSwap(ex.name, week.week, day.dag_nummer) : undefined}
+              >
+                <ExRow
+                  num={i + 1}
+                  name={displayName}
+                  sets={ex.sets}
+                  note={ex.note}
+                  accent="#7c3aed"
+                  light="#ede9fe"
+                  optional={ex.optional}
+                  completed={completedExercises.has(eKey(displayName, week.week, day.dag_nummer))}
+                  onLongPress={() => toggleExerciseCompletion(displayName, week.week, day.dag_nummer)}
+                  swapped={!!swappedName}
+                  originalName={swappedName ? ex.name : undefined}
+                />
+              </SwipeableRow>
             );
           })}
         </Section>
@@ -1201,7 +1221,7 @@ export default function FitnessSchema() {
       {swapModal && (
         <BottomSheet
           currentExercise={swaps[sKey(swapModal.original, swapModal.week, swapModal.day)] || swapModal.original}
-          exercises={KB_EXERCISES.filter((n) => n !== (swaps[sKey(swapModal.original, swapModal.week, swapModal.day)] || swapModal.original))}
+          exercises={(swapModal.options || KB_EXERCISES).filter((n) => n !== (swaps[sKey(swapModal.original, swapModal.week, swapModal.day)] || swapModal.original))}
           onSelect={(name) => saveSwap(swapModal.original, name, swapModal.week, swapModal.day)}
           onClose={() => setSwapModal(null)}
         />
