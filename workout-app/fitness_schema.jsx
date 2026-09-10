@@ -15,9 +15,14 @@ const dayColors = {
 };
 
 const phaseColors = {
+  "Deload": { bg: "#fef3c7", text: "#92400e", dot: "#f59e0b" },
   "Opbouw": { bg: "#dbeafe", text: "#1e40af", dot: "#3b82f6" },
   "Nieuwe Prikkel": { bg: "#ede9fe", text: "#6d28d9", dot: "#8b5cf6" },
 };
+
+// Any phase value that isn't in phaseColors (a future block's new label,
+// stale cache) still needs a badge rather than a crash at render.
+const phaseColorFallback = { bg: "#f1f5f9", text: "#475569", dot: "#94a3b8" };
 
 
 function hexA(hex, alpha) {
@@ -168,11 +173,12 @@ const KB_EXERCISES = [
   "KB Thruster", "KB Turkish Get-Up", "KB Windmill", "KB Wood Chop",
 ];
 
-// Bumped from v3: v3's cached JSON still carries the old "Cardio Fitness"
-// naam/emoji/type from before the Power Hour rename + Boksen addition. See
-// the mount effect below for the matching v3 cleanup (mirrors the existing
-// v2 cleanup there).
-const SCHEMA_CACHE_KEY = "cached_schema_v4";
+// Bumped from v4: v4's cached JSON carries `phase` values from the old
+// hardcoded `relWeek <= 3` rule (e.g. the deload week 37 baked in as
+// "Opbouw"), which would keep painting for returning/offline users until a
+// fresh fetch lands. `phase` now comes from the schema_weeks table. See the
+// mount effect below for the matching v4 cleanup (mirrors the v2/v3 ones).
+const SCHEMA_CACHE_KEY = "cached_schema_v5";
 
 // Fallback naam/emoji for a "special activity" day (Power Hour, Boksen) when
 // an override doesn't supply its own — mirrors the isTraining/isRust
@@ -182,7 +188,7 @@ function specialActivityDefaults(type) {
   return { naam: "Power Hour", emoji: "🕐" };
 }
 
-function buildWeeks(schemas, schemaDays, exercises, weekOverrides = []) {
+function buildWeeks(schemas, schemaDays, exercises, weekOverrides = [], schemaWeeks = []) {
   const allWeeks = [];
   for (const s of schemas) {
     // "calWeek__dagVolgorde" -> full override row for this schema
@@ -196,7 +202,12 @@ function buildWeeks(schemas, schemaDays, exercises, weekOverrides = []) {
       .sort((a, b) => a.dag_volgorde - b.dag_volgorde);
     for (let relWeek = 1; relWeek <= numWeeks; relWeek++) {
       const calWeek = s.start_week + relWeek - 1;
-      const phase = relWeek <= 3 ? "Opbouw" : "Nieuwe Prikkel";
+      // Phase label comes from the schema_weeks table (one row per relative
+      // week per schema). Fallback to the old hardcoded rule for any week
+      // with no row — a future block before schema entry adds its rows, or a
+      // data gap — so an unpopulated schema renders exactly as it does today.
+      const phaseRow = schemaWeeks.find(sw => sw.schema_id === s.id && sw.week_nummer === relWeek);
+      const phase = phaseRow?.phase ?? (relWeek <= 3 ? "Opbouw" : "Nieuwe Prikkel");
       const days = schDays.map(sd => {
         const ov = overrideMap[`${calWeek}__${sd.dag_volgorde}`];
         const effectiveType = ov?.dag_van_week || sd.type || "training";
@@ -296,16 +307,20 @@ export default function FitnessSchema() {
   const rawPullDist = useRef(0);
 
   const fetchSchemaData = async () => {
-    const [{ data: schemas }, { data: schemaDays }, { data: exercises }, { data: weekOverrides }, { data: restDayGoals }] = await Promise.all([
+    const [{ data: schemas }, { data: schemaDays }, { data: exercises }, { data: weekOverrides }, { data: restDayGoals }, { data: schemaWeeks }] = await Promise.all([
       supabase.from("schemas").select("*").order("start_week"),
       supabase.from("schema_days").select("*"),
       supabase.from("exercises").select("*").order("volgorde"),
       supabase.from("week_overrides").select("*"),
       supabase.from("rest_day_goals").select("*"),
+      supabase.from("schema_weeks").select("*"),
     ]);
     if (!schemas || !schemaDays || !exercises) throw new Error("empty");
+    // schemaWeeks deliberately absent from the guard above: a missing or
+    // empty schema_weeks must not brick the app — buildWeeks falls back to
+    // the old rule per week when a row is absent.
     return {
-      weeks: buildWeeks(schemas, schemaDays, exercises, weekOverrides || []),
+      weeks: buildWeeks(schemas, schemaDays, exercises, weekOverrides || [], schemaWeeks || []),
       restDayGoals: restDayGoals || [],
     };
   };
@@ -359,6 +374,10 @@ export default function FitnessSchema() {
     // type from before the Power Hour rename + Boksen addition — same
     // stale-cache reasoning as the v2 cleanup above.
     try { localStorage.removeItem("cached_schema_v3"); } catch {}
+    // v4 -> v5: v4's cached JSON carries `phase` from the old hardcoded
+    // relWeek rule (deload week baked in as "Opbouw"); phase now comes from
+    // the schema_weeks table — same stale-cache reasoning.
+    try { localStorage.removeItem("cached_schema_v4"); } catch {}
 
     let hasCache = false;
     try {
@@ -453,7 +472,7 @@ export default function FitnessSchema() {
         light:  dayColors[day.dag_nummer].light,
       }
     : { bg: "#f1f5f9", accent: "#94a3b8", light: "#e2e8f0" };
-  const phase = phaseColors[week.phase];
+  const phase = phaseColors[week.phase] || phaseColorFallback;
 
   // Swap alternatives for core exercises — derived from every core exercise
   // programmed across the schemas (same flatMap the Progressie chart uses),
