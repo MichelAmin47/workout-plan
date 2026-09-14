@@ -203,7 +203,7 @@ The chart reads from the existing `weights` state — no additional Supabase fet
 
 A 2000ms long press toggles completion state, persisted to Supabase. Long press is implemented inline per component using a `useRef` timer (not a custom hook, to avoid hook-in-loop issues). `triggerImpact()` fires on mobile when the long press triggers.
 
-**Day completion** — long press on a `WeekDayTile` (training days only) toggles the day's completion for the currently selected week. Stored in `completedDays` (Set, keyed by `dKey`). The green ✓ replaces the emoji in the tile.
+**Day completion** — long press on a `WeekDayTile` toggles the day's completion for the currently selected week, for training days. Stored in `completedDays` (Set, keyed by `dKey`). The green ✓ replaces the emoji in the tile. `power_hour`/`boksen` tiles also respond to long press (since point 10 — see "Star scores" below), but their completion is never a `completedDays` toggle: for those two types the ✓ is driven purely by whether a `day_scores` row exists for that date, since they have no other completion signal (`dag_nummer` is `null` for both, and `completed_days.day` is the muscle-group id — structurally unable to hold them). `WeekDayTile`'s `isCompleted` prop branches on `day.type` for exactly this reason: a type-agnostic "either source counts" check was considered and rejected, because on a training day the same long press writes both a `completedDays` row and a `day_scores` row, and un-completing only deletes the former — a type-agnostic check would leave the tile permanently checked with no way to undo it.
 
 **Exercise completion** — long press on an `ExCircle` toggles that exercise's completion for the current week and day. Stored in `completedExercises` (Set, keyed by `eKey`). The circle turns solid green with ✓. The click event after a long press is suppressed via `e.stopPropagation()` to prevent the weight panel from opening.
 
@@ -223,7 +223,28 @@ completed_exercises:
   week      int
   day       int    (day id, 1–4)
   unique constraint on (exercise, week, day)
+
+day_scores:
+  datum            date PRIMARY KEY
+  score_training   int  (1–5, NOT NULL, CHECK)
+  score_motivatie  int  (1–5, NOT NULL, CHECK)
 ```
+
+## Star scores (point 10)
+
+A subjective 1–5 score for "hoe ging de training?" and "hoe was de motivatie om te trainen?", captured via the same long press that already marks a day complete — the KB block's low tick counts (schema `431ae096`, weeks 31–36) showed that anything adding a new gesture doesn't survive daily use, so this hooks onto the existing one instead.
+
+**Keyed on the actual calendar date, not `week`/`dag_nummer`.** `dateForDay(calWeek, dagVolgorde)` (module scope, next to `dKey`/`eKey`) reverses `currentWeekIndex`'s ISO-week math — given a calendar week number and an ISO weekday (1=Mon..7=Sun, same numbering as `schema_days.dag_volgorde`), it returns that day's real calendar date. This is override-agnostic: a `week_overrides` row changes what's scheduled on a date, never which date a weekday position maps to, so a score row never goes stale when an override is added later. Same year-boundary assumption as `currentWeekIndex` itself (no year column anywhere in this schema) — not a new gap.
+
+**Trigger and gating differ by day type:**
+- Training: the tile long press toggles `completedDays` exactly as before; the score prompt (`ScorePromptModal`) opens *only* when that toggle results in completed = true, never when it un-completes. Correcting a bad score therefore takes two long presses — un-complete, then complete again, which re-opens the prompt pre-filled with the previous answer.
+- Power Hour / Boksen: no completion state to gate on, so the tile long press always opens the prompt. The info card (`PowerHourCard`/`BoksenCard`) also renders a `ScoreSummary` (two `StarRow` displays, empty until scored, plus a button) — tapping the button always opens the prompt too. These are the only two entry points for these types, and the score row's presence *is* their completion (see "Day completion" above).
+
+**One row per date, re-entering overwrites** — `saveScore` mirrors `saveSwap`: optimistic state update, then `supabase.from("day_scores").upsert({...}, { onConflict: "datum" })`, un-awaited, `console.error` on failure. No transaction/RPC ties the `completedDays` write and the score write together — every write in this file is independent and fire-and-forget, and coupling them would be new infrastructure this app has never needed elsewhere.
+
+**Dismissing the prompt without answering writes nothing** — `score_training`/`score_motivatie` are `NOT NULL`, so a partial answer can't be persisted even by accident; the submit button stays disabled until both stars are chosen. `ScorePromptModal` is a new centred-overlay component (not a `BottomSheet` adaptation — that slides up from the bottom, the wrong pattern for a form). It adds three things `BottomSheet` has none of: scroll-lock (`document.body.style.overflow`), Escape-to-close, and Android back-gesture handling via a `history.pushState`/`popstate` pair (no `@capacitor/app` dependency needed — pushing a dummy entry makes the WebView's own `canGoBack()` true, so a back press fires `popstate` instead of falling through to the app's default exit/minimize, which is what happens today if the back button is pressed while `BottomSheet` is open — a separate, pre-existing gap, not fixed here). No focus trap — this app is touch-primary and no component anywhere manages focus.
+
+`dayScores` (state, `{ [datum]: { training, motivatie } }`) is fetched in `fetchUserData()` alongside `weights`/`completedDays`/`completedExercises`/`swaps` — user-entered interaction data, never part of the schema cache (`cached_schema_v5`), no cache-key bump needed.
 
 ## KB HIIT intervals
 
