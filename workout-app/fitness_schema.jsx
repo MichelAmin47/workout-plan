@@ -40,6 +40,28 @@ function dKey(weekNum, dayId) {
   return `${weekNum}__${dayId}`;
 }
 
+// Reverse of currentWeekIndex's ISO-week math (date -> week): given a
+// calendar week number and an ISO weekday (1=Mon..7=Sun, same numbering
+// as schema_days.dag_volgorde), returns that day's actual calendar date
+// as YYYY-MM-DD. Standard ISO-8601 anchor (week 1 is always the week
+// containing 4 January), run forward from Jan 4 rather than
+// currentWeekIndex's Thursday-shift trick — easier to invert cleanly.
+// Assumes the target week falls in the current year: nothing in this
+// app's data model disambiguates a week number across a year boundary
+// (schemas has no year column) — the same assumption currentWeekIndex's
+// own `new Date()` reliance already makes everywhere else. Not a new gap.
+function dateForDay(calWeek, dagVolgorde) {
+  const now = new Date();
+  const jan4 = new Date(now.getFullYear(), 0, 4);
+  const jan4Dow = jan4.getDay() || 7;
+  const week1Monday = new Date(jan4);
+  week1Monday.setDate(jan4.getDate() - jan4Dow + 1);
+  const target = new Date(week1Monday);
+  target.setDate(week1Monday.getDate() + (calWeek - 1) * 7 + (dagVolgorde - 1));
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}`;
+}
+
 function eKey(exercise, weekNum, dayId) {
   return `${exercise}__${weekNum}__${dayId}`;
 }
@@ -296,6 +318,8 @@ export default function FitnessSchema() {
   const [completedExercises, setCompletedExercises] = useState(new Set());
   const [swaps, setSwaps] = useState({});
   const [swapModal, setSwapModal] = useState(null);
+  const [dayScores, setDayScores] = useState({});
+  const [scorePrompt, setScorePrompt] = useState(null);
   const [progressieOpen, setProgressieOpen] = useState(false);
   const [progressieExercise, setProgressieExercise] = useState(null);
   const [schema, setSchema] = useState(null);
@@ -326,11 +350,12 @@ export default function FitnessSchema() {
   };
 
   const fetchUserData = async () => {
-    const [wRes, cdRes, ceRes, swRes] = await Promise.all([
+    const [wRes, cdRes, ceRes, swRes, dsRes] = await Promise.all([
       supabase.from("weights").select("*"),
       supabase.from("completed_days").select("*"),
       supabase.from("completed_exercises").select("*"),
       supabase.from("exercise_swaps").select("*"),
+      supabase.from("day_scores").select("*"),
     ]);
     if (wRes.data) {
       const map = {};
@@ -347,6 +372,11 @@ export default function FitnessSchema() {
       const map = {};
       for (const row of swRes.data) map[sKey(row.original_exercise, row.week, row.day)] = row.new_exercise;
       setSwaps(map);
+    }
+    if (dsRes.data) {
+      const map = {};
+      for (const row of dsRes.data) map[row.datum] = { training: row.score_training, motivatie: row.score_motivatie };
+      setDayScores(map);
     }
   };
 
@@ -558,6 +588,15 @@ export default function FitnessSchema() {
       .then(({ error }) => { if (error) console.error("[revertSwap error]", error); });
   };
 
+  const saveScore = (datum, training, motivatie) => {
+    setDayScores((prev) => ({ ...prev, [datum]: { training, motivatie } }));
+    supabase.from("day_scores").upsert(
+      { datum, score_training: training, score_motivatie: motivatie },
+      { onConflict: "datum" }
+    ).then(({ error }) => { if (error) console.error("[saveScore error]", error); });
+    setScorePrompt(null);
+  };
+
   const handleTimerClick = (key, label, icon, seconds, accent) => {
     if (activeTimer === key) {
       setActiveTimer(null);
@@ -715,9 +754,22 @@ export default function FitnessSchema() {
             day={d}
             isSelected={selectedDay === i}
             isToday={todayDayIdx === i}
-            isCompleted={d.type === "training" && d.dag_nummer != null && completedDays.has(dKey(week.week, d.dag_nummer))}
+            isCompleted={
+              d.type === "training"
+                ? (d.dag_nummer != null && completedDays.has(dKey(week.week, d.dag_nummer)))
+                : (d.type === "power_hour" || d.type === "boksen") && Boolean(dayScores[dateForDay(week.week, d.dag_volgorde)])
+            }
             onSelect={() => { closeAndSave(); setSelectedDay(i); }}
-            onLongPress={() => d.type === "training" && d.dag_nummer != null && toggleDayCompletion(week.week, d.dag_nummer)}
+            onLongPress={() => {
+              const datum = dateForDay(week.week, d.dag_volgorde);
+              if (d.type === "training" && d.dag_nummer != null) {
+                const willComplete = !completedDays.has(dKey(week.week, d.dag_nummer));
+                toggleDayCompletion(week.week, d.dag_nummer);
+                if (willComplete) setScorePrompt({ datum, dayLabel: d.naam });
+              } else if (d.type === "power_hour" || d.type === "boksen") {
+                setScorePrompt({ datum, dayLabel: d.naam });
+              }
+            }}
           />
         ))}
       </div>
@@ -737,8 +789,13 @@ export default function FitnessSchema() {
             : <VrijeDagCard goals={restGoals("vrije_dag")} day={day} />;
         })()}
 
-        {day.type === "power_hour" && <PowerHourCard day={day} />}
-        {day.type === "boksen" && <BoksenCard day={day} />}
+        {(day.type === "power_hour" || day.type === "boksen") && (() => {
+          const datum = dateForDay(week.week, day.dag_volgorde);
+          const onOpenPrompt = () => setScorePrompt({ datum, dayLabel: day.naam });
+          return day.type === "power_hour"
+            ? <PowerHourCard day={day} score={dayScores[datum]} onOpenPrompt={onOpenPrompt} />
+            : <BoksenCard day={day} score={dayScores[datum]} onOpenPrompt={onOpenPrompt} />;
+        })()}
 
         {day.type === "training" && (<>
 
@@ -1245,6 +1302,15 @@ export default function FitnessSchema() {
           onClose={() => setSwapModal(null)}
         />
       )}
+
+      {scorePrompt && (
+        <ScorePromptModal
+          dayLabel={scorePrompt.dayLabel}
+          initialScore={dayScores[scorePrompt.datum]}
+          onSubmit={(training, motivatie) => saveScore(scorePrompt.datum, training, motivatie)}
+          onClose={() => setScorePrompt(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1529,7 +1595,47 @@ function VrijeDagCard({ goals, day }) {
 // elsewhere for these day types — a pre-existing, known inconsistency
 // carried forward unchanged (see rename plan §1, "Card copy" — flagged,
 // not part of this migration's scope).
-function PowerHourCard({ day }) {
+// Read-only 5-star row — empty (score undefined/0) or filled up to
+// `value`. Used on PowerHourCard/BoksenCard, the only place a saved score
+// is shown outside the entry prompt itself (no dashboard, no chart —
+// point 10 is explicit that this is the only display surface).
+function StarRow({ value = 0 }) {
+  return (
+    <div style={{ display: "flex", gap: 2 }}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <span key={n} style={{ fontSize: 15, color: n <= value ? "#ea580c" : "#fdba9c" }}>{n <= value ? "★" : "☆"}</span>
+      ))}
+    </div>
+  );
+}
+
+// Score entry point shared by PowerHourCard/BoksenCard — a two-row star
+// summary (empty when no score exists yet, the visible affordance) plus a
+// button that opens the same ScorePromptModal the tile long-press does.
+function ScoreSummary({ score, onOpenPrompt }) {
+  return (
+    <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #fed7aa" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "center", marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 12, color: "#9a3412", fontFamily: "sans-serif", minWidth: 90, textAlign: "right" }}>Training</span>
+          <StarRow value={score?.training} />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 12, color: "#9a3412", fontFamily: "sans-serif", minWidth: 90, textAlign: "right" }}>Motivatie</span>
+          <StarRow value={score?.motivatie} />
+        </div>
+      </div>
+      <button
+        onClick={onOpenPrompt}
+        style={{ background: "#ea580c", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 700, fontFamily: "sans-serif", cursor: "pointer" }}
+      >
+        {score ? "Score aanpassen" : "Geef een score"}
+      </button>
+    </div>
+  );
+}
+
+function PowerHourCard({ day, score, onOpenPrompt }) {
   return (
     <div style={{ background: "#fff7ed", border: "2px solid #fed7aa", borderRadius: 14, padding: "28px 20px", textAlign: "center", boxShadow: "0 1px 4px #0001", marginBottom: 12 }}>
       <div style={{ fontSize: 48, marginBottom: 12 }}>{day.emoji}</div>
@@ -1540,11 +1646,12 @@ function PowerHourCard({ day }) {
       <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#ffedd5", borderRadius: 20, padding: "5px 14px", fontSize: 12, color: "#9a3412", fontFamily: "sans-serif", fontWeight: 600 }}>
         <span>🕐</span><span>HIIT</span>
       </div>
+      <ScoreSummary score={score} onOpenPrompt={onOpenPrompt} />
     </div>
   );
 }
 
-function BoksenCard({ day }) {
+function BoksenCard({ day, score, onOpenPrompt }) {
   return (
     <div style={{ background: "#fff7ed", border: "2px solid #fed7aa", borderRadius: 14, padding: "28px 20px", textAlign: "center", boxShadow: "0 1px 4px #0001", marginBottom: 12 }}>
       <div style={{ fontSize: 48, marginBottom: 12 }}>{day.emoji}</div>
@@ -1555,6 +1662,7 @@ function BoksenCard({ day }) {
       <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#ffedd5", borderRadius: 20, padding: "5px 14px", fontSize: 12, color: "#9a3412", fontFamily: "sans-serif", fontWeight: 600 }}>
         <span>🥊</span><span>Boksen &amp; Zaktraining</span>
       </div>
+      <ScoreSummary score={score} onOpenPrompt={onOpenPrompt} />
     </div>
   );
 }
@@ -1568,7 +1676,12 @@ function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPr
   const tileColor = day.kleur || (day.dag_nummer ? dayColors[day.dag_nummer].accent : null) || (isSpecialActivity ? "#f97316" : "#94a3b8");
 
   const startPress = (e) => {
-    if (isRust || isSpecialActivity) return;
+    // Rest days have nothing to complete or score. power_hour/boksen used
+    // to be excluded here too (a deliberate "wasted haptic" guard, back
+    // when long-press did nothing for these types) — now it opens the
+    // star-score prompt, so the gesture does something and the guard no
+    // longer applies to them.
+    if (isRust) return;
     longPressed.current = false;
     const t = e.touches?.[0];
     if (t) startPos.current = { x: t.clientX, y: t.clientY };
@@ -1748,6 +1861,101 @@ function SwipeableRow({ onSwipeRight, onSwipeLeft, children }) {
         {children}
       </div>
     </div>
+  );
+}
+
+// Interactive 1-5 star row for ScorePromptModal — tap a star to set the
+// value. Distinct from the read-only StarRow on PowerHourCard/BoksenCard,
+// which only ever displays a saved score.
+function StarPicker({ label, value, onChange }) {
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ fontFamily: "sans-serif", fontSize: 14, color: "#1a1a1a", marginBottom: 8, textAlign: "center" }}>{label}</div>
+      <div style={{ display: "flex", justifyContent: "center", gap: 6 }}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => onChange(n)}
+            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 30, color: n <= value ? "#f37121" : "#ddd", lineHeight: 1, WebkitAppearance: "none", appearance: "none" }}
+          >
+            {n <= value ? "★" : "☆"}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Point 10: centred overlay for the two-question session score, opened by
+// the long-press that already marks a day complete (training) or by the
+// tile long-press / card button on Power Hour and Boksen days, which have
+// no other completion state. A new component, not a BottomSheet
+// adaptation — that slides up from the bottom, which is the wrong pattern
+// for a form the user is asked to fill in, not a list to pick from.
+//
+// Scroll-lock, Escape, and Android back-gesture handling are all new
+// here — BottomSheet has none of the three. The back-gesture fix needs no
+// native dependency (@capacitor/app is not installed): pushing a dummy
+// history entry makes the WebView's own canGoBack() true, so a hardware
+// back press or back gesture fires `popstate` and closes this overlay
+// instead of the app's default (no router, no other history anywhere in
+// this app) fallback of exiting/minimizing. See the effect below for why
+// the cleanup only calls history.back() when we did NOT arrive via that
+// popstate — otherwise it would consume a second, unrelated entry.
+//
+// No focus trap: this app is touch-primary, no component anywhere manages
+// focus, and adding one here would be new scope beyond what this feature
+// needs.
+function ScorePromptModal({ dayLabel, initialScore, onSubmit, onClose }) {
+  const [training, setTraining] = useState(initialScore?.training ?? 0);
+  const [motivatie, setMotivatie] = useState(initialScore?.motivatie ?? 0);
+
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    window.history.pushState({ scorePrompt: true }, "");
+    const closedViaPopstate = { current: false };
+    const handlePopState = () => { closedViaPopstate.current = true; onClose(); };
+    const handleKeyDown = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("popstate", handlePopState);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("keydown", handleKeyDown);
+      // Closed via any path OTHER than the back gesture (backdrop, submit,
+      // this component simply unmounting) — the entry pushed above is
+      // still sitting there, unconsumed, and would otherwise eat a later,
+      // unrelated back-press. Listeners are already removed, so the
+      // popstate this causes can't re-trigger handlePopState.
+      if (!closedViaPopstate.current) window.history.back();
+    };
+    // Mount/unmount only — onClose is stable enough for this file's own
+    // convention (see e.g. the swap/timer effects), and re-running this
+    // on every render would push a new history entry each time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const canSubmit = training > 0 && motivatie > 0;
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "#0007", zIndex: 100 }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", background: "#fff", borderRadius: 18, padding: "24px 20px", zIndex: 101, width: "calc(100% - 48px)", maxWidth: 340, boxShadow: "0 10px 40px rgba(0,0,0,0.25)" }}>
+        {dayLabel && (
+          <div style={{ textAlign: "center", fontFamily: "sans-serif", fontSize: 12, color: "#999", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 16 }}>{dayLabel}</div>
+        )}
+        <StarPicker label="Hoe ging de training?" value={training} onChange={setTraining} />
+        <StarPicker label="Hoe was de motivatie om te trainen?" value={motivatie} onChange={setMotivatie} />
+        <button
+          onClick={() => canSubmit && onSubmit(training, motivatie)}
+          disabled={!canSubmit}
+          style={{ width: "100%", background: canSubmit ? "#f37121" : "#f3d9c4", color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 15, fontWeight: 700, fontFamily: "sans-serif", cursor: canSubmit ? "pointer" : "default", marginTop: 4 }}
+        >
+          Opslaan
+        </button>
+      </div>
+    </>
   );
 }
 
