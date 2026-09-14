@@ -242,9 +242,39 @@ export function diagnoseAntwoordOptieLabels(raw: unknown): AntwoordOptieLabelDia
 // _shared/summary.ts already uses its own narrower prompts for the
 // day-summary rather than the persona block. This task is much smaller
 // than a full conversation: a few facts in, three-to-four fields out.
-function buildSystemPrompt(yesterday: DayFact, today: DayFact, isThursday: boolean, aandachtspunt: string | null): string {
+function buildSystemPrompt(
+  yesterday: DayFact,
+  today: DayFact,
+  isThursday: boolean,
+  aandachtspunt: string | null,
+  memoryFacts: { feit: string; categorie: string | null }[],
+): string {
   const yesterdayTraining = yesterday.dayType === 'training'
   const todayTraining = today.dayType === 'training'
+  // Schema-derived, not calendar-derived (unlike isThursday below) — used
+  // only to gate the Power Hour eating-advice line further down, so a
+  // session moved off Thursday via week_overrides is still caught. Kept
+  // deliberately separate from isThursday itself, which stays calendar-
+  // based for hasNotableSignal here and for the checkin_diag diagnostic in
+  // the Deno.serve handler below (see that assignment's own comment) —
+  // narrowing only this one block's gate, not those other two consumers.
+  const todayPowerHour = today.dayType === 'power_hour'
+  // Background facts about the user's week (office days, work-free days,
+  // recurring habits) — same unfiltered coach_memory read coach-chat/
+  // prompt.ts does. Framed below as facts to check assumptions against,
+  // never as a menu: this card is 1-2 sentences, and a habit like "banaan
+  // of noten vooraf" would turn into a fixed suggestion if the model
+  // treated the list as things to propose rather than things to not
+  // contradict. `categorie` deliberately left out of the rendered text —
+  // it's a database-organisation aid (how a fact groups for memory_update/
+  // memory_deactivate), not a statement about how firm the fact is, and
+  // showing it here would suggest otherwise (the two facts that caused the
+  // 2026-09-11 kantoordag bug are 'gewoonte'; a soft, optional habit like
+  // "na training vaak eerst een shake" is 'vaste_gewoonte' — backwards from
+  // what those labels would imply about bindingness).
+  const memoryBlock = memoryFacts.length > 0
+    ? `\n- Achtergrondkennis over de gebruiker (langetermijngeheugen) — gebruik dit om aannames te toetsen en tegenspraken te voorkomen (bijv. welke dagen kantoordag zijn, vaste gewoontes), NIET als een lijst om suggesties uit te putten: noem een van deze feiten alleen als de dag van vandaag daar zelf om vraagt.\n${memoryFacts.map((f) => `  - ${f.feit}`).join('\n')}`
+    : ''
   // Was only ever computed (as yesterdayTraining/todayTraining/
   // hasHandoverQuestion) to feed the old trigger gate in the Deno.serve
   // handler below — that gate is gone (see file header), and this function
@@ -269,8 +299,8 @@ function buildSystemPrompt(yesterday: DayFact, today: DayFact, isThursday: boole
 Feiten om op te baseren (gebruik alleen wat hier staat, verzin niets):
 - Gisteren was een ${dayLabel(yesterday)}.
 - Vandaag is een ${dayLabel(today)}.
-${isThursday ? '- Vandaag is donderdag: Power Hour (trainer-geleide HIIT, kracht en cardio) om 19:00, dus niet nuchter trainen die dag — een normale eetdag met een snack rond 17:30 en de hoofdmaaltijd na de training.\n' : ''}- Zondag is de vaste beendag, altijd nuchter — de norm, niet de uitzondering.
-${(yesterdayTraining || todayTraining) ? '- Spiereiwitsynthese blijft 24-48 uur verhoogd na een zware trainingssessie — de dag ná een trainingsdag mag ook eiwitrijk zijn.\n' : ''}${aandachtspunt ? `- Meegenomen aandachtspunt uit een eerdere dagafsluiting, wat de coach moet onthouden: "${aandachtspunt}" — dit kan over gisteren gaan, maar ook over een eerdere dag; gebruik alleen een dagaanduiding die letterlijk in deze tekst zelf staat, verzin er zelf geen bij.` : '- Geen aandachtspunt beschikbaar.'}
+${todayPowerHour ? '- Op een Power Hour-dag: geen nuchtere training, een normale eetdag met een snack rond 17:30 en de hoofdmaaltijd na de training.\n' : ''}- Zondag is de vaste beendag, altijd nuchter — de norm, niet de uitzondering.
+${(yesterdayTraining || todayTraining) ? '- Spiereiwitsynthese blijft 24-48 uur verhoogd na een zware trainingssessie — de dag ná een trainingsdag mag ook eiwitrijk zijn.\n' : ''}${aandachtspunt ? `- Meegenomen aandachtspunt uit een eerdere dagafsluiting, wat de coach moet onthouden: "${aandachtspunt}" — dit kan over gisteren gaan, maar ook over een eerdere dag; gebruik alleen een dagaanduiding die letterlijk in deze tekst zelf staat, verzin er zelf geen bij.` : '- Geen aandachtspunt beschikbaar.'}${memoryBlock}
 
 Hoe je het aandachtspunt weegt tegenover de trainingsfeiten:
 ${
@@ -438,6 +468,19 @@ Deno.serve(async (req: Request) => {
     const { data: yesterdaySession } = await supabase.from('coach_sessions').select('aandachtspunt').eq('datum', yesterdayDateStr).limit(1)
     const aandachtspunt: string | null = yesterdaySession && yesterdaySession.length > 0 ? yesterdaySession[0].aandachtspunt ?? null : null
 
+    // Same unfiltered read as coach-chat/prompt.ts's buildDynamicContext —
+    // no categorie/keyword filter, active facts only. This is what lets the
+    // card know things like which days are office days, that coach-chat
+    // already had and this function didn't (2026-09-11 kantoordag bug).
+    // categorie still selected (harmless) even though buildSystemPrompt
+    // doesn't render it — see that function's own comment on why.
+    const { data: memoryFactsRaw } = await supabase
+      .from('coach_memory')
+      .select('feit, categorie')
+      .eq('actief', true)
+      .order('created_at', { ascending: true })
+    const memoryFacts = memoryFactsRaw ?? []
+
     const isThursday = todayWeekday === 4
 
     // checkin-diag: computed once here from data this handler already has,
@@ -447,6 +490,11 @@ Deno.serve(async (req: Request) => {
     // signature and behavior stay completely untouched by this diagnostic.
     const gisterenGetraind = yesterdayInfo.dayType === 'training'
     const vandaagTrainingsdag = todayInfo.dayType === 'training'
+    // Stays keyed to the calendar (isThursday), not todayInfo.dayType —
+    // unlike the schema-based gate buildSystemPrompt now uses for its own
+    // Power Hour eating-advice block. A moved Power Hour session (via
+    // week_overrides) would desync this diagnostic flag from the card's
+    // actual content; left as-is, out of scope for this task.
     const vandaagPowerHour = isThursday
     // Raw aandachtspunt, straight from the coach_sessions query above —
     // never a filtered/presentation-adjusted variant. See buildSystemPrompt's
@@ -482,7 +530,7 @@ Deno.serve(async (req: Request) => {
 
     const result = await callClaude(apiKey, {
       model: 'claude-sonnet-5',
-      system: buildSystemPrompt(yesterdayInfo, todayInfo, isThursday, aandachtspunt),
+      system: buildSystemPrompt(yesterdayInfo, todayInfo, isThursday, aandachtspunt, memoryFacts),
       messages: [{ role: 'user', content: 'Genereer de ochtend check-in kaart voor vandaag.' }],
       tools: [RENDER_CHECKIN_TOOL],
       toolChoice: { type: 'tool', name: 'render_checkin_card' },

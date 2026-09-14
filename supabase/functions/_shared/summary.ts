@@ -3,7 +3,7 @@
 // - close-day-cron (thin: logged data only, no conversation access)
 
 import { supabase } from './supabaseClient.ts'
-import { currentCalWeek, resolveTodayWorkout } from './today.ts'
+import { currentCalWeek, resolveTodayWorkout, sortMealsByActiveDayOrder } from './today.ts'
 import { callClaude } from './anthropic.ts'
 
 const RECORD_SUMMARY_TOOL = {
@@ -125,7 +125,7 @@ export async function closeDayWithSummary(
     resolveWorkoutForDate(datum),
   ])
 
-  const meals = mealsRes.data ?? []
+  const meals = sortMealsByActiveDayOrder(mealsRes.data ?? [])
   const mealsText =
     meals.length > 0
       ? meals.map((m) => `- ${m.tijdstip ?? '?'} ${m.omschrijving}: ${m.eiwitten_g}g eiwit, ${m.calorieen}kcal`).join('\n')

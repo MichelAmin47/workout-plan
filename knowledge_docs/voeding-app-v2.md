@@ -1,10 +1,120 @@
 # Voeding App — v2
 
-Alle blokken van de eerste bouwfase (1 t/m 9, inclusief blok 5) zijn gebouwd,
-gepusht en live. Dit document verzamelt twee dingen: restpunten uit die
-bouw- en testfase die nog niet afgevinkt zijn, en nieuwe featureideeën voor
-een volgende fase. Zie `voeding-app-volledige-documentatie.md` voor de
-volledige bouw- en testgeschiedenis van fase 1.
+Openstaande bevindingen, features en beslissingen. Alle blokken van de eerste
+bouwfase (1 t/m 9) zijn gebouwd en live.
+
+**Dit document is op 1 september 2026 gesplitst.** Het was 3131 regels geworden
+en ruim een derde ging over afgerond werk, waardoor "wat staat er nog open?"
+niet meer te beantwoorden was zonder alles door te lezen. De verdeling nu:
+
+| Document | Inhoud |
+|---|---|
+| `voeding-app-v2.md` (dit) | Alles wat openstaat of nog beslist moet worden |
+| `voeding-app-afspraken.md` | De vier staande afspraken (§3, §4, §5, §12) — de blokken die letterlijk in CC-prompts gaan |
+| `voeding-app-archief.md` | Afgeronde bevindingen, ongewijzigd en met dezelfde nummers |
+| `voeding-app-datachecks.md` | Vaste leesqueries op de database, met interpretatie per check |
+| `voeding-app-volledige-documentatie.md` | Bouw- en testgeschiedenis van fase 1 |
+
+**Sectienummers zijn nergens hernummerd.** Ze worden overal in de documentatie
+genoemd, dus §14 blijft §14, ook nu die in het archief staat.
+
+---
+
+## Statusoverzicht
+
+Bijgewerkt 11 september 2026.
+
+### ⬜ Openstaand
+
+| § | Onderwerp | Stand |
+|---|---|---|
+| 1 | Vier testpunten uit blok 4 | Nooit afgevinkt, geen bekend probleem |
+| 1 | `hasNotableSignal`-tak op signaalloze dag | Half beantwoord; `v: 3` legt de kaarttekst nu vast |
+| 2 | Draait de dagafsluitcron op de bedoelde lokale tijd? | Te toetsen tegen de crondefinitie |
+| 2 | `coach_memory` op ruis controleren | Gedaan 2 en 11 sept; één fout feit gevonden en gecorrigeerd (§25) |
+| 6 | Sjabloonmatige suggesties | Migratie geslaagd, herkadering niet; geen richting |
+| 8 | Vervolgtaak 2 — transcript-filtering gewichtslek | Onderzocht, niet gebouwd |
+| 15b | Vraagdetectie mist 2 van de 3 aandachtspunten | **Volgende taak**; gestructureerde vlag i.p.v. regex |
+| 16 | Meer zien tijdens het laden van de ochtendkaart | Uitgedacht, geen CC-prompt |
+| 19a | Antwoordopties worden afgekeurd op `label_te_lang` | Labels worden gelogd sinds 8 sept; ~3 datapunten nodig |
+| 20 | Dev-omgeving schrijft naar productie | Vier voorvallen; geen richting gekozen |
+| 20a | Onvolledige `files`-array voorkomen | Zichtbaar gemaakt, niet voorkomen |
+| 21a | Gereconstrueerde dagen zijn niet ijkbaar | Heuristiek gemeten zwakker dan aangenomen; drempel niet verdedigbaar |
+| 23 | Weging niet als onbetrouwbaar te markeren | Ontwerpvraag over incomplete weken eerst |
+
+### ⚙️ Uitgedacht, klaar om op te pakken
+
+| § | Onderwerp | Voorwaarde vooraf |
+|---|---|---|
+| 7 | Eiwitspreiding over de dag | Alleen §21a nog; datavenster is gehaald |
+| 7 | Hydratie fase A | CC-prompt staat klaar in de bijlage |
+| 7 | Coach-header opfrissen | Puur visueel |
+| 7 | Systeemprompt wordt bij elk bericht opnieuw verstuurd | Kosten, geen correctheid |
+| 17 | Eiwit schatten uit een foto | Kalibratiemeting eerst |
+
+### ✅ Afgerond — volledige tekst in `voeding-app-archief.md`
+
+| § | Onderwerp | Opgelost |
+|---|---|---|
+| 8 | Vervolgtaak 1 — bundel-afgeleide deploy-verificatie | 27 aug |
+| 9 | Coach beweert te loggen zonder te loggen | 14 aug, `coach-chat` v26 |
+| 10 | Check-in kaart: niet-getoetste overname + verkeerde knoppen | 17 aug, `morning-checkin` v4 |
+| 11 | Dagafsluiting schakelt te snel door | 19 aug, client-side |
+| 13 | Check-in gemist door netwerk-hik | 18 aug |
+| 14 | Check-in trigger faalt op "gisteren getraind" | 25 aug, v5 |
+| 15 | Aandachtspunt noemt verkeerd relatief dagwoord | 25 aug, prompt-only |
+| 18 | Check-in-kaart niet te controleren | 26 aug, v10 + `checkin_diag` |
+| 19 | Keuzevraag krijgt geen antwoordknoppen | 27 aug, v11 |
+| 21 | Nachtelijke maaltijden sorteren vooraan | 31 aug, `_shared/today.ts` |
+| 22 | Twee tellers in de Coach-header | 28 aug, `coach-chat` v30 |
+
+**Ook afgerond, maar met een openstaande staart:** §19 → §19a, §21 → §21a. Die
+staarten staan hieronder in volle lengte; de opgeloste helft in het archief.
+
+Deze zijn gebouwd maar staan **nog wél volledig in dit document**, omdat er
+metingen aan vasthangen die nog moeten gebeuren:
+
+| § | Onderwerp | Gebouwd | Waarom nog hier |
+|---|---|---|---|
+| 15a | Aandachtspunt-filter: annoteren i.p.v. droppen | 2 sept | Effect gemeten, oorzaak nog open |
+| 19a | `v: 3`, plus labellogging | 2 en 8 sept | Meetinstrument; ~3 datapunten nodig |
+| 24 | Promptregel tegen Engelse bezitsvorm | 8 sept | Effect nog niet waargenomen |
+| 25 | `coach_memory` naar de ochtendkaart | 11 sept | Eén testaanroep; nog geen echte kaart |
+
+### Stand van de ontwikkeling — 11 september 2026
+
+**Vier deploys op `morning-checkin` in tien dagen, alle vier één functie,
+byte-gedift, verificatiescript exitcode 0:**
+
+| Datum | Versie | Wat |
+|---|---|---|
+| 2 sept | — | §15a annoteren i.p.v. droppen + §19a `v: 3` (vraagtekst en kaarttekst) |
+| 8 sept | — | §19a labellogging + §24 promptregel tegen Engelse bezitsvorm |
+| 11 sept | v20 | §25 `coach_memory` naar de ochtendkaart + donderdagblok ontdubbeld |
+
+Daarnaast op 11 september buiten de code om: een **fout feit in `coach_memory`**
+gecorrigeerd via de chat (Power Hour was beschreven als een boksles). Zie §25.
+
+**Wat er in tien dagen boven water kwam.** Drie van de vier deploys komen voort
+uit iets wat vóór 2 september niet zichtbaar was, omdat de kaarttekst nergens
+bewaard werd. §19a bleek omgekeerd te liggen (het model lévert antwoordopties,
+de validatie keurt ze af), §24 was een taalfout in de zichtbare tekst, en §25
+kwam boven doordat de kaart zichzelf binnen één scherm tegensprak.
+
+**Wat nu openstaat, in volgorde:**
+
+| Prioriteit | Onderwerp | Stand |
+|---|---|---|
+| 1 | §19a labelmeting | Loopt; ~1 datapunt per week, 3 nodig |
+| 2 | §24 taalregel | Effect nog niet waargenomen op een echte kaart |
+| 3 | §15b vraagdetectie | Blijft waar, maar minder blokkerend dan gedacht |
+| 4 | §3 derde faalvorm | Deploydiscipline lekt op de kopieerstap — zie `voeding-app-afspraken.md` |
+
+De eiwitspreiding (§7) is qua data niet meer geblokkeerd; alleen §21a moet nog
+bijgesteld met de gemeten verdeling.
+
+*Scope: dit document gaat alleen over de voeding-app. Workout-app en
+trainingsschema's worden elders geregeld.*
 
 ---
 
@@ -25,6 +135,142 @@ bekend probleem; ze zijn simpelweg nooit expliciet bevestigd.
   opnieuw om af te sluiten.
 - ⬜ **Melding vuurt ook op een dag zonder enige activiteit** (onvoorwaardelijk
   — de 23:30-melding hoort altijd te vuren, ongeacht of er die dag gelogd is).
+- ⬜ **`hasNotableSignal`-tak van de ochtendkaart op een écht signaalloze dag**
+  (toegevoegd 25 augustus bij punt 14). De tak die een vlakke opening en
+  `vraag_type: "geen"` afdwingt wanneer er niets noemenswaardigs is, kon niet
+  live met een echte modelcall getest worden. Alleen mechanisch geverifieerd
+  dat de instructie in de gedeployde prompt zit — niet wat het model ermee
+  doet.
+
+  **Waarom dit lastig te plannen is:** in het standaardschema bestaat er geen
+  signaalloze dag. Rustdagen vallen alleen op dinsdag (Anti-zit) en zaterdag
+  (Vrije dag), en beide worden voorafgegaan door een trainingsdag (maandag
+  resp. vrijdag), dus "gisteren getraind" vuurt. Donderdag vuurt op zichzelf
+  (Power Hour). De tak is dus alleen bereikbaar als een override **twee
+  rustdagen achter elkaar** oplevert — dat is toeval, geen wekelijks moment.
+  *(Let op: vrijdag 28-08 is hiervoor géén geschikte dag, ondanks een eerdere
+  inschatting — week 35 heeft alleen overrides op maandag en woensdag, dus
+  vrijdag valt terug op het standaardschema en is daar een trainingsdag,
+  Schouders.)*
+
+  **Aanbevolen aanpak:** bewust uitlokken met een tijdelijke rust-override op
+  een dag ná een rustdag, kaart één keer laten genereren, override daarna
+  terugzetten — hetzelfde patroon als bij de 08-23-reproductie (origineel
+  vastleggen, herstellen, verifiëren).
+
+  **Wat te beoordelen:** leest de kaart als een normale rustige opening zonder
+  gezochte trainingsverwijzing, en staat er géén vraag met antwoordpillen
+  onder (`questionType` = `'geen'`/`none`).
+
+  **⚠️ Half beantwoord, per ongeluk (vastgesteld 31 augustus).** Er staan twee
+  `checkin_diag`-rijen op 28-08 om 15:29 (lokaal, één seconde uit elkaar) met
+  **`hasNotableSignal: false`** — de tak waarvan hierboven staat dat hij niet te
+  plannen was. Ze komen uit de dev-app tijdens de bouw van §22, en de reden dat
+  alle vier de condities op false staan terwijl de ochtendrij van diezelfde dag
+  `vandaagTrainingsdag: true` heeft, is dat de trainingsdag ná de ochtendkaart
+  handmatig naar een rustdag is omgezet. De resolutie las dus gewoon de nieuwe
+  stand — geen bug, en een bevestiging dat er nergens gecachet wordt.
+
+  **Wat dit wél oplost:** de tak is een keer met een echte modelcall gedraaid en
+  het model gaf `vraag_type: "geen"` terug, precies zoals bedoeld. Dat deel
+  hoeft niet meer uitgelokt te worden.
+
+  **Wat dit níet oplost:** of de kaart*tekst* vlak was zonder gezochte
+  trainingsverwijzing. `checkin_diag` slaat de tekst niet op, dus dat blijft
+  onbeantwoord — zelfde observatiegat als in §19 hieronder, en dezelfde
+  oplossing (tekst meelogggen) zou beide dichten.
+
+- ✅ **Verschijnen er nog wél vragen op signaaldagen? — AFGEROND (31 augustus),
+  het vermoeden houdt geen stand.** Zie de uitkomst onderaan dit blok; de
+  observaties hieronder blijven staan omdat ze laten zien hoe de hypothese zich
+  ontwikkelde. (Los aandachtspunt,
+  25 augustus.) De "niets bijzonders"-regel dwingt `vraag_type: "geen"` af
+  zónder signaal, maar dwingt omgekeerd geen vraag af mét signaal. Op 25-08
+  (rustdag ná training) kwam er een inhoudelijk correcte kaart zonder vraag —
+  op zichzelf verdedigbaar. Worden kaarten echter structureel mededelingen in
+  plaats van vragen, dan trekt de nieuwe regel breder dan bedoeld. Eén
+  observatie zegt nog niets; een week meekijken volstaat.
+
+  **Observatie 2 van 7 — woensdag 26-08, 08:09.** Opnieuw een kaart zónder
+  vraag, nu op een trainingsdag (Rug & Biceps). Daarmee twee dagen op rij, op
+  twee verschillende takken: 25-08 was rustdag-ná-training, 26-08 is
+  trainingsdag-ná-rustdag. In beide gevallen stond `hasNotableSignal` op true,
+  dus de vlakke-openingstak is níet de verklaring. Het model kiest zelf om
+  niets te vragen, binnen de vrijheid die het heeft. Nog steeds geen bewijs —
+  wel het patroon dat je zou zien als de "niets bijzonders"-regel breder
+  resoneert dan de conditie waaronder hij hoort te gelden.
+
+  **Aangescherpt 26 augustus, na de instrumentatie uit §18.** De eerste
+  `checkin_diag`-rij toont `hasNotableSignal: true` mét `vraag_type: "geen"`.
+  Daarmee is één van de twee kandidaat-bugs uitgesloten: er komt géén vraag
+  terug die niet rendert — het model kiest zelf om niets te vragen. De
+  observatie is dus niet langer "stelt hij een vraag die verdwijnt", maar
+  **"stelt hij te weinig vragen"**, en dat is een promptvraag, geen renderbug.
+
+  **Wat de reeks nu moet uitwijzen:** hoe vaak `vraag_type` op `"geen"` staat
+  terwijl `hasNotableSignal` true is. Dat is voortaan direct te tellen in
+  `checkin_diag` in plaats van af te lezen van kaarten. De reeks begint bij
+  **27-08**; de rij van 26-08 is een verificatie-invocatie (10:04 lokaal, ná de
+  v10-deploy) en niet de kaart die die ochtend getoond is. Let bij het
+  beoordelen ook op **ontbrekende datums** — zie §18.
+
+  **Observatie 3 — donderdag 27-08.** Hier stelde de coach wél een vraag:
+  `vraag_type: "anders"`, bij twee actieve signalen (`gisterenGetraind: true`,
+  `vandaagPowerHour: true`) én een doorgekomen aandachtspunt
+  (`gedroptReden: null`). Dat verzwakt het vermoeden dat de "niets
+  bijzonders"-regel breed doorlekt: op een dag met veel signaal komt er gewoon
+  een vraag. De reeks blijft lopen, maar de hypothese verschuift naar "hoeveel
+  signaal is er nodig" in plaats van "de regel lekt".
+
+  Nog vast te leggen: bij de twee dagen zonder vraag was er telkens één signaal
+  actief (`vandaagTrainingsdag`), bij de dag mét vraag drie. Als dat patroon
+  aanhoudt, is dit geen bug maar een kalibratievraag over de drempel.
+
+  **Observatie 4 — vrijdag 28-08.** Opnieuw `vraag_type: "geen"`. Stand: drie
+  dagen zonder vraag, één met. Dit is tevens de eerste rij met `payload.v: 2`
+  (zie §19); `antwoordOpties` staat terecht op `nvt` met nul aangeboden, want
+  zonder vraag zijn er geen opties te leveren. Oude `v: 1`- en nieuwe
+  `v: 2`-rijen staan zonder migratie naast elkaar, zoals ontworpen.
+
+  **Observaties 5 t/m 7 en de uitkomst (uitgelezen 31 augustus).** De reeks is
+  in één keer uit `checkin_diag` opgehaald in plaats van van kaarten afgelezen —
+  precies waarvoor §18 gebouwd is. Alle vijf de echte ochtendrijen hadden
+  `hasNotableSignal: true` en `modelOk: true`:
+
+  | Datum | `vraag_type` |
+  |---|---|
+  | do 27-08 | `anders` |
+  | vr 28-08 | `geen` |
+  | za 29-08 | `anders` |
+  | zo 30-08 | `stemming` |
+  | ma 31-08 | `geen` |
+
+  **Drie van de vijf mét vraag.** Het vermoeden dat de "niets bijzonders"-regel
+  breder resoneert dan zijn conditie, houdt daarmee geen stand. De stand van
+  observatie 4 ("drie zonder, één met") was een momentopname die de verkeerde
+  kant op wees; de dagen erna draaiden het beeld om. Dit is normale variatie in
+  modeloordeel, geen bug en ook geen kalibratievraag over een drempel.
+
+  **Geen ontbrekende datums** tussen 27-08 en 31-08 — de controle waar §18 om
+  vraagt, uitgevoerd en schoon. De functie draait dus elke dag zoals bedoeld
+  sinds de poort in §14 verdween.
+
+  **Waarom dit hier stopt en niet doorloopt tot zeven observaties.** De vraag
+  was of er een patroon zichtbaar werd dat op een lekkende regel wees. Dat
+  patroon is er niet, en drie extra dagen gaan dat niet veranderen. Doorgaan zou
+  betekenen dat de reeks bestaat omdat hij bestaat.
+
+  **Correctie op een detail hierboven:** de rij van 26-08 staat in de database
+  op **09:10:11 UTC** (11:10 lokaal), niet op 08:04 UTC / 10:04 lokaal zoals
+  §18 en de tekst hierboven vermelden. De conclusie verandert niet — het blijft
+  een verificatie-invocatie ná de v10-deploy en geen observatiedatum — maar het
+  getal in de documentatie klopte niet met de data.
+
+  **Kleine drift tussen documentatie en implementatie:** de vierde conditie heet
+  in de payload `aandachtspuntGeeftSignaal`, terwijl de CC-prompt in §18
+  `aandachtspuntAanwezig` voorschreef als vaste sleutelnaam. Geen functioneel
+  gevolg, wel het soort afwijking dat bij een volgende uitlezing verwarring
+  geeft als niemand het opgeschreven heeft.
 
 *Wel al bevestigd (ter referentie, geen actie nodig):* de echte 23:30-melding
 werkt (5 augustus), de handmatige dagafsluiting end-to-end werkt (5 augustus,
@@ -72,6 +318,16 @@ Do Not Disturb) — dat is losstaand van deze code-verificatie).
     afgerond; de vaststelling hierboven over het eiwitdoel blijft staan als
     referentie, want die verandert niet mee met het gewicht.
 
+- **Draait de dagafsluit-cron op de bedoelde lokale tijd?** In de function-logs
+  van 26-08 staat een `POST | 200` op `close-day-cron` om **01:00:02 UTC**, wat
+  in zomertijd 03:00 lokaal is — terwijl in dit document consequent van een
+  02:00-cron gesproken wordt. Waarschijnlijk is de cron in UTC ingesteld en
+  klopte 02:00 in wintertijd; dan schuift hij elk zomerseizoen een uur op.
+  Geen bekend probleem (de dag is dan toch al lang voorbij), maar wel het
+  soort stille tijdzone-afwijking dat later verwarring geeft bij het
+  reconstrueren van afsluitmomenten. Zie ook §12 over UTC vs. lokaal.
+  Te verifiëren tegen de daadwerkelijke cron-definitie, niet aannemen.
+
 - **`coach_memory` periodiek controleren op ruis.** Nog niet gedaan sinds de
   laatste check. Staat er onterecht opgeslagen ruis in, dan is dat het
   signaal om de opslag-beslissing (nu `claude-sonnet-5`) naar een sterker
@@ -95,179 +351,6 @@ Do Not Disturb) — dat is losstaand van deze code-verificatie).
     "stabieler"/ouder uit dan een net geleerd feit omdat ze niet uit één
     gesprek zijn afgeleid. Dat is geen ruis-signaal op zich; beoordeel ze op
     dezelfde drie criteria als elk ander feit, niet op hoe "vers" ze aanvoelen.
-
----
-
-## 3. Staande afspraak — verificatie bij elke Edge Function-deploy
-
-**Vastgelegd 11 augustus, na vier transcriptiefouten in één sessie.**
-
-`deploy_edge_function` neemt letterlijke bestandsinhoud per call; er is geen
-build-step die imports resolvet. Elke deploy stuurt dus *alle* gebundelde
-bestanden opnieuw mee, ook bestanden die niets met de wijziging te maken
-hebben. Zolang die met de hand worden overgetypt, draagt elke deploy het
-risico van fouten in ongerelateerde code — en die fouten zijn stil: een
-gestripte `summary.ts` crasht niet, hij schrijft alleen niets meer weg, wat
-je pas uren later merkt bij de dagafsluiting.
-
-**Sinds v22 in gebruik, en de afspraak voor alle volgende deploys:**
-1. Payload genereren met een script dat direct van schijf leest — nooit
-   hertypen in de tool-call.
-2. Na de deploy: byte-voor-byte diffen van de gedeployde inhoud tegen
-   git/schijf. Niet "ziet er goed uit", maar een echte vergelijking.
-
-**Onderstaand blok in elke CC-prompt opnemen die een Edge Function
-deployt:**
-
-```
-## Deploy verification (required)
-
-Generate the deploy payload with a script that reads the files directly
-from disk — do not retype file contents into the tool call. After
-deploying, verify git ↔ production parity with a real byte-for-byte diff
-of every bundled file, not a visual check and not an assumption that the
-deploy landed correctly.
-
-This is a standing requirement for this project: hand-typed payloads have
-repeatedly corrupted unrelated shared files (a stubbed summary.ts that
-silently stopped writing to coach_sessions, an undefined variable in
-today.ts's Monday cross-week path). These fail silently, so the diff is
-the only thing that catches them.
-
-Also: when you change a file under _shared/, identify EVERY function that
-bundles it and redeploy all of them — then diff all of them, not just the
-ones you deployed. A correct file on disk that never reached one of its
-functions is invisible to a diff scoped to what you deployed.
-```
-
-### Tweede faalvorm (13 augustus): de niet-gedeployde functie
-
-**De afspraak hierboven bestond al en heeft dit niet gevangen — daarom apart
-benoemd.**
-
-Op 12 augustus werd een gewicht-uitsluiting toegevoegd aan
-`_shared/summary.ts`, dat door **twee** functies gebundeld wordt. Er werd
-gerapporteerd dat beide byte-gedift waren, maar in werkelijkheid had alleen
-`close-day-cron` de fix gekregen; `coach-chat` draaide nog de versie ervóór.
-Omdat de handmatige dagafsluiting ("sluit de dag af" in de chat) juist via
-`coach-chat` loopt, lekte het gewicht daar gewoon door.
-
-**Waarom dit een andere fout is dan het hertypte-payload-probleem:** de
-bestandsinhoud op schijf was volledig correct. Er was niets beschadigd. Wat
-faalde was de deploy-en-verificatiestap zelf — en de bestaande diff-afspraak
-kán dit per definitie niet vangen, want die vergelijkt alleen wat er
-gedeployed is. Een functie die had moeten worden bijgewerkt maar overgeslagen
-werd, valt buiten het blikveld.
-
-**Voorgestelde mechanische oplossing (uitgewerkt, nog niet gebouwd):** zie
-sectie 8, "Vervolgtaak 1".
-
----
-
-## 4. Staande afspraak — testdata opruimen na elke verificatie
-
-**Vastgelegd 11 augustus, nadat vier testrijen in de echte dagafsluiting
-terechtkwamen.**
-
-Verificatie draait tegen de echte database. Elke testconversatie die een
-maaltijd logt, schrijft een echte rij naar `nutrition_log` — en als de
-dagafsluiting daarna draait, rekent die eroverheen. Op 11 augustus leverde dat
-een sessie op met 257g eiwit in plaats van de werkelijke 179g; de vier
-testrijen (kwark+whey 40g, eieren 15g, rijstwafel 3g, brood+kipfilet 20g)
-waren in het totaal beland. Handmatig gecorrigeerd.
-
-**Waarom dit stil misgaat:** de `SUM` in `coach_sessions` klopte technisch
-perfect — hij telde op wat er stond. De samenvattingstekst klopte óók, want
-die kwam uit de echte chatthread zonder testberichten. Alleen naast elkaar
-gelegd viel het verschil op. Niets crasht, niets meldt iets.
-
-**Afspraak voor alle volgende verificatieruns:**
-1. Noteer tijdens de run welke rijen zijn aangemaakt (id's, of het
-   tijdvenster).
-2. Verwijder ze direct na afloop — niet "later even", want de dagafsluiting
-   kan er 's nachts overheen draaien.
-3. Controleer achteraf: som van `nutrition_log` voor die datum moet
-   overeenkomen met wat er werkelijk gegeten is, en met `eiwit_totaal` /
-   `calorieen_totaal` in `coach_sessions` als de dag al afgesloten is.
-4. Check ook `coach_memory` — testconversaties kunnen feiten opslaan. Die zijn
-   veel lastiger te herkennen dan maaltijdrijen, want een fout feit ziet er
-   niet fout uit (zie ook het monitoringpunt hierboven).
-
-**Onderstaand blok in elke CC-prompt opnemen die verificatie tegen de echte
-database doet:**
-
-```
-## Test data cleanup (required)
-
-Verification runs against the live database, so any test conversation that
-logs a meal writes a real row to nutrition_log — and the day-close will sum
-over it. This has already corrupted one day's totals (257g protein recorded
-instead of the real 179g).
-
-After verification:
-1. Delete every row your test run created — track the ids or the time
-   window as you go.
-2. Verify the cleanup: nutrition_log's SUM for that date must match what
-   was actually eaten, and match eiwit_totaal / calorieen_totaal in
-   coach_sessions if the day was already closed.
-3. Check coach_memory for facts stored during testing and deactivate any
-   that shouldn't persist.
-
-Do the cleanup in the same session — not "later." The 23:30 notification
-and the 02:00 cron can both close the day before anyone gets back to it.
-```
-
----
-
-## 5. Staande afspraak — gedragsregels gelden niet automatisch voor de dagafsluiting
-
-**Vastgelegd 12 augustus, gevonden tijdens de bouw van de gewichtsfeature.**
-
-De dagafsluiting draait een **eigen model met een eigen prompt** uit
-`_shared/summary.ts` — die kent `coach-chat`'s `PERSONA_PROMPT` niet. Een
-gedragsregel die in `prompt.ts` wordt toegevoegd, geldt daar dus níet.
-
-**Hoe dit concreet misging:** de regel "noem gewicht nooit uit jezelf" werd
-netjes in `coach-chat` gezet en werkte daar ook. Maar het
-dagafsluitingsmodel wist er niets van en verwerkte een weging gewoon in het
-aandachtspunt voor de volgende dag — waarmee het gewicht alsnog dagelijks in
-beeld zou komen en het hele "registreren, niet tonen"-principe stilletjes
-ondergraven werd. Gevonden tijdens verificatie, gefixt met een expliciete
-uitsluiting in `summary.ts`.
-
-**Waarom dit een staand risico is:** niets waarschuwt hiervoor. De twee
-prompts staan los van elkaar, er is geen gedeelde basis en geen check die
-signaleert dat een regel maar op één plek staat. Elke volgende "de coach mag
-X nooit noemen"-regel loopt dezelfde fout in als er niet actief aan gedacht
-wordt.
-
-**Let op:** `_shared/summary.ts` wordt gebundeld in **zowel `coach-chat` als
-`close-day-cron`** — beide moeten opnieuw gedeployed worden bij een wijziging
-daar.
-
-**Onderstaand blok opnemen in elke CC-prompt die een gedragsregel toevoegt of
-wijzigt:**
-
-```
-## Prompt rule propagation (required)
-
-Any behavioural rule of the form "the coach should never mention X" or
-"the coach should always say Y" must be applied in BOTH places:
-
-1. coach-chat's PERSONA_PROMPT (prompt.ts) — the conversational model
-2. _shared/summary.ts — the day-close model, which runs its own separate
-   prompt and does NOT inherit PERSONA_PROMPT
-
-This has already caused a real bug: a "never mention weight" rule was
-added to coach-chat only, and the day-close model happily summarised a
-weigh-in into the next day's aandachtspunt.
-
-Note that _shared/summary.ts is bundled into both coach-chat and
-close-day-cron — changing it means redeploying both functions.
-
-Verify the rule holds in both paths before treating the change as done:
-test it in conversation AND trigger a day-close.
-```
 
 ---
 
@@ -423,6 +506,12 @@ zoals bij blok 5) — dat is werk voor wanneer een van deze opgepakt wordt.
   `nutrition_log` (5 t/m 11 augustus, 54 rijen) tegen de tijdstip-kolom
   gelegd:
 
+  > ⚠️ **Deze meting valt vóór de tijdstip-fix van 22-08 en is geen geldige
+  > nulmeting.** De cijfers hieronder bevatten deels het *logmoment* in plaats
+  > van het *eetmoment* (zie de datumgrens verderop in dit blok). Bewaard als
+  > aanleiding en richting, niet als referentiewaarde — opnieuw meten op data
+  > vanaf 22-08 vóór er advies op gebaseerd wordt.
+
   | Dagdeel | Gemiddeld per dag | Aandeel |
   |---|---|---|
   | Voor 11:00 | ~9g | 5% |
@@ -432,7 +521,9 @@ zoals bij blok 5) — dat is werk voor wanneer een van deze opgepakt wordt.
 
   Vanaf 21:00 alleen al komt gemiddeld 42g binnen — meer dan de hele ochtend
   en namiddag samen. Het eerste log van de dag ligt op zes van de zeven dagen
-  tussen 10:30 en 13:14.
+  tussen 10:30 en 13:14. *(Dat laatste cijfer is juist het meest verdacht: het
+  "eerste log" was vóór 22-08 vaak het moment van loggen, niet van eten — op
+  25-08 werd een ontbijt van 08:00 pas om 10:33 gelogd.)*
 
   **Waarom dit een feature verdient en geen losse tip is.** De dagtotalen zijn
   goed: vijf van de zeven dagen op of boven 165g. De coach ziet dus een groene
@@ -488,6 +579,116 @@ zoals bij blok 5) — dat is werk voor wanneer een van deze opgepakt wordt.
   de al gedocumenteerde energiedip rond 15:00 — daar snijdt één suggestie aan
   twee kanten.
 
+  ---
+
+  ### Voorwaarde vooraf — `tijdstip` moet het eetmoment zijn, niet het logmoment ✅ OPGELOST (22 augustus, coach-chat v27 + v28)
+
+  **Gevonden 22 augustus, vóór de bouw.** De hele spreidingsanalyse bucket
+  eiwitten per tijdvak op basis van `nutrition_log.tijdstip`. Maar de
+  systeemprompt vult dat veld met de **huidige klok** wanneer de gebruiker
+  geen tijd noemt ("net gegeten"). Op kantoordagen wordt het ontbijt soms pas
+  in de middag gelogd — dan komt 13:00 in de database te staan, niet 08:00.
+
+  **Waarom dit de feature ondermijnt vóórdat hij bestaat:** ontbijt-eiwit
+  verschuift dan systematisch van het ochtendvak naar het middagvak. De
+  gemeten 9g vóór 11:00 en 49g in 11:00-15:00 kunnen dus deels een **artefact
+  van het logmoment** zijn in plaats van het eetmoment. Dezelfde categorie
+  fout als de middernacht-caveat hierboven, andere oorzaak — en hij duwt
+  precies de kant op die het advies zou aansturen. Advies geven op basis van
+  vertekende invoer is erger dan geen advies geven.
+
+  **Gekozen oplossing:** de coach vraagt actief naar het eetmoment wanneer dat
+  niet vanzelfsprekend is. Geen UI-wijziging, geen schemawijziging — past bij
+  de bestaande chat-first opzet. (Alternatief — de gebruiker zelf altijd de
+  tijd laten noemen — werkt technisch al, maar leunt volledig op zijn
+  initiatief en is dus geen structurele oplossing.)
+
+  **Belangrijke consequentie voor de planning:** dit repareert alleen data
+  vanaf het moment dat het live staat. Bestaande rijen zijn niet met
+  terugwerkende kracht te herstellen — hetzelfde argument als bij blok 3b
+  (calorieën meeloggen), waar precies daarom niet gewacht werd. Daarom eerst
+  dit, dan pas de spreidingsfeature bouwen op data die wél klopt.
+
+  > ### ⚠️ Harde datumgrens voor de spreidingsanalyse: **vanaf 22-08-2026**
+  >
+  > `nutrition_log.tijdstip` is pas vanaf **22 augustus 2026** het werkelijke
+  > **eetmoment**. Alles daarvóór bevat voor een deel het **logmoment** — en
+  > dat verschuift structureel één kant op (later op de dag), dus het is geen
+  > ruis die uitmiddelt maar een systematische bias precies in de richting
+  > die het advies zou aansturen.
+  >
+  > **Elke query, analyse of feature die op `tijdstip` bucket, moet filteren
+  > op `datum >= '2026-08-22'`.** Geen uitzonderingen voor "even snel een
+  > indruk krijgen" — een vertekende indruk is hier erger dan geen indruk.
+  >
+  > De 7-daagse basismeting van 5-11 augustus in dit document valt dus
+  > vóór de grens en is **niet bruikbaar als nulmeting**. De hoofdconclusie
+  > (zwaartepunt na 18:00) blijft waarschijnlijk staan — logvertraging
+  > verklaart geen 57% 's avonds — maar de exacte ochtend- en middagcijfers
+  > moeten opnieuw gemeten worden op data ná de grens.
+  >
+  > *Eerste volledige venster van 7 schone dagen: vanaf 29 augustus 2026.*
+
+  **Bevestigd in echt gebruik (24-25 augustus, anderhalve dag na livegang):**
+  van 12 gelogde items hadden er 5 een reëel verschil tussen eetmoment en
+  logmoment (+51 tot +154 minuten); de overige 7 waren binnen een minuut
+  real-time gelogd, waar de coach terecht niets vroeg. Concreet effect: de
+  eiwitshake van 24-08 (29g) is om 14:30 gedronken maar pas 16:42 gelogd —
+  vóór deze fix was die in het vak 15:00-18:00 beland in plaats van
+  11:00-15:00. Precies de vertekening waar het om ging. Ook de
+  middernachtgrens werkt: iets om 23:59 gegeten en 00:10 gelogd kwam correct
+  onder datum 24-08 terecht.
+
+  **Uitgevoerd 22 augustus — in twee stappen, beide richtingen afgedekt.**
+
+  **v27 — vooruit (vragen vóór het loggen).** De regel staat in de
+  `tijdstip`-veldbeschrijving binnen het schema van `nutrition_log_add`, niet
+  in het persona-blok — het inmiddels drie keer bewezen point-of-use patroon
+  (calorietotaal-annotatie, maaltijdlijst-regel, nu deze). De coach gebruikt
+  een genoemde tijd of een duidelijk "net/zojuist" direct zonder te vragen,
+  en stelt één korte vraag bij een echt signaal van afwijking: een
+  vroeger-moment-woord ("ontbijt", "lunch", "vanochtend", "tussen de
+  middag") tegen een klok die daar ruim voorbij is, of meerdere maaltijden in
+  één bericht.
+
+  *Propagatie gecontroleerd, niet aangenomen:* volledige read van
+  `_shared/summary.ts` bevestigt dat die de regel niet nodig heeft — hij
+  SELECT'eert `tijdstip` alleen uit al gelogde rijen om het transcript op te
+  bouwen, roept nooit `nutrition_log_add` aan en schrijft `tijdstip` nooit
+  zelf, in geen van beide afsluitroutes. Daar dus niets gewijzigd.
+
+  **v28 — achteraf (corrigeren nadat de rij bestaat).** Bij de verificatie van
+  v27 bleek een gat: `nutrition_log_update` had geen `tijdstip`-parameter, dus
+  een tijd die pas ná het loggen ter sprake kwam ("dat ontbijt was trouwens om
+  8 uur") was onherstelbaar. Optionele `tijdstip` toegevoegd aan schema én
+  handler, meeliftend op de bestaande partial-patch vorm — geen
+  herstructurering. Vooraf geverifieerd dat de handler écht een partial patch
+  bouwt (`tools.ts:235-244`) en dat de maaltijdcontext per rij al zowel `id`
+  als `tijdstip` toont (`prompt.ts:331`), zodat de coach weet waarnaar hij
+  verwijst en waarvandaan hij corrigeert.
+
+  **Verificatie (live, tegen de echt gedeployde functie):** expliciete tijd →
+  direct gebruikt zonder vraag; "net gegeten" → huidige klok, geen vraag;
+  "mijn ontbijt was…" om 13:xx → coach vraagt, antwoord "rond half 8" wordt
+  07:30; twee maaltijden in één bericht → één vraag, apart opgeslagen als
+  07:00 en 12:30. Voor v28: tijd-alleen correctie wijzigt `tijdstip` en laat
+  omschrijving/eiwitten/calorieën ongemoeid; een portiecorrectie zonder
+  tijdvermelding laat `tijdstip` exact staan (het grootste regressierisico);
+  beide in één bericht landen samen; dag-SUM 90,6g/745kcal vóór én na een
+  tijd-alleen correctie — ongewijzigd. Regressietest bevestigt dat de
+  v27-vraaglogica intact bleef, dus de twee schema's in dezelfde array zijn
+  niet gaan interfereren.
+
+  Beide keren gedeployed met alle 7 gebundelde bestanden vers van schijf
+  gelezen en byte-diff geverifieerd. Testdata na afloop volledig verwijderd,
+  `nutrition_log` teruggebracht naar de echte staat, geen `coach_sessions`- of
+  `coach_memory`-rijen achtergebleven.
+
+  **Bekende grens (geaccepteerd):** de maaltijdcontext bevat alleen de rijen
+  van vandáág mét `id`. Een fout tijdstip dat pas de volgende dag opvalt, kan
+  de coach dus niet meer corrigeren. Geen bug, wel een grens om te kennen —
+  correcties moeten dezelfde dag gebeuren.
+
 - **Hydratie loggen — zonder te hoeven typen.** ⚙️ **Uitgedacht, prompt klaar,
   nog niet aan CC gegeven.** Gesplitst in twee fases nadat bleek dat een
   homescreen-widget geen gewone Capacitor-functionaliteit is, maar altijd
@@ -519,10 +720,28 @@ zoals bij blok 5) — dat is werk voor wanneer een van deze opgepakt wordt.
   bovenaan de chat oogt saai/generiek. Puur visueel, geen functionele
   impact — kandidaat om samen met wat frontend-polish op te pakken.
 
-- **Chat-inputveld groeit niet mee met lange tekst.** Bij een langere
-  boodschap blijft het invoerveld op vaste hoogte staan in plaats van mee te
-  schalen (auto-grow textarea), wat lange berichten typen onhandig maakt.
-  Losse UI-bug/verbetering, geen backend-impact.
+- **Chat-inputveld groeit niet mee met lange tekst.** ✅ **OPGELOST (19
+  augustus, client-only).** `<input type="text">` vervangen door
+  `<textarea rows={1}>` met een `useEffect` die de hoogte eerst terugzet naar
+  `'auto'` en daarna op `scrollHeight` zet bij elke wijziging — die
+  reset-eerst-stap is wat het veld ook laat *krimpen*, niet alleen groeien.
+  CSS (`max-height: 30vh; overflow-y: auto; resize: none`) is de echte cap;
+  JS voedt alleen de natuurlijke inhoudshoogte. `.input-bar` ging van
+  `align-items: center` naar `flex-end` zodat de verzendknop onderaan blijft
+  zitten terwijl het veld omhoog groeit.
+
+  **Enter-gedrag, bewust gekozen:** Enter verstuurt nog steeds (geen breuk
+  met bestaande gewoonte), Shift+Enter voegt een nieuwe regel toe — standaard
+  chat-UI-conventie (WhatsApp/Slack/ChatGPT), en noodzakelijk omdat een
+  groeiend veld anders alleen via automatisch afbreken kon groeien.
+
+  Geverifieerd op desktop én een mobiele viewport (390×844): 42px
+  basishoogte bij korte tekst, soepel groeien bij lange/meerregelige tekst
+  zonder de berichtenlijst te verdringen, exacte clamp op 30vh met interne
+  scroll (414px inhoud vs. 216px gerenderd), krimpt terug bij verwijderen,
+  Shift+Enter/Enter werken zoals besloten, geen layout-problemen op smalle
+  breedte. Build-verificatie bevestigt de fix in de bundel. Geen Edge
+  Function geraakt.
 
 - **Systeemprompt wordt bij élk bericht volledig opnieuw verstuurd.**
   **Gevonden 14 augustus** tijdens het meten van context-omvang voor sectie 9
@@ -541,39 +760,6 @@ zoals bij blok 5) — dat is werk voor wanneer een van deze opgepakt wordt.
 Beide zijn tijdens ander werk onderzocht en voorgesteld, maar apart gehouden
 omdat ze te groot waren om erbij te doen. Hier staat genoeg detail om er een
 CC-prompt van te maken zonder de oorspronkelijke sessie terug te lezen.
-
-### Vervolgtaak 1 — bundel-afgeleide deploy-verificatie
-
-**Aanleiding:** de niet-gedeployde-functie fout uit sectie 3. De bestaande
-diff-afspraak vergelijkt alleen wat er gedeployed is, en kan een overgeslagen
-functie dus per definitie niet zien.
-
-**Waarom "beter opletten" hier niet volstaat:** de afspraak bestond al en de
-verificatie werd ook gerapporteerd als uitgevoerd. Wat ontbrak was niet de
-zorgvuldigheid maar een controle die niet afhangt van een correct mentaal
-model van "welke functies bundelen dit bestand".
-
-**Voorgestelde opzet (vier stappen):**
-1. Voor elke functiemap onder `supabase/functions/*`: parse recursief de
-   relatieve imports van `index.ts` (`from '../_shared/X.ts'`,
-   `from './Y.ts'`) om de werkelijke bundelset af te leiden. Dit vervangt
-   meteen de handmatig onderhouden bestandslijsten in de ad-hoc
-   deploy-scripts, die hun eigen driftrisico hebben (een nieuw geïmporteerd
-   shared-bestand dat niemand aan de lijst toevoegt).
-2. Haal per functie de live gedeployde bestanden op via `get_edge_function`.
-3. Byte-diff live tegen schijf voor élk bestand in de afgeleide bundel, voor
-   **élke** functie — niet afhankelijk van welke functies je denkt te hebben
-   aangeraakt.
-4. Rapporteer per functie geslaagd/gefaald, met vermelding van welk bestand
-   precies afwijkt.
-
-Stap 3 is de kern: onvoorwaardelijk over alle functies draaien maakt het
-ongevoelig voor een onvolledig beeld van de afhankelijkheden. Was dit na de
-`summary.ts`-wijziging één keer gedraaid, dan was `coach-chat` er direct
-uitgerold.
-
-**Omvang:** echt werk (import-parsing, niet alleen een diff-loop), vandaar
-apart.
 
 ### Vervolgtaak 2 — transcript-filtering om gewichtslekkage structureel te blokkeren
 
@@ -605,278 +791,1257 @@ deze taak moet uitzoeken.
 
 ---
 
-## 9. Bevinding — coach beweert te loggen zonder te loggen, én noemt verouderde totalen
+### Vervolgtaak 1 — bundel-afgeleide deploy-verificatie ✅ GEBOUWD (27 augustus)
 
-**✅ Opgelost (14 augustus).** Drie delen, elk met een eigen aanpak:
+Gebouwd als `supabase/scripts/verify-edge-function-bundles.ts`. Leidt de
+bundelset per functie af uit de importgraaf in plaats van uit een handmatige
+lijst, en vergelijkt onvoorwaardelijk élke functie tegen een verse snapshot van
+productie. De staande afspraak om het na elke deploy te draaien staat in
+`voeding-app-afspraken.md`; de bouwgeschiedenis en de gemeten basislijn in
+`voeding-app-archief.md`.
 
-1. **Verouderd dagtotaal (probleem 2) — structureel gefixt.**
-   `nutrition_log_add`/`_update`/`_delete` geven nu een vers herberekend
-   `eiwitTotaal`/`calorieTotaal` terug in het tool-resultaat (`computeDayTotals`
-   in `tools.ts`), en `PERSONA_PROMPT` instrueert de coach om ALTIJD dat
-   teruggegeven getal te gebruiken voor de lopende-totaal-bevestiging, nooit
-   het contexttotaal plus een eigen optelling. Dit sluit de dubbeltelling
-   structureel af — er is geen stale snapshot meer om per ongeluk bovenop te
-   tellen.
-2. **Stil wegvallende tool-call (probleem 1) — twee losse detectiemechanismen,
-   verschillend qua risico.** Sub-mechanisme A (een write die wél is
-   aangeroepen maar het dagtotaal niet veranderde) krijgt één automatische
-   herkansing — veilig, want het herhaalt een actie die al is gevraagd.
-   Sub-mechanisme B (de tekst noemt een eiwitgetal, maar er is helemaal geen
-   nutrition_log_add/_update aangeroepen — de daadwerkelijke 13-augustus-vorm)
-   krijgt bewust GEEN herkansing met tool-toegang: een foutieve trigger zou
-   dan een ongevraagde rij kunnen wegschrijven, en een fantoom-maaltijd die
-   het dagtotaal ophoogt en er legitiem uitziet is erger dan een zichtbaar
-   ontbrekende. B voegt alleen een vaste, deterministische disclaimerzin toe
-   — nooit een tool-call. Geverifieerd met een echte "vals-positieve" vraag
-   ("hoeveel eiwit zit er in een ei?") — de disclaimer verscheen, er kwam geen
-   rij bij.
-3. **Verzonnen oorzaak (probleem 3) — prompt-instructie.** De coach mag nooit
-   meer een verklaring verzinnen voor een mislukte actie (geen "technisch
-   hikje" meer) — bij een tool-resultaat met een `error`-veld moet hij dat
-   eerlijk erkennen, verder niets.
+---
 
-**Reproductie getest en bevestigd gefixt** — de exacte 13-augustus-vorm
-(overzichtsvraag + nieuwe maaltijd in hetzelfde bericht) is herhaald tegen
-zowel een korte als een deliberately lange thread (87 berichten, om de
-oorspronkelijke omstandigheid na te bootsen): in beide gevallen bestond de rij
-en klopte het genoemde totaal exact met `SUM(eiwitten_g)`. Volledige
-verificatie-uitkomsten (8 gevallen, inclusief een whole-run reconciliatie die
-bevestigt dat geen van beide detectiemechanismen zelf een fantoomrij
-veroorzaakte) in de sessie van 14 augustus.
+## 15a. Bevinding — het aandachtspunt-filter kijkt naar trefwoorden, niet naar dagtypes ✅ GEMETEN EN GEREPAREERD (26 augustus gevonden, 2 september gefixt)
 
-**Onderzoek naar de "lange thread"-hypothese: uitgesloten, niet open
-gelaten.** Zie de meting hieronder — het volledige verzoek (systeemprompt +
-context + thread) blijft op de zwaarste realistische dag rond de 5.400 tokens,
-twee ordegroottes onder een moderne Claude-contextvenster. Context-venster-
-afkapping is dus geen aannemelijke directe verklaring voor de 23:07-fout. De
-werkelijke, apart genoteerde bevinding: niet de thread-omvang, maar het
-opnieuw versturen van de volledige (~5.000 token) systeemprompt bij élk
-bericht domineert het datavolume over een dag heen (~70.000 tokens/dag bij 14
-beurten, tegenover ~6.700 tokens aan incrementele thread-hertransmissie) —
-een kosten/snelheidskwestie, geen correctheidskwestie, genoteerd als los
-vervolgpunt in sectie 7, niet opgepakt in deze taak.
+**Gevonden door `morning-checkin/index.ts:126-133` te lezen**, tijdens het werk
+aan punt 18. Punt 15 beschrijft het symptoom (een verkeerd relatief dagwoord op
+de kaart); dit is het mechanisme eronder, en het is iets anders dan iedereen
+aannam.
 
-**Gevonden 13 augustus, 23:07, in dagelijks gebruik. Twee problemen in één
-antwoord — het tweede is het ernstigst.**
+**Wat `aandachtspuntDayTypeMismatch` werkelijk doet.** Het vergelijkt *niet*
+gisterens dagtype met dat van vandaag. Het scant de aandachtspunt-tékst met twee
+regexes: `train(t|en)?|training|sessie|workout` → `assumesTraining`, en
+`rustdag` → `assumesRest`. Alleen als die uit de tekst afgeleide aanname botst
+met het opgeloste dagtype van vandaag, valt de notitie weg.
 
-### Wat er gebeurde
+**Twee faalvormen, allebei uit echte data:**
 
-Bij een overzichtsvraag laat op de avond toonde de coach een lijst van negen
-items, waaronder als laatste "Net — Hamburger (50g brood, 160g runder patty):
-39g". Daarbij schreef hij: *"Totaal: 171g eiwit (nog niet bijgewerkt met de
-laatste hamburger in de tellerweergave hierboven, maar in het systeem staat
-het nu op ~186g na deze toevoeging)."*
+- **Vals-negatief (22-08).** De boksles-notitie van 21-08 bevatte geen enkel
+  trefwoord — "de boksles" matcht niets — dus het filter vuurde nooit en de
+  notitie kwam ongefilterd op een rustdagkaart terecht. Dít is waarom punt 15
+  kon gebeuren; de reconstructie daar klopte, maar de reden was niet bekend.
+- **Vals-positief (26-08).** Het aandachtspunt van 25-08 bevat "op de rustdag
+  van dinsdag" → `assumesRest` → gedropt omdat vandaag een trainingsdag is. Maar
+  die notitie *beschrijft* dinsdag, ze *veronderstelt* niets over vandaag. Het
+  inzicht erin (eiwitdoel gehaald via veel kleine momenten onderweg, werkt goed
+  op drukke autodagen) is juist dagtype-onafhankelijk en had prima door mogen
+  komen.
 
-Controle in de database wees uit:
-- Er staan **7 rijen** voor 13-08, samen **132g** — niet 9 items en niet 171g
-- De hamburger **staat er helemaal niet in**, op geen enkele datum, met geen
-  enkele omschrijving
-- Ook het plakje kaas (18:45, 7g) uit de lijst ontbreekt
+**De onderliggende fout:** het filter verwart *"noemt een rustdag"* met *"gaat
+ervan uit dat het vandaag een rustdag is"*. Trefwoorden in vrije tekst kunnen dat
+onderscheid niet dragen.
 
-### Probleem 1 (ernstig): de coach beweerde te loggen, maar deed het niet
+**Hoe erg is dit?** Niet zichtbaar, en dat is het probleem. Bij een onterechte
+drop verschijnt er gewoon een kaart met het generieke daganker — er is geen
+foutmelding en geen leeg vlak. Zonder `checkin_diag` (punt 18) was dit ook niet
+meetbaar geweest. Hoe váák het misgaat is nu een empirische vraag: de velden
+`ruwAanwezig` / `effectiefAanwezig` / `gedroptReden` beantwoorden hem over de
+observatieperiode.
 
-De hamburger uit de getoonde lijst bestond niet in `nutrition_log`. De coach
-presenteerde 'm als gelogd — inclusief tijdstip en eiwitwaarde — terwijl de
-tool-call niet is uitgevoerd.
+**Richting voor een fix — bewust nog niet gebouwd.** Meer regexes toevoegen
+verergert het: elk extra trefwoord vergroot de kans op vals-positieven zoals
+26-08. De structurele route staat al in §7 en geldt hier ook: het
+dagafsluitmodel de gebeurtenis-datum als **gestructureerd veld** laten meegeven,
+in plaats van achteraf proza terugscannen. Dan hoeft er niets geraden te worden
+uit tekst. Dat raakt de dagafsluitingsflow en is dus een echt blok werk, geen
+patch.
 
-**De tijdlijn, want die is veelzeggend:**
+**Volgorde:** eerst meten met `checkin_diag`. Blijkt het zelden mis te gaan, dan
+is dit een documentatiepunt en geen bouwtaak. Blijkt het vaak mis te gaan, dan is
+de meting meteen de onderbouwing voor het grotere blok. Niet nu bouwen op één
+vals-positief en één vals-negatief.
 
-| Tijd | Gebeurtenis |
+### Uitkomst van de meting — vaker mis dan gedacht, maar goedkoper dan gedacht (2 september)
+
+Over de zeven gemeten dagen (26-08 t/m 01-09) sloeg het filter **drie keer** toe:
+26-08 (`verwacht_rust`), 31-08 en 01-09 (beide `verwacht_training`). Ruim 40%.
+
+**De twee nieuwe vals-positieven, met de tekst erbij.** Beide gaan over de
+boksles, die buiten het formele schema valt:
+
+- **31-08.** Het aandachtspunt van 30-08 kondigt de boksles van maandagavond aan
+  met concreet advies (overdag normaal eten, niet nuchter). Het schema noemt
+  maandag geen trainingsdag, dus het filter zag tegenspraak waar die niet was.
+  Grensgeval: het schema kent de activiteit niet.
+- **01-09.** Het aandachtspunt van 31-08 zegt **letterlijk** *"dinsdag is een
+  kantoordag zonder training"* en werd gedropt wegens het veronderstellen van
+  training. Het filter matchte op "boksles" in de terugblik en las de ontkenning
+  in dezelfde zin niet. Geen grensgeval maar een regelrechte fout, en niet op te
+  lossen met een betere trefwoordlijst.
+
+**Wat de drops níet gekost hebben, tegen de verwachting in.** Op alle drie de
+dagen bevatte de **ruwe** tekst geen vraag, dus `aandachtspuntGeeftSignaal` was
+ook zonder filter op `false` uitgekomen. Het filter heeft dus **nul vragen**
+gekost. Wat het wél kostte is concreet, bruikbaar advies dat niet op de kaart
+kwam — dat is genoeg reden om het te repareren, maar het is een kleinere schade
+dan aanvankelijk vermoed. Zie §15b: de echte kosten zaten ergens anders.
+
+### De fix — annoteren in plaats van droppen ✅ GEBOUWD (2 september, `morning-checkin`)
+
+`aandachtspuntDropReason` verdwijnt. Het aandachtspunt gaat voortaan **altijd**
+mee naar het model, samen met het opgeloste dagtype van vandaag en een instructie
+om die twee zelf te verzoenen. Het risico waarvoor het filter ooit bedoeld was
+blijft afgedekt, alleen door het model in plaats van door een regex.
+
+Dat is dezelfde keuze als hierboven al werd voorgesteld ("niet meer regexes"),
+maar goedkoper dan de daar geschetste route: het model kríjgt het dagtype al in
+dezelfde prompt, dus er hoeft geen gestructureerd veld door de
+dagafsluitingsflow gebouwd te worden. Wijziging blijft binnen
+`morning-checkin/index.ts`, dus één functie deployen.
+
+`gedroptReden` en `effectiefAanwezig` blijven in de payload staan en worden
+voortaan altijd `null` respectievelijk gelijk aan `ruwAanwezig`. Bewust niet
+verwijderd: de historische rijen gebruiken ze en het schema blijft zo stabiel.
+
+**Meegenomen in dezelfde deploy:** de ontkoppeling van het signaal (het
+signaal wordt nu aantoonbaar op de ruwe tekst berekend, met een commentaarcontract
+op beide rekenplekken dat dit nooit door een gefilterde variabele vervangen mag
+worden) en `v: 3` uit §19a.
+
+**Verificatie.** Payload via script vers van schijf, byte-diff identiek,
+verificatiescript exitcode 0 voor alle drie de functies. Live aangeroepen tegen
+de gedeployde functie: `v: 3`, `vraagTekst` null passend bij `vraag_type: "geen"`,
+`kaart` gevuld en veld-voor-veld gelijk aan het HTTP-antwoord, `gedroptReden`
+null, `effectiefAanwezig` gelijk aan `ruwAanwezig`. Testrij op vooraf
+vastgelegde id verwijderd; de id-set van 02-09 daarna aantoonbaar terug bij de
+uitgangsstand van één echte rij. Onafhankelijk nagerekend via `execute_sql`.
+
+**Wat bewust níet geclaimd wordt.** Deze fix is niet aangetoond de vragen terug
+te brengen — de causale keten die dat zou verklaren is weerlegd (zie de meting
+hierboven). Gebouwd omdat het een echte onderdrukkingsbug is, niet omdat het
+bewezen iets herstelt.
+
+**Eerste tegenbewijs, dezelfde dag.** De echte ochtendkaart van 02-09 (nog
+`v: 2`, want van vóór de deploy) had het aandachtspunt aanwezig, niets
+gefilterd, `hasNotableSignal: true` uit de trainingscondities — en tóch
+`vraag_type: "geen"`. Vierde dag op rij zonder vraag, en de eerste waarop geen
+van beide verdachten iets verklaart. Dat versterkt §15b en wijst verder door
+naar de schrijfkant.
+
+---
+
+## 15b. Bevinding — de vraagdetectie mist twee van de drie aandachtspunten ⬜ OPENSTAAND (2 september, volgende taak)
+
+**Gevonden bij het onderzoek naar §15a**, en het bleek groter dan de bevinding
+waar het onderzoek over ging.
+
+`aandachtspuntGeeftSignaal` is de enige conditie in `hasNotableSignal` die niet
+uit het trainingsschema komt. De andere drie (gisteren getraind, vandaag
+trainingsdag, vandaag Power Hour) zijn kalenderfeiten. **Dit is dus de enige plek
+waar inhoud het signaal binnenkomt.**
+
+De implementatie (`morning-checkin/index.ts:117-120`):
+
+```ts
+function aandachtspuntHasQuestion(text: string | null): boolean {
+  if (!text) return false
+  return /\?/.test(text) || /\bvraag\b/i.test(text)
+}
+```
+
+Alleen een letterlijk vraagteken, of het losse woord "vraag".
+
+### De meting — over alle 28 dagen
+
+| | Dagen | Aandeel |
+|---|---|---|
+| Matcht de regex (`?` of `vraag`) | 5 van 28 | **18%** |
+| Bevat werkelijk vraagintentie (ook `navragen`, `check of`, `peil`, `informeer`) | 15 van 28 | **54%** |
+
+**Twee van de drie aandachtspunten met een echte vraag worden gemist.** Twee
+concrete voorbeelden uit de reeks:
+
+- 26-08: *"navragen of dat late eetmoment op trainingsavonden goed bevalt of dat
+  het eten iets naar voren kan"* — onmiskenbaar een vraag, geen match. `navragen`
+  bevat het token `vragen`, niet `vraag`, en de woordgrens ontbreekt sowieso.
+- 27-08: *"Check of de eetmomenten weer op normale tijden liggen"* — ander
+  werkwoord, geen match.
+
+Dit zijn geen gekunstelde randgevallen maar de gewone Nederlandse manier om een
+indirecte vraag op te schrijven.
+
+### Waarom dit de grotere bron is
+
+| Oorzaak | Frequentie | Gekoste vragen |
+|---|---|---|
+| Het filter uit §15a | 3 van 7 dagen | **0** |
+| Deze detector | mist 10 van de 15 dagen met vraagintentie | structureel |
+
+Het filter is het kleine probleem, deze detector het grote. Dat is precies
+omgekeerd aan de volgorde waarin ze gevonden zijn.
+
+### Richting — geen bredere regex
+
+Het verbreden van het patroon verplaatst het probleem alleen. Nederlands heeft
+te veel manieren om indirect iets te vragen, en elk extra trefwoord vergroot de
+kans op vals-positieven — dezelfde val als in §15a.
+
+De route die wél sluit staat al in een comment in het bestand zelf
+(`morning-checkin/index.ts:113-116`): **het dagafsluitmodel een gestructureerde
+vlag laten meeschrijven** bij het aandachtspunt, zodat het model dat de tekst
+formuleert ook aangeeft of er iets na te vragen valt. Geen terugscannen van
+proza.
+
+**Kosten:** dit raakt de tool-schema van `_shared/summary.ts`, dus alle drie de
+Edge Functions moeten opnieuw gedeployed en byte-gedift worden. Duurder dan de
+fix van §15a, die binnen één functie bleef.
+
+### Volgorde — bewust ná de fix van §15a
+
+Niet meebouwen in dezelfde deploy. Dan verander je filterlogica, payload en
+signaaldetectie tegelijk, en weet je achteraf niet waardoor de kaarten beter
+werden. Bovendien is `v: 3` (§19a) juist het instrument om déze fix mee te
+beoordelen, en dat instrument moet er eerst zijn.
+
+### Losse observatie om in de gaten te houden
+
+De laatste drie aandachtspunten (30-08, 31-08, 01-09) bevatten **helemaal geen**
+vraagintentie, ook niet in de brede zin. Dat is de langste reeks in de hele
+historie van 28 dagen. Bij drie dagen kan dat toeval zijn. Houdt het aan ná de
+fixen hierboven, dan ligt de oorzaak bij het afsluitmodel dat de aandachtspunten
+schrijft, en niet bij de ochtendkaart die ze leest.
+
+---
+
+## 16. Wens — meer zien tijdens het laden van de ochtendkaart ⬜ OPENSTAAND (uitgedacht, nog geen CC-prompt)
+
+**Gevraagd 24 augustus.** Bij het openen van de app 's ochtends duurt het even
+voordat de check-in kaart verschijnt. Niet storend, maar als enige gebruiker
+is er geen bezwaar tegen meer informatie tijdens het wachten dan alleen een
+spinner.
+
+**Eerst de aanname gecorrigeerd — het model praat niet met de database.**
+`morning-checkin` is bewust een geïsoleerde functie met één *gedwongen*
+tool-call, geen gesprekslus, geen andere tools. De volgorde is: de Edge
+Function haalt zelf eerst alle data op (dagtype-resolutie via
+`schemas`/`week_overrides`/`completed_days`, aandachtspunt uit
+`coach_sessions`, eiwitvoortgang uit `nutrition_log`), bouwt daarmee de
+prompt, en doet dán één modelcall. De DB-queries zijn milliseconden;
+**vrijwel de hele wachttijd is die ene modelcall.** Zichtbaar in het
+timeoutbudget: 8s per poging, 1,5s pauze vóór de retry — worst case ~17,5s
+voordat er teruggevallen wordt op het sjabloon.
+
+**Waarom echte stapsgewijze voortgang niet gratis is.** Het is één request en
+één response; de client kan niet zien wat er ín de functie gebeurt. Stappen
+tonen zoals "trainingsdata ophalen… coach schrijft…" vraagt streaming (SSE)
+vanuit de Edge Function — een reëel stuk werk, geen tekstwijziging.
+
+**Bewust afgevallen: nepstappen op een timer.** De goedkope variant is die
+stappen client-side afspelen op een timer. Afgeraden en niet gekozen: dan
+tonen we labels die informatief ogen maar niets meten. Dezelfde categorie als
+de al gedocumenteerde bevinding waarbij de coach een plausibel klinkende
+oorzaak verzon voor zijn eigen fout — het ziet eruit als informatie en is het
+niet. In een app waar het vertrouwen in de getallen het hele punt is, is dat
+een slechte ruil voor wat visuele geruststelling.
+
+**Gekozen richting — alleen tonen wat werkelijk bekend is:**
+1. **Echte client-side status.** De client wéét of dit poging 1 of de retry
+   is, en of de timeout verlopen is. "Poging 2 van 2…" is echte informatie,
+   geen decor.
+2. **Meelopende secondenteller** bij één eerlijk label ("Coach stelt je
+   ochtendkaart samen… 4s"). Geeft gevoel voor traag versus vastgelopen.
+3. **Timingregel achteraf onder de kaart.** De functie geeft mee hoeveel tijd
+   de DB-fase en de modelcall kostten ("DB 140ms · model 4,2s"). Voor één
+   gebruiker die wil zien wat er gebeurt waarschijnlijk het nuttigst: je ziet
+   direct of een trage ochtend aan het model lag of aan iets anders.
+
+Punt 3 vraagt een kleine wijziging aan de Edge Function (timings meesturen in
+de response); 1 en 2 zijn puur client-side. Ze kunnen los van elkaar gebouwd
+worden.
+
+**Afhankelijkheid:** dit raakt dezelfde functie als punt 14 (elke dag een
+check-in). Punt 14 eerst afronden, anders worden twee wijzigingen aan
+`morning-checkin` door elkaar geverifieerd. Na punt 14 draait de functie
+bovendien élke dag, waardoor de laadtijd elke ochtend zichtbaar wordt in
+plaats van alleen op triggerdagen — wat deze wens juist relevanter maakt.
+
+
+---
+
+## 17. Feature — eiwit schatten uit een foto ⚙️ UITGEDACHT (26 augustus, nog geen CC-prompt gegeven)
+
+**Aanleiding, uit dagelijks gebruik.** Buiten de deur eten — bij familie, op
+kantoor — betekent geen weegschaal en geen verpakking met een etiket. De
+gebruiker geeft aan zelf slecht te zijn in schatten. Op die momenten wordt er
+óf niet gelogd, óf gelogd met een getal waarvan niemand weet hoe ver het
+ernaast zit. Beide ondermijnen het dagtotaal, en het tweede stilletjes.
+
+---
+
+### De kernbevinding: identificatie ≠ portiegrootte
+
+Dit onderscheid bepaalt het hele ontwerp.
+
+**Wat goed gaat:** herkennen *wat* er op het bord ligt. Kip, rijst, saus,
+aantal stukken vlees, welke componenten er zijn. Hier is een foto duidelijk
+beter dan een schatting uit het hoofd.
+
+**Wat niet goed gaat:** hoevéél er ligt. De Claude-documentatie noemt
+ruimtelijk redeneren en het tellen van objecten expliciet als benaderend, en
+een gewichtsschatting uit een 2D-foto is precies zo'n taak — er is geen
+dieptedata. Reken op grofweg 20-40% afwijking op de hoeveelheid, groter bij
+gelaagde of gemengde gerechten (stamppot, ovenschotel, saus over rijst).
+
+**Waarom dat hier toch werkbaar is.** De vergelijking is niet "foto versus
+weegschaal", maar "foto versus een schatting waarvan de gebruiker zelf zegt
+dat hij er slecht in is". Bovendien valt de fout op eiwit gunstiger uit dan op
+calorieën: eiwit zit geconcentreerd in één identificeerbaar component (het
+vlees, de vis, de kwark), en dáárvan is de portie beter in te schatten dan van
+olie of saus. 30% ernaast op een kipfilet is ~8-10g eiwit — onder de
+~15g-drempel die dit project al hanteert als grens voor doorvragen.
+
+### Twee foto's: onderzocht, bewust afgevallen
+
+Overwogen om een tweede foto (zijaanzicht) mee te sturen voor diepte-inschatting.
+Meerdere afbeeldingen worden gezamenlijk geanalyseerd in één verzoek, maar dat
+is **geen stereovisie** — er wordt geen dispariteit berekend en geen 3D
+gereconstrueerd. De winst komt puur uit het feit dat een zijaanzicht toont wat
+een bovenaanzicht verbergt, en die winst haal je grotendeels al binnen met één
+goed gekozen schuine foto.
+
+**Doorslaggevend tegenargument:** meer beeld levert vrijwel zeker meer
+*stelligheid* op, niet automatisch meer nauwkeurigheid. Het model kan niet
+merken dat het nog steeds gokt, en de gebruiker aan tafel ook niet. Precies het
+patroon uit sectie 9, waar juist het uitgebreide, verzorgde bericht het minst
+gecontroleerd werd.
+
+*Besluit: één foto. Instructie in de prompt om schuin te fotograferen met een
+maatreferentie in beeld (hand, vork, standaard bord) — dat scheelt meer dan een
+tweede opname.*
+
+---
+
+### Voorwaarde vooraf — kalibratiemeting (dóén vóór de bouw)
+
+Zelfde patroon als de `tijdstip`-fix: niet aannemen dat het beter is, maar het
+faalpatroon zichtbaar maken vóór er advies of data op gebouwd wordt.
+
+**Opzet:** 5 tot 10 maaltijden thuis, waar de weegschaal wél beschikbaar is.
+Weeg het eiwitcomponent, maak één schuine foto, laat de coach schatten, noteer
+beide. Geen code nodig — dit kan in een gewone chat.
+
+**Wat je eruit wilt halen:**
+- De typische afwijking in **gram eiwit**, niet in procenten — dat is de eenheid
+  waarin de beslissing valt (boven of onder de 15g-drempel).
+- Of de afwijking **systematisch één kant op** gaat. Structurele onderschatting
+  is erger dan ruis, want die middelt niet uit over een week.
+- Of de gebruiker de bandbreedte in de praktijk vertrouwt of alsnog gaat
+  corrigeren.
+
+**Afbreekcriterium, vooraf vastleggen:** wijkt de schatting structureel meer dan
+~20g eiwit af op normale maaltijden, dan is dit geen feature maar een bron van
+stille fouten en gaat hij niet door.
+
+---
+
+### Ontwerpkeuzes
+
+#### 1. Een foto logt nooit direct
+
+De coach doet een voorstel, de gebruiker bevestigt, dan pas de
+`nutrition_log_add`. Dit volgt de bestaande regel "alleen loggen wat al gegeten
+is", en er is hier een extra reden: **een foto wordt bijna altijd vóór het eten
+gemaakt.** Wat op het bord ligt is niet automatisch wat er naar binnen is
+gegaan.
+
+De doorvraag die er werkelijk toe doet is dus niet "hoeveel gram denk je" maar
+**"heb je het opgekregen?"** — dat weet de gebruiker wél zonder weegschaal, en
+het beweegt het getal meer dan een portieverfijning.
+
+#### 2. Geen schijnprecisie
+
+"180g kip, 42g eiwit" uit een foto suggereert een meting die er niet is. Zelfde
+categorie als de verzonnen oorzaak uit sectie 9: het ziet eruit als informatie
+en is het niet.
+
+**Regel:** in het gesprek een bandbreedte ("zo'n 35-45g eiwit"), in
+`nutrition_log` het middelpunt. Eén getal in de database, want het dagtotaal
+moet een `SUM` blijven — bandbreedtes optellen levert een bereik op waar niemand
+iets aan heeft en dat de bestaande totaal-logica breekt.
+
+#### 3. Nieuwe kolom `bron` op `nutrition_log`
+
+Nullable tekstkolom, waarde `'foto'` bij een fotoschatting, leeg bij de rest.
+
+**Waarom dit een schemawijziging waard is** terwijl de rest van deze feature
+prompt-werk is: zonder markering zijn fotoschattingen onzichtbaar in
+`nutrition_log`. Je kunt dan nooit achteraf vaststellen of ze systematisch
+afwijken, en de eiwitspreidingsanalyse kan ze niet apart bekijken. Hetzelfde
+argument als bij de datumgrens van 22-08 — je wilt kunnen filteren op
+databetrouwbaarheid, en dat kan alleen als de herkomst is vastgelegd op het
+moment van schrijven.
+
+Een markering in het `omschrijving`-veld is het goedkope alternatief, maar dat
+is vrije tekst die het model formuleert — dus niet betrouwbaar te queryen.
+
+#### 4. Foto's worden niet bewaard
+
+Afbeeldingen zijn ephemeral in het API-verzoek en worden na verwerking
+verwijderd. Geen storage bucket, geen bewaartermijn, geen extra tabel.
+
+**Geaccepteerde grens:** een schatting die er later verdacht uitziet, kun je niet
+terugkijken. Dat is een reële beperking, maar een bucket + opruimbeleid is
+substantieel meer werk dan de rest van deze feature bij elkaar. Herzien als de
+kalibratiemeting aanleiding geeft.
+
+---
+
+### Technische aandachtspunten (te onderzoeken door CC, niet aannemen)
+
+**A. De invoerknop — mogelijk zónder nieuwe APK.** Het voor de hand liggende
+antwoord is de Capacitor Camera-plugin, maar dat is native laag: nieuwe
+permissies, nieuwe APK-build, en daarmee ineens een heel ander soort traject
+dan de rest van deze app. Een gewone `<input type="file" accept="image/*"
+capture="environment">` in de webview opent op Android ook de camera en zou de
+hele wijziging in de web-laag houden — dus live via Vercel, zonder installatie.
+
+Of dat in déze Capacitor-webview betrouwbaar werkt, is niet iets om aan te
+nemen; de file-chooser-afhandeling in een WebView is historisch een bron van
+gedoe. Eerst uitzoeken, en pas de plugin-route kiezen als de eenvoudige route
+aantoonbaar niet werkt.
+
+**B. `buildTranscript` en de dagafsluiting — echt regressierisico.** Zodra een
+gebruikersbericht een afbeelding bevat, is `content` geen string meer maar een
+array van blokken. Elke plek die aanneemt dat er tekst staat, kan stil breken of
+de tekst laten vallen — en de dagafsluiting is precies zo'n plek. Een
+transcript dat een maaltijdvermelding kwijtraakt, geeft geen foutmelding; het
+geeft een iets armere samenvatting die niemand als fout herkent.
+
+Zelfde categorie als het punt uit sectie 5: `_shared/summary.ts` heeft zijn
+eigen aannames en erft niets. Expliciet lezen en testen, in beide afsluitroutes.
+
+**C. Threadopslag.** De opgeslagen chatthread overleeft een herstart. Een
+base64-afbeelding daarin zetten laat die opslag ontploffen. Voorstel: alleen een
+tekstmarkering bewaren ("📷 foto"), niet het beeld zelf.
+
+**D. Formaat vóór verzenden.** Client-side verkleinen naar ~1,15 megapixel houdt
+tokens en latency laag zonder relevant detailverlies bij een bordfoto.
+
+**E. Propagatiecheck.** Nieuwe gedragsregels (bandbreedte, geen schijnprecisie)
+horen in `prompt.ts` én — indien de dagafsluiting fotoschattingen kan noemen —
+in `_shared/summary.ts`. Bewust bepalen, niet vergeten.
+
+---
+
+### Openstaand, te beslissen bij het plan
+
+- Mag de coach uit zichzelf om een foto vragen wanneer een omschrijving vaag is
+  en buitenshuis lijkt? Neiging: nee, dat wordt snel zeurderig — de gebruiker
+  weet zelf wanneer hij de weegschaal mist.
+- Wat gebeurt er bij een onherkenbare of te donkere foto? Moet expliciet
+  afgevangen worden: één keer om een betere foto vragen, daarna terugvallen op
+  de gewone gesprekschatting. Niet gokken op een slecht beeld.
+- Telt een fotoschatting mee in de eiwitspreidingsanalyse, of wordt hij
+  gefilterd? Beantwoordbaar zodra `bron` bestaat; niet nu beslissen.
+
+---
+
+### CC-prompt (nog niet gegeven)
+
+```
+Add photo-based protein estimation to the voeding-app (nutrition coach app).
+
+START IN PLAN MODE. Investigate first, then present a concrete build plan for
+review. Do not write or edit any code until the plan is approved.
+
+## What this should do
+
+The user often eats where they cannot weigh anything (at family, at the
+office) and is not good at estimating portions. They should be able to attach
+one photo of their plate to a chat message and have the coach identify the
+components and propose a protein estimate.
+
+Single photo only. A second photo was considered and deliberately rejected:
+multiple images are analysed jointly but there is no stereo depth
+reconstruction, so the added confidence would outrun the added accuracy.
+
+## Behavioural rules (these are the point of the feature, not decoration)
+
+1. A photo NEVER logs directly. The coach proposes, the user confirms, only
+   then nutrition_log_add runs. A photo is usually taken BEFORE eating, so
+   the single most valuable follow-up question is "did you finish it?" — not
+   a portion refinement. Ask that one question, not a list.
+2. No false precision. In conversation, give a RANGE ("roughly 35-45g
+   protein"). Never state a gram weight of the food itself as if measured
+   ("180g of chicken"). Store the midpoint as a single number in
+   nutrition_log — the day total must remain a real SUM.
+3. If the photo is unusable (too dark, unrecognisable), ask once for a better
+   one, then fall back to normal conversational estimation. Do not guess from
+   a bad image.
+4. The coach does not proactively ask for photos.
+5. Photos are not stored anywhere. No storage bucket, no retention.
+
+## Schema change (one, deliberate)
+
+Add a nullable text column `bron` to nutrition_log, set to 'foto' for
+photo-derived rows and left null otherwise. Rationale: without it,
+photo estimates are indistinguishable from weighed or well-known entries, so
+their accuracy can never be audited afterwards and the planned
+protein-distribution analysis cannot filter on data reliability. A marker
+inside the free-text `omschrijving` field is not acceptable — that text is
+model-written and not reliably queryable.
+
+## Investigate before planning — do not assume
+
+- INPUT CONTROL: prefer a plain `<input type="file" accept="image/*"
+  capture="environment">` in the webview over the Capacitor Camera plugin. The
+  plugin is native-layer work: new permissions, new APK build, a different
+  kind of change than everything else in this app, which ships web-layer
+  changes live via Vercel. Verify whether the simple file input actually works
+  in this Capacitor WebView (file chooser handling in Android WebViews is
+  historically fragile). Only propose the plugin route if you can show the
+  simple one does not work.
+- TRANSCRIPT REGRESSION: once a user message contains an image, its `content`
+  is an array of blocks rather than a string. Read buildTranscript in
+  coach-chat/tools.ts AND _shared/summary.ts in full and determine exactly
+  what they do with a non-string content value. A transcript that silently
+  drops the text alongside an image produces a poorer day summary with no
+  error — the exact silent-failure class this project has been bitten by
+  before. Test both day-close routes (manual and cron), not just one.
+- THREAD STORAGE: the persisted chat thread survives an app restart. Do not
+  put base64 image data in it. Propose storing a text marker only.
+- Resize client-side to roughly 1.15 megapixels before sending.
+
+## Prompt rule propagation (required)
+
+Any behavioural rule of the form "the coach should never mention X" or
+"the coach should always say Y" must be applied in BOTH places:
+
+1. coach-chat's PERSONA_PROMPT (prompt.ts) — the conversational model
+2. _shared/summary.ts — the day-close model, which runs its own separate
+   prompt and does NOT inherit PERSONA_PROMPT
+
+This has already caused a real bug: a "never mention weight" rule was added to
+coach-chat only, and the day-close model happily summarised a weigh-in into
+the next day's aandachtspunt. Decide explicitly whether the no-false-precision
+rule needs to hold in the day-close path too, and say so in your plan.
+
+Note that _shared/summary.ts is bundled into both coach-chat and
+close-day-cron — changing it means redeploying both functions.
+
+## Deploy verification (required)
+
+Generate the deploy payload with a script that reads the files directly from
+disk — do not retype file contents into the tool call. After deploying, verify
+git ↔ production parity with a real byte-for-byte diff of every bundled file,
+not a visual check and not an assumption that the deploy landed correctly.
+
+This is a standing requirement for this project: hand-typed payloads have
+repeatedly corrupted unrelated shared files (a stubbed summary.ts that
+silently stopped writing to coach_sessions, an undefined variable in today.ts's
+Monday cross-week path). These fail silently, so the diff is the only thing
+that catches them.
+
+Also: when you change a file under _shared/, identify EVERY function that
+bundles it and redeploy all of them — then diff all of them, not just the ones
+you deployed.
+
+## Test data cleanup (required)
+
+Verification runs against the live database, so any test conversation that
+logs a meal writes a real row to nutrition_log — and the day-close will sum
+over it. This has already corrupted one day's totals (257g protein recorded
+instead of the real 179g).
+
+After verification:
+1. Delete every row your test run created — track the ids or the time window
+   as you go.
+2. Verify the cleanup: nutrition_log's SUM for that date must match what was
+   actually eaten, and match eiwit_totaal / calorieen_totaal in coach_sessions
+   if the day was already closed.
+3. Check coach_memory for facts stored during testing and deactivate any that
+   shouldn't persist.
+
+Do the cleanup in the same session — not "later." The 23:30 notification and
+the 02:00 cron can both close the day before anyone gets back to it.
+
+## Verification
+
+- Send a plate photo → coach names the components and gives a protein RANGE,
+  and does not claim a measured gram weight of the food.
+- Nothing is written to nutrition_log until the user confirms.
+- After confirming, the row exists with bron = 'foto' and a single midpoint
+  protein value; the running day total comes back from the tool result and
+  matches SUM(eiwitten_g).
+- A partially eaten plate: the coach asks whether it was finished and adjusts.
+- An unusable photo: one request for a better one, then a graceful fallback,
+  no invented estimate.
+- Send a message with BOTH a photo and text ("this, and I also had a shake at
+  3pm") → both are handled, nothing is dropped.
+- Trigger a day-close after a photo conversation → the summary text is intact
+  and reflects the meal. Test the manual route and the cron route.
+- Restart the app → the thread restores without bloat and without a broken
+  image placeholder.
+- Renders correctly at phone width.
+
+Give me a plan before building.
+```
+
+---
+
+### Volgorde ten opzichte van het overige openstaande werk
+
+Dit blok is **niet urgent** en hoort achter het al geplande werk. Voorstel:
+
+1. Vervolgtaak 1 (deploy-verificatie) — nog openstaand, en sinds §20a
+   steviger onderbouwd
+2. **Kalibratiemeting fotoschatting** — kost geen bouwtijd, kan parallel lopen
+   terwijl er toch op schone `tijdstip`-data gewacht wordt
+3. Eiwitspreiding — vanaf 29 augustus
+4. Fotoschatting bouwen, mits de kalibratie groen is
+5. Hydratie fase A
+
+*Uitgedacht 26 augustus 2026. Nog geen CC-prompt gegeven.*
+
+---
+
+## 19a. Bevinding — de antwoordopties hebben in de praktijk nog nooit gevuurd ⬜ OPENSTAAND (31 augustus; meetinstrument `v: 3` live sinds 2 september)
+
+*Vervolg op §19; de bouwgeschiedenis daarvan staat in `voeding-app-archief.md`.*
+
+**Gevonden bij het uitlezen van de reeks voor §1.** Op **elke** `v: 2`-rij sinds
+de deploy staat `antwoordOpties: {aangeboden: 0, validatie: "nvt",
+afkeurReden: null}`. Er is dus geen enkele keer een optieset aangeboden, en de
+validatie heeft nooit iets hoeven afkeuren.
+
+Bij `vraag_type: "geen"` of `"stemming"` is dat correct gedrag — daar horen geen
+opties. **Het geval dat telt is 29-08**, waar het model `vraag_type: "anders"`
+koos en toch nul opties meegaf. Dat is precies de situatie waarvoor deze feature
+op 27-08 gebouwd is.
+
+**Eén waarneming, en die is niet interpreteerbaar zonder de vraagtekst.**
+`checkin_diag` legt `vraag_type` vast maar niet wát er gevraagd is. Nul opties
+betekent daardoor twee volstrekt verschillende dingen:
+
+- De vraag was **gesloten** (zoals die van 27-08: "bevalt dat late tijdstip, of
+  mag het eten iets naar voren?") → het model liet een kans liggen, en dat is
+  een promptvraag.
+- De vraag was **echt open** ("hoe ging de training?") → nul opties is exact het
+  bedoelde gedrag en er is niets aan de hand.
+
+**Dit is hetzelfde observatiegat als in §18, één niveau hoger.** Daar was de
+vraag "gaf het model `geen` terug of rendert er iets niet"; hier is het "was er
+iets te leveren of niet". In beide gevallen is de ruwe telling ambigu zonder een
+extra veld, en in beide gevallen is de juiste volgorde: eerst meetbaar maken,
+dan pas concluderen. Niet nu een promptregel toevoegen op basis van één rij.
+
+**Volgende stap — `payload.v` naar 3, met de vraagtekst erin.** Klein, geen
+gedragswijziging, raakt alleen `morning-checkin` (geen `_shared/`-wijziging, dus
+één functie deployen in plaats van drie). Daarna is over een week te tellen hoe
+vaak een gesloten vraag zonder opties langskomt.
+
+**Als de vraagtekst er toch komt, dicht die meteen een tweede gat:** §1's
+`hasNotableSignal`-tak is nu half beantwoord omdat de kaarttekst nergens
+bewaard wordt. Eén veld, twee openstaande vragen.
+
+**Nog te achterhalen zonder code:** wat vroeg de kaart van zaterdag 29-08? Als
+die thread nog niet gewist is, staat het antwoord er nog. Eén gesloten vraag
+zonder opties is al een sterker signaal dan wat er nu ligt.
+
+### `v: 3` ✅ GEBOUWD (2 september, meegelift op de fix van §15a)
+
+`payload.v` staat op 3 en de payload bevat nu twee velden erbij:
+
+- **`vraagTekst`** — de tekst van de gestelde vraag, `null` bij
+  `vraag_type: "geen"`. Er bestaat geen apart vraagveld in de modeloutput;
+  `boodschap` fungeert als de vraag zodra er één gesteld wordt. `vraagTekst`
+  benoemt dat expliciet in het diagnostiekrecord in plaats van het te laten
+  afleiden.
+- **`kaart`** — het volledige kaartobject (`eyebrow`, `boodschap`,
+  `contextLabel`, `contextTekst`, `vraagType`, `antwoordOpties`), opgebouwd uit
+  exact dezelfde variabelen als het HTTP-antwoord, zodat de twee niet uit elkaar
+  kunnen lopen. `null` op elk vroeg-afbreekpad (geen API-sleutel, mislukte call,
+  geen `tool_use`, ongeldige modeloutput) — daar bestaat nog geen kaart.
+
+Geen migratie. `v: 1`, `v: 2` en `v: 3` staan naast elkaar zoals ontworpen;
+lezers filteren op `payload->>'v'`.
+
+**De eerste `v: 3`-rij ontstaat op 3 september**, want de kaart van 02-09 vuurde
+vóór de deploy. Die eerste rij is meteen de controle of `kaart` en `vraagTekst`
+ook bij een spontane aanroep gevuld binnenkomen; de verificatie van 2 september
+gebeurde met een handmatige invocatie.
+
+**Wat dit wél en niet oplost.** Het maakt de kaarttekst en de vraag achteraf
+leesbaar, dus de ambiguïteit hierboven (nul opties = correct of gemist) is
+vanaf nu te beslissen. Het zegt niets over de aandachtspunten zelf: die worden
+door de dagafsluiting geschreven en die schrijft geen `checkin_diag`-rij. Die
+kant lees je in `coach_sessions`, waarvoor niets nieuws nodig is.
+
+### ⚠️ De premisse van deze sectie is weerlegd — het model gebruikt het veld wél (8 september)
+
+**Op zondag 6 september leverde het model voor het eerst antwoordopties aan.
+Twee stuks. Ze zijn afgekeurd:**
+
+```
+antwoordOpties: { aangeboden: 2, validatie: "afgekeurd", afkeurReden: "label_te_lang" }
+```
+
+De conclusie hierboven — "het model gebruikt het optionele veld niet" — klopt
+dus niet. Het model gebruikt het; de **validatie** gooit het weg. Een heel
+ander probleem, met een heel andere oplossing.
+
+De vraag van die dag was een keurige gesloten vraag met twee heldere
+antwoorden: *"Zaterdag is Borst & Triceps blijven liggen — wil je die vandaag
+nog inhalen of gewoon doorschuiven naar je vaste beendag van zondag?"* Precies
+waar deze feature voor bestaat. En er verschenen geen pillen.
+
+**Dit was alleen zichtbaar dankzij `v: 3`.** Zonder de vraagtekst was dit
+opnieuw een rij met `aangeboden: 0`-achtige ruis geweest.
+
+### Waarom de grens van 20 waarschijnlijk te krap is
+
+`validateAntwoordOpties` eist 2 of 3 labels, getrimd, niet leeg, **maximaal
+20 code points**, geen duplicaten. De grens is destijds onderbouwd op het
+langste vaste stemmingslabel ("Niet zo goed", 12 tekens).
+
+**Die ijking is op handgeschreven labels gedaan, niet op modeloutput.** Dat is
+een aanname die tot 6 september nooit tegen echte output is getoetst.
+
+Nederlands werkt bovendien tegen die grens: samenstellingen zijn lang. Bij de
+vraag hierboven zijn de natuurlijke antwoorden iets als "Vandaag inhalen"
+(15, past) en "Doorschuiven naar zondag" (24, past niet). Alleen het woord
+"doorschuiven" is al 12.
+
+**Het model kende de grens.** De constante `ANTWOORD_OPTIE_MAX_LENGTH = 20`
+voedt zowel de tool-schemabeschrijving als de promptregel, en rendert in beide
+als de letterlijke tekst "max 20 tekens". Het wist het en overschreed het toch —
+een aanwijzing dat 20 onnatuurlijk krap is, niet dat de instructie ontbrak.
+
+### Belangrijk bij het lezen van toekomstige afkeuringen
+
+`validateAntwoordOpties` **stopt bij de eerste regel die faalt**. De volgorde is:
+array → niet leeg → alles strings → minstens 2 → hoogstens 3 → geen lege labels
+→ geen label te lang → geen duplicaten.
+
+`afkeurReden: "label_te_lang"` betekent dus *"minstens één label was te lang"* en
+sluit niets anders uit — de duplicatencheck draaide nooit. Nooit lezen als
+enkelvoudige oorzaak.
+
+### De meting — labels meeloggen ✅ GEBOUWD (8 september, `morning-checkin`)
+
+**Het gat:** de payload legde vast dát er twee labels waren en dát er één te
+lang was, maar niet wát er stond. Het verschil tussen 21 en 45 tekens bepaalt of
+je de grens iets verruimt of dat er iets anders speelt. Precies dezelfde
+classificatie-zonder-inhoud als vóór `v: 3`.
+
+**Gebouwd:** `diagnoseAntwoordOptieLabels()` logt per optie de getrimde waarde
+en de lengte in code points, op **elk** pad — ook bij een geslaagde validatie.
+Een grens die alleen op mislukkingen wordt geijkt, is op de halve verdeling
+geijkt; zonder de geslaagde labels weet je niet hoe dicht die tegen het plafond
+zaten.
+
+De lengte hergebruikt letterlijk `[...label].length` uit de validator zelf, niet
+`.length`. Daardoor kunnen het gelogde en het afgedwongen getal per constructie
+niet uiteenlopen — ook niet bij tekens buiten het basisbereik.
+
+Misvormde invoer blijft onderscheidbaar: `ruwType: 'geen_array'` als de hele
+waarde geen array is, `typeof` als een element binnen de array geen string is.
+In de eerste opzet vielen die twee samen tot dezelfde uitvoer; dat is vóór de
+bouw gecorrigeerd.
+
+**Bleef op `v: 3`.** Een nieuwe zustersleutel binnen een bestaand object,
+afwezig op elke oudere rij. Een lezer die erop controleert krijgt `undefined`,
+en dat betekent correct "deze rij is van vóór de labellogging". Geen bestaand
+veld verandert van betekenis, dus een versiebump zou niets toevoegen. Dat
+gedrag is na de deploy in de data bevestigd.
+
+**Niet aangeraakt:** de grens van 20, en het dichtfalen (één slecht label doodt
+de hele set). Dat laatste is een bewuste keuze en afkappen zou
+"Doorschuiven naar zon..." opleveren. De kosten zijn nu wel zichtbaar. Een
+mogelijke verzachting voor later — bij drie labels de twee geldige tonen — is
+een beslissing voor ná de meetdata, niet ervoor.
+
+### Verwachting: dit gaat lang duren
+
+Sinds `v: 2` live ging zijn er **drie** `vraag_type: "anders"`-vragen geweest:
+29-08 (nul opties), 04-09 (nul opties), 06-09 (twee, afgekeurd). Eén op de drie
+leverde opties, en een `anders`-vraag komt ongeveer eens per drie à vier dagen.
+
+**Reken op één bruikbaar datapunt per week à tien dagen, en op minstens drie
+punten voordat de grens van 20 met enige zekerheid herzien kan worden.** Eén
+afkeuring blijft één waarneming, ook een volledig gediagnosticeerde.
+
+*Een stille tabel de komende dagen betekent niet dat de logging stuk is. Hij
+wacht tot het model het veld weer gebruikt.*
+
+---
+
+## 20. Bevinding — de dev-omgeving schrijft naar de productiedatabase ⬜ OPENSTAAND (27 augustus)
+
+**Gezien tijdens de bouw van punt 19.** Bij het lokaal testen van de
+client-weergave werd de dev-server tegen **productie-Supabase** gedraaid. Gevolg:
+vier echte `morning-checkin`-aanroepen die niemand bedoeld had, met vier echte
+rijen in `checkin_diag` — een tabel die op dat moment een lopende
+observatiereeks bevatte.
+
+Ze zijn allemaal netjes opgeruimd. Dat is niet het punt.
+
+**Dit is dezelfde vorm als een eerdere, duurdere fout.** Tijdens een eerdere
+verificatiesessie kwamen testmaaltijden in `nutrition_log` terecht en werd een
+dagtotaal vervuild (257g eiwit vastgelegd waar het er 179 waren). Toen was de
+conclusie "testdata opruimen in dezelfde sessie", en die afspraak staat sindsdien
+in elke CC-prompt. Die afspraak werkt, maar hij is een *herstelmaatregel*: hij
+gaat ervan uit dat er naar productie geschreven wórdt en dat iemand het daarna
+terugdraait.
+
+**Waarom opruimen hier principieel tekortschiet.** Zolang lokaal ontwikkelen en
+productie dezelfde database delen, is een schrijfactie van de dev-app niet te
+onderscheiden van een echte gebruikersactie zodra de sessie voorbij is. De
+borging die punt 19 gebruikte — vooraf de ids van echte rijen vastleggen, achteraf
+op id verwijderen — dekt alleen rijen die er *vóór* het testen al waren. Een
+échte invocatie die tijdens de sessie ontstaat, valt buiten die bescherming en
+is achteraf niet meer als echt te herkennen.
+
+Bij `checkin_diag` kost dat een datapunt. Bij `nutrition_log` kost het de
+juistheid van een dagtotaal, en daarmee de invoer van de dagafsluiting én van de
+geplande eiwitspreidingsanalyse.
+
+**Richting — nog niet uitgewerkt, bewust.** De kern is dat de dev-build tegen een
+andere Supabase-URL moet praten dan de productiebuild. Wat daarvoor nodig is
+(een tweede Supabase-project, of alleen gescheiden omgevingsvariabelen met een
+duidelijke visuele indicatie in de app wanneer je tegen productie draait) is een
+ontwerpvraag, geen CC-prompt. Een tweede project betekent ook een tweede
+schema-migratiepad, en dat is een reële prijs voor een app met één gebruiker.
+
+**Wat dit niet is:** een reden om de opruimafspraak te laten vallen. Die blijft
+staan tot er scheiding is, en ook daarna voor werk dat bewust tegen productie
+draait.
+
+### Tellerstand — vier voorvallen, waarvan één niet opgeruimd (bijgewerkt 31 augustus)
+
+- **27-08** (bouw §19): vier onbedoelde aanroepen, op id opgeruimd.
+- **28-08** (bouw §22): **twee rijen om 15:29, nooit opgeruimd** — ze staan er
+  nog steeds. Gevonden op 31 augustus bij het uitlezen van de reeks voor §1.
+- **31-08** (bouw §21): twee rijen, in dezelfde sessie opgeruimd; de echte
+  ochtendrij van 08:53 is aantoonbaar blijven staan.
+
+**Wat de twee overgebleven rijen van 28-08 kosten.** Ze zitten in de reeks van
+§1 en zijn daar op het eerste gezicht niet van echte invocaties te
+onderscheiden. Herkenbaar zijn ze alleen aan het tijdstip (15:29, midden op de
+middag) en aan het feit dat ze één seconde uit elkaar liggen. Dat is precies wat
+deze sectie voorspelde: *een schrijfactie van de dev-app is niet te
+onderscheiden van een echte gebruikersactie zodra de sessie voorbij is.*
+
+**Onverwachte bijvangst:** juist doordat ze niet opgeruimd zijn, leverden ze de
+enige bestaande meting van de `hasNotableSignal: false`-tak op (zie §1). Dat
+maakt de bevinding niet minder waar — het is toeval, geen argument om rijen te
+laten staan.
+
+---
+
+## 20a. Bevinding — de bundelset hangt volledig aan een handmatig getypte bestandslijst ⬜ OPENSTAAND (27 augustus)
+
+**Beantwoord tijdens punt 19**, op een vraag die eigenlijk over iets kleins ging
+(mag een testbestand naast `index.ts` staan zonder mee te deployen?).
+
+Het antwoord: **ja, want dit project deployt met een expliciete bestandslijst.**
+Er is geen `supabase/config.toml`, geen CI-workflow, en nergens een
+`supabase functions deploy`. De enige deployroute is `deploy_edge_function`, dat
+letterlijke bestandsinhoud per aanroep meekrijgt zonder build-step die imports
+resolvet.
+
+**Waarom dat groter is dan de vraag die het beantwoordde.** Het betekent dat de
+bundelset van elke functie precies gelijk is aan wat er op dat moment in de
+`files`-array getypt wordt. Er is geen enkel mechanisme dat controleert of die
+lijst compleet is. Een nieuw geïmporteerd `_shared/`-bestand dat niemand aan de
+lijst toevoegt, wordt stil niet gedeployed — en de bestaande byte-diff ziet dat
+niet, want die vergelijkt alleen de bestanden die je wél hebt meegestuurd.
+
+Dit was de exacte blootstelling die **vervolgtaak 1** moest afdekken. Die is op
+27 augustus gebouwd en werkt: de bundelset wordt nu afgeleid uit de importgraaf
+vanaf `index.ts` in plaats van met de hand onderhouden. Zie sectie 8,
+vervolgtaak 1, voor de uitkomst en de gemeten basislijn.
+
+**Wat hiermee níet is opgelost:** het script controleert of de *deploy* klopt.
+Het voorkomt niet dat iemand een onvolledige `files`-array samenstelt — het
+maakt zichtbaar dát die onvolledig was. Dat is de juiste volgorde (eerst
+zichtbaar maken, dan eventueel voorkomen), maar het onderscheid is het
+onthouden waard.
+
+**Bijkomend, ter aanmoediging:** de byte-diff-afspraak heeft in twee opeenvolgende
+sessies iets gevangen — een hertypte `_shared/today.ts`, en daarvoor al twee
+stille corrupties. Dit punt gaat over de fout die diezelfde diff *niet* kan
+vangen.
+
+
+---
+
+## 21a. Bevinding — gereconstrueerde dagen zijn niet ijkbaar ⬜ OPENSTAAND (27 augustus)
+
+*Tweede helft van §21. De sorteerfix zelf is opgelost (zie `voeding-app-archief.md`);
+dit deel blijft open en hoort in de CC-prompt voor de eiwitspreiding.*
+
+Op 25-08 staan **7 van de 9** regels op een heel of half uur (08:00, 12:00,
+16:00, 18:00, 19:00, 21:30, 23:00). Op de omliggende dagen zijn dat er 0 tot 3.
+Dat wijst op geschatte tijden: die dag is achteraf gereconstrueerd in plaats van
+gaandeweg gelogd.
+
+Zulke dagen zijn prima voor totalen — het eiwit is gegeten, ongeacht het genoteerde
+uur — maar niet om spreidingsadvies op te baseren. Je zou dan adviseren over een
+verdeling die de gebruiker zelf heeft ingevuld, en die daarna terugkrijgen als
+observatie. Een ronde-tijden-verhouding is een bruikbaar, goedkoop signaal om
+zo'n dag te herkennen.
+
+**Dit deel is met de fix van 31 augustus níet opgelost** en hoort nog steeds in
+de CC-prompt voor de eiwitspreiding, vóór de bouw.
+
+### ⚠️ Correctie na meting — de heuristiek is zwakker dan hierboven aangenomen (1 september)
+
+De bewering *"op de omliggende dagen zijn dat er 0 tot 3"* is nagemeten over
+10 t/m 31 augustus (22 dagen met ≥4 regels) en houdt alleen stand voor de
+directe buren van 25-08. Breder gemeten is het onderscheid **gradueel, niet
+binair**:
+
+| Datum | % op heel uur |
 |---|---|
-| 23:06 | Gebruiker meldt de burger |
-| 23:07 | Coach toont overzicht mét burger in de lijst — **maar logt niet** |
-| 23:12 | Gebruiker vraagt te checken → nu logt hij wél, in één keer goed |
-| 23:13 | Coach verzint een oorzaak ("technisch hikje") |
+| 25-08 | 67% |
+| 19-08 | 50% |
+| 29-08 | 50% |
+| 31-08 | 50% |
+| mediaan over alle dagen | 13% |
+| acht van de 22 dagen | 0% |
 
-**Het patroon: het ging mis bij een overzichtsvraag, niet bij gewoon loggen.**
-Diezelfde dag waren zeven maaltijden probleemloos gelogd. En toen er expliciet
-om gevraagd werd (23:12), werkte het meteen. Het verschil bij 23:07: de coach
-moest tegelijk een lange, opgemaakte lijst produceren én een tool aanroepen.
-De tekst kwam er wel, de tool-call niet — maar de tekst beschreef 'm alsof hij
-er wel was.
+**Wat dit betekent voor een drempel.** Op ~70% vang je alleen 25-08 en is de
+regel bijna zonder werking. Op 50% vallen er vier dagen extra af, waaronder
+**29-08 — dat zit in het venster 22-08 t/m 28-08 dat de reden is dat de feature
+überhaupt kan starten.** Zeven schone dagen worden dan zes, of minder.
 
-Dat het foute dagtotaal (186 i.p.v. 171, met een dubbeltelling) in datzelfde
-bericht zat, versterkt het beeld: het model was op dat moment vooral aan het
-*vertellen*, niet aan het *doen*.
+**Wel een verbetering gevonden.** Tel alleen **hele uren**, niet hele én halve:
 
-**Concreet aanknopingspunt voor onderzoek:** kijk of tool-calls vaker wegvallen
-wanneer er in dezelfde beurt een lange gestructureerde tekst gegenereerd wordt
-(overzichten, opsommingen, samenvattingen) — in tegenstelling tot een korte
-bevestiging na een gewone log. Als dat zo is, is de mitigatie mogelijk om
-loggen en overzicht-genereren niet in dezelfde beurt te laten samenvallen.
+| Maat | Mediaan | Hoogste dag |
+|---|---|---|
+| heel uur | 13% | 67% |
+| heel of half uur | 25% | 78% |
+| minuut deelbaar door 5 | 44% | 88% |
 
-**Waarom dit zwaarder weegt dan andere bevindingen deze week:** juist bij een
-lang overzichtsbericht controleer je mínder — het ziet er compleet en verzorgd
-uit. En het risico is het grootst laat op de avond, vlak vóór de afsluiting,
-wanneer correctie niet meer lukt. Op 13 augustus was er vijf minuten speling;
-was de vraag om 23:28 gesteld, dan was de dag afgesloten met een totaal dat
-39g te laag was, zonder enig signaal dat er iets miste.
+Halve uren en vijfvouden komen ook op gewoon gelogde dagen zo vaak voor dat ze
+het signaal verdunnen. De oorspronkelijke formulering hierboven ("heel of half
+uur") is dus de zwakkere van de twee.
 
-**Nog uit te zoeken:** faalde de tool-call, werd hij niet aangeroepen, of werd
-hij aangeroepen na het schrijven van het antwoord? Ook checken of dit vaker is
-gebeurd — een steekproef over eerdere dagen waarbij de chat-lijst tegen de
-database wordt gelegd.
+**Gevolg voor de CC-prompt:** een harde drempel is niet verdedigbaar op deze
+data. Realistischer is de verhouding **als zwak signaal meegeven** in plaats van
+als filter — bijvoorbeeld door een dag met een hoog aandeel hele uren minder
+zwaar te laten wegen, of door bij advies over zo'n dag een slag om de arm te
+houden. Dat past ook beter bij de aard van de feature: spreiding is advies, geen
+tweede doel.
 
-### Probleem 3: de coach verzint oorzaken voor eigen fouten
+**Waarom dit hier staat en niet stilletjes is aangepast.** De oorspronkelijke
+observatie is niet fout — 25-08 ís de meest verdachte dag, en de redenering
+waarom zo'n dag ongeschikt is als ijkmateriaal klopt onverkort. Alleen de
+aanname dat er een duidelijke scheidslijn bestaat, is door meting weerlegd. De
+query staat als check 5 in `voeding-app-datachecks.md`.
 
-Gevraagd waarom het niet gelogd was, antwoordde de coach: *"dat kwam door een
-technisch hikje net toen ik reageerde op je vraag naar het overzicht."*
+### Gevolg voor de planning
 
-Dat is gefabriceerd. Het model heeft geen enkele toegang tot informatie over
-waarom een eerdere tool-call niet is uitgevoerd — het construeert een
-plausibel klinkende verklaring. De wáárneming klopte ("de log-actie is er niet
-doorheen gekomen"), de oorzaak niet.
+Van de twee blokkades op de eiwitspreiding is er nu één weg:
 
-**Waarom dit los vermeld wordt:** een verzonnen oorzaak die geloofwaardig
-klinkt, maakt het minder waarschijnlijk dat je verder kijkt — "technisch
-hikje" klinkt als iets incidenteels dat vanzelf voorbijgaat. Hier hoort de
-coach te zeggen dat hij niet kan zien wat er misging. Kandidaat voor een
-prompt-regel, met de kanttekening uit sectie 6 dat instructies het kunnen
-verliezen van wat het model denkt te weten.
+1. ~~Nachtrijen moeten in de analyse achteraan gesorteerd worden, niet vooraan.~~
+   ✅ Opgelost — `sortMealsByActiveDayOrder()` is beschikbaar in
+   `_shared/today.ts` en kan door de spreidingsfeature hergebruikt worden in
+   plaats van nagebouwd.
+2. ⬜ Gereconstrueerde dagen horen niet als ijkmateriaal gebruikt te worden.
 
-### Probleem 2: het lopende totaal komt uit een momentopname van vóór de tool-calls
+Punt 2 hoort in de CC-prompt voor die feature. Afvangen ná de eerste adviezen
+betekent adviezen intrekken die de gebruiker al gezien heeft.
 
-`buildDynamicContext()` draait **één keer**, aan het begin van de request. Alles
-wat daarna in dezelfde beurt gelogd wordt, zit niet in dat getal. De coach
-werkt dus met een totaal van vóór zijn eigen logacties.
-
-In dit geval leidde dat tot drie verschillende getallen in één bericht: 171
-(optelling van de getoonde lijst), ~186 (een schatting), en 132 (de
-werkelijkheid). De coach merkte de discrepantie zelf op en probeerde 'm te
-verklaren — maar de 186 was een gok: het lijkt 147 + 39, waarbij de
-kippendij-maaltijd dubbel geteld is.
-
-**Structureel gezien** is dit dezelfde klasse als het probleem uit blok 3b
-(calorietotaal dat telkens anders uitviel omdat het uit omschrijvingen werd
-herberekend). Het verschil: dáár was de oplossing een echte `SUM`; hier is het
-getal wél berekend, maar op het verkeerde moment.
-
-**Mogelijke richtingen (nog niet uitgewerkt):**
-- Het lopende totaal opnieuw ophalen ná de tool-loop, vóór het finale antwoord
-- Of: het totaal meegeven als tool-resultaat bij `nutrition_log_add`, zodat de
-  coach het bijgewerkte getal terugkrijgt op het moment dat hij logt
-- Of: de coach instrueren nooit een dagtotaal te noemen in dezelfde beurt
-  waarin hij logt — zwakste optie, en na de ervaring met de
-  voorkeuren-herkadering (sectie 6) is duidelijk dat een instructie het kan
-  verliezen van wat het model zelf denkt te weten
-
-### Nasleep: het foute getal plantte zich voort naar de dagafsluiting
-
-De dagafsluiting van 13-08 (23:33) schreef **172g** in `eiwit_totaal` — correct,
-want dat is een echte `SUM`. Maar de samenvattingstékst noemde **~187g**: het
-model nam de 186 uit het chatgesprek over en telde er het ijsje van 23:32 bij
-op.
-
-Dus de fout uit één chatbericht belandde in de permanente samenvatting van de
-dag, die vervolgens weer als context meegaat naar volgende dagen. De kolom
-klopt, de tekst niet — en bij het terugkijken is de tekst wat je leest.
-
-### Waarom deze problemen samen erger zijn dan apart
-
-Probleem 2 alleen geeft een verwarrend maar corrigeerbaar getal. Probleem 1
-alleen geeft ontbrekende data. Probleem 3 zorgt ervoor dat je stopt met
-zoeken. Samen vertelt de chat een consistent ogend verhaal dat niet klopt met
-de database, mét een geruststellende verklaring erbij — en heeft de gebruiker
-geen enkele aanwijzing welk getal te vertrouwen.
-
-**Prioriteit:** probleem 1 hoort boven aan de lijst. Dit is de eerste bevinding
-in deze app waarbij data stil verloren gaat in plaats van verkeerd
-gepresenteerd wordt. Alle eerdere bevindingen deze week (lekkend gewicht,
-sjabloonsuggesties, genegeerd aandachtspunt) waren zichtbaar zodra je keek;
-deze niet.
-
-**✅ Opgelost (14 augustus, `coach-chat` v26).** Beide problemen zijn
-structureel aangepakt: het dagtotaal komt nu rechtstreeks uit de tool terug, en
-twee detectiemechanismen vangen een niet-uitgevoerde schrijfactie op. Zie de
-bouwgeschiedenis in `voeding-app-volledige-documentatie.md` voor de volledige
-uitwerking, inclusief waarom mechanisme B bewust géén herhaalpoging doet.
-Probleem 3 (verzonnen oorzaken) is afgedekt met een prompt-regel — dat is een
-feitelijke-eerlijkheidsinstructie, niet het soort suggestie-sturende regel dat
-in sectie 6 sneuvelde, maar het blijft een instructie en dus niet hard
-gegarandeerd.
+Het venster van zeven schone `tijdstip`-dagen (22-08 t/m 28-08) is inmiddels
+gehaald, dus de feature is qua data niet langer geblokkeerd — alleen nog qua
+punt 2 hierboven.
 
 ---
 
-## 10. Bevinding — ochtend check-in kaart: niet-getoetste overname + verkeerde antwoordknoppen
+## 23. Bevinding — een weging kan niet als onbetrouwbaar gemarkeerd worden ⬜ OPENSTAAND (1 september)
 
-**Gevonden 15 augustus in dagelijks gebruik. Twee losse problemen op één
-kaart, beide voortkomend uit de aandachtspunt-overdracht van 13 augustus.**
+**Gevonden doordat het advies en de app uit elkaar liepen, niet doordat er iets
+kapotging.**
 
-### Wat er op de kaart stond
+Op vrijdag 28-08 luidde het advies voor de weging van zondag 30-08: *weeg
+gewoon, maar noteer er "jicht + diclofenac" bij.* De onderbouwing was dat er
+maar twee meetpunten per week zijn, dat een ontbrekende meting net zoveel kost
+als een vervuilde, en dat je van een **gelabelde** uitschieter tenminste weet
+wat je ermee moet.
 
-> **Op welke tijd train je vandaag?** Dan kan ik je eiwitmomenten daar goed
-> omheen plannen — en na gisteren mag het gerust weer eiwitrijk zijn, je
-> herstel profiteert er nu nog van.
->
-> **Vandaag:** Rustdag na Rug & Biceps — spieropbouw draait door.
+De weging is uiteindelijk overgeslagen. En dat is geen afwijking van het advies
+maar het enige uitvoerbare alternatief: **de app kent geen manier om een meting
+te labelen.** `weight_log` heeft de kolommen `id`, `datum`, `gewicht`,
+`created_at`, en er zijn twee tools (`weight_log_add`, `weight_log_update`).
+Er is geen markering, en er is ook geen delete.
 
-De vraag en de contextregel spreken elkaar tegen: er wordt gevraagd hoe laat je
-traint, op een dag die de kaart zélf als rustdag benoemt.
+Het advies vroeg dus om iets wat niet bestaat. De keuze die overbleef was
+binair: vervuilen of overslaan. Beide kosten iets.
 
-### Probleem 1 — de overname wordt niet getoetst aan vandaag
+### Waarom dit meer is dan één gemiste meting
 
-**Oorzaak achterhaald, en het model verzon niets.** Het aandachtspunt van 14-08
-bevatte letterlijk: *"Trainingstijd varieert per dag, dus even navragen."* Dat
-is netjes overgenomen — de overdracht werkt precies zoals gebouwd.
+**Week 35 heeft één meting in plaats van twee** (wo 26-08 wel, zo 30-08 niet).
+De trendberekening groepeert per kalenderweek juist omdát elke week normaal
+precies één woensdag en één zondag bevat — dat is de expliciete reden waarom er
+niet voor een voortschrijdend venster is gekozen (zie de bouwnotitie van
+12 augustus). Een week met één meting ondermijnt die aanname, en het weekgemiddelde
+leunt dan volledig op één waarde.
 
-Het probleem zit een laag dieper: dat aandachtspunt is geschreven ná een
-trainingsdag en gaat over trainingsdagen. Op een rustdag is de instructie niet
-van toepassing, en niets toetst dat. De informatie om de tegenstrijdigheid te
-zien stond wél op dezelfde kaart — de contextregel zegt "Rustdag".
+**Wat de berekening met een incomplete week doet, is nergens gedefinieerd.**
+Drempel is 6 weken, vergelijking is eerste-2 versus laatste-2 weekgemiddelden.
+Of een week met één meting daarin volwaardig meetelt, is niet vastgelegd en niet
+onderzocht. Sinds week 35 is dat geen theoretische vraag meer.
 
-**Richting voor de fix:** niet "wees voorzichtiger met overnemen", maar *toets
-een overgenomen instructie tegen de dagcontext voordat je hem gebruikt*. Een
-aandachtspunt is guidance van gisteren, geen opdracht voor vandaag.
+**En het valt niet op.** Losse metingen worden per ontwerp nooit teruggetoond,
+dus een ontbrekende of vervuilde meting is onzichtbaar tot iemand de tabel
+opvraagt. Dit gat is dan ook niet in de app gevonden maar bij een handmatige
+`weight_log`-query op 1 september. Zelfde categorie als de `SUM` die perfect
+klopte over vervuilde testrijen, en als de nachtrijen uit §21: technisch
+correct, inhoudelijk verkeerd, geen foutmelding.
 
-### Probleem 2 — de antwoordknoppen passen niet bij de vraag
+### Waarom dit terugkeert
 
-De pillen ("Niet zo goed / Prima! / Heel goed 💪") verschenen onder een vraag
-naar een *tijdstip*. Het `heeft_vraag`-mechanisme werkte correct — er wórdt
-iets gevraagd — maar de labels zijn stemmingsantwoorden.
+Dit is geen eenmalig geval. De aanleiding was een jichtaanval met een korte
+diclofenac-kuur, en:
 
-**Dit is precies de geaccepteerde vereenvoudiging uit de bouw**, die nu niet
-meer houdbaar is. De aanname was dat de coach vooral welzijnsvragen zou stellen
-("hoe voel je je", "hoe heb je geslapen"). Nu de kaart het aandachtspunt kan
-overnemen, kan hij willekeurige vragen stellen — en dan klopt die aanname niet.
+- NSAID's geven vochtretentie die op de weegschaal 1 tot 2 kg kan schelen, met
+  een naijling van drie tot vijf dagen na de laatste tablet.
+- Een calorietekort is zelf een bekende trigger voor een aanval (ketonen
+  concurreren met urinezuur om uitscheiding via de nieren), en er staan dagen
+  van 1640-1960 kcal in de data tegen een doel van 2300-2400.
 
-**Twee richtingen:** de labels laten meekomen met de vraag (model-gegenereerd,
-met de risico's die eerder zijn afgewogen), óf `heeft_vraag` splitsen in
-"stemmingsvraag" (pillen tonen) en "andere vraag" (geen pillen, gewoon typen).
+De combinatie van die twee maakt herhaling waarschijnlijk. Zonder markering
+betekent elke herhaling opnieuw dezelfde binaire keuze, en opnieuw een gat in de
+reeks dat achteraf niet te duiden is. *(Voor de medische kant is de huisarts of
+apotheker het adres — hier staat het alleen als reden waarom dit structureel is
+en niet incidenteel.)*
 
-**Nog geen CC-prompt van gemaakt.** Beide punten horen in één opdracht: ze
-komen uit dezelfde wijziging en raken dezelfde bestanden, en de oplossingen
-hangen samen — de beslissing wélke vraag gesteld wordt, bepaalt of
-stemmingsknoppen passen.
+### Richting — dezelfde vorm als `bron` bij fotoschattingen
+
+Een nullable kolom op `weight_log` die vastlegt dat een meting onbetrouwbaar is,
+plus een korte reden. Zelfde argument als de `bron`-kolom uit §17: zonder
+markering zijn onbetrouwbare metingen niet te onderscheiden van gewone, kan de
+trendberekening er niet op filteren, en is achteraf niet vast te stellen of een
+afwijking echt was. Een aantekening in een vrij tekstveld is het goedkope
+alternatief en om dezelfde reden ongeschikt: niet betrouwbaar te queryen.
+
+Wat dat meteen meeneemt:
+- De coach moet de markering kunnen zetten bij het loggen ("weeg 111,2, maar ik
+  slik nog diclofenac") én achteraf, net als bij `tijdstip` in v28.
+- De trendberekening moet gemarkeerde metingen uitsluiten, en er moet bepaald
+  worden wat er dan met de weekgroepering gebeurt — een week die daardoor op één
+  meting uitkomt, is hetzelfde probleem als hierboven.
+- Er is nog steeds geen delete. Bij een gewicht is dat verdedigbaar (er is geen
+  redundantie, zie de reden waarom `weight_log_update` destijds is toegevoegd),
+  maar uitsluiten via een markering vervangt de behoefte aan een delete
+  grotendeels.
+
+**Bewust nog niet gebouwd.** Dit is één kolom plus promptwerk en raakt
+`coach-chat`, maar de vraag wat de trendberekening met incomplete weken doet is
+een ontwerpbeslissing die vóór de bouw genomen moet worden, niet erin.
+
+### Ingetrokken bewering — week 36 is níet geraakt (correctie 2 september)
+
+Hier stond dat de weging van woensdag 02-09 minder zuiver zou zijn, omdat de
+beendag verschoven zou zijn van zondag 30-08 naar maandag 31-08 en de meting
+daardoor twee in plaats van drie dagen na de sessie viel.
+
+**Dat klopt niet. De benen zijn gewoon op zondag getraind.** Het aandachtspunt
+van 30-08 zegt het letterlijk ("de beensessie van zondag"), dus dit was
+weerlegbaar met tekst die al gelezen was. Week 36 is een normale week met twee
+metingen op de gebruikelijke afstand van de zware sessie.
+
+**Alleen week 35 is geraakt**, op aantal: één meting in plaats van twee, doordat
+zondag 30-08 bewust is overgeslagen wegens de jichtaanval. Dat is precies het
+geval waarvoor de markering in deze sectie bedoeld is.
+
+*De ingetrokken bewering blijft hier staan in plaats van weggepoetst te worden:
+een correctie die nergens meer te zien is, kan bij een volgende analyse opnieuw
+worden bedacht.*
 
 ---
 
-## 11. Verzoek — dagafsluiting schakelt te snel door
+## 24. Bevinding — Engelse bezitsvorm in de kaarttekst ✅ GEREPAREERD (8 september, promptregel)
 
-**Gevonden 14 augustus in dagelijks gebruik.**
+**Gevonden door `kaart.boodschap` terug te lezen, wat vóór `v: 3` niet kon.**
+Twee opeenvolgende dagen stond er een Engelse bezitsvorm op een Nederlands
+bijwoord in de tekst die op het scherm kwam:
 
-Bij een handmatige afsluiting stuurt de coach nog een afsluitend bericht ("rust
-goed uit"), maar direct daarna wordt de thread gewist en opent de nieuwe dag
-met de samenvattingskaart. Die twee zijn niet hetzelfde: het afsluitende
-bericht is conversatie en verdwijnt, de samenvatting is een record en blijft.
-In de praktijk kon de gebruiker het afsluitende bericht nog net half lezen
-voordat het weg was.
+- **04-09:** "eiwitrijk eten helpt je herstel, ook profiterend van
+  **gisteren se** rustdag"
+- **05-09:** "en met **gisteren's** Rug & Biceps sessie mag je eiwitinname ook
+  vandaag nog stevig zijn"
 
-**Twee varianten, allebei overwogen:**
-- *Vertraging (5-10s)* — makkelijk te bouwen, maar een timer is altijd fout:
-  te kort bij afleiding, te lang als je door wilt. En onherstelbaar zodra weg.
-- *Een knop* — de afsluitende tekst blijft staan tot je zelf de nieuwe dag
-  start. **Voorkeur**, want het lost ook een tweede ding op: de dag wordt nu
-  afgesloten op het moment dat het model de tool aanroept, niet wanneer jij
-  klaar bent. Met een knop kun je tussen "ik ben klaar" en de daadwerkelijke
-  afsluiting nog iets loggen.
+Nederlands kent geen apostrof-s op een bijwoord of dagnaam. Correct is "de
+rustdag van gisteren" of "gisteren was een rustdag". *"Profiterend van"* is
+daarnaast stijf, maar niet fout.
 
-*Dit stond al als "toekomstige verbetering" in de oude testlijst* (dagafsluiting
-als bewuste klik op de samenvattingskaart) — nu met een concrete aanleiding.
+**Waarom dit hier staat en niet als futiliteit is afgedaan.** Dit is de eerste
+klacht over kwaliteit die met bewijs onderbouwd kon worden in plaats van met een
+herinnering. De kaarttekst werd tot 2 september nergens bewaard, dus zulke
+fouten verdwenen zodra de kaart van het scherm was. Ze zaten mee in het
+algemene gevoel dat de kaart achteruitging.
 
-**Uit te zoeken bij de bouw:** wat gebeurt er als de knop niet ingedrukt wordt
-en de cron 's nachts draait? De dag moet dan alsnog afsluiten zonder dat er
-iets verloren gaat. *Bij een cron-afsluiting speelt dit probleem overigens
-niet* — dan is er geen afsluitend bericht, alleen de kaart.
+**De fix:** één regel toegevoegd aan de `Regels:`-lijst in `buildSystemPrompt`,
+naast de bestaande regel over dagwoorden omdat beide over natuurlijke
+dagverwijzing gaan. Verboden om een bezitsvorm te maken door `'s` of `se` aan
+een dagnaam of bijwoord te plakken, met beide echte fouten als voorbeeld en
+twee correcte alternatieven.
+
+**Meegelift op de labellogging van §19a.** Die twee kunnen elkaar niet
+vertroebelen: de logging raakt niets wat het model ziet, de promptregel raakt
+niets wat gelogd wordt. Elk is los in de data te beoordelen.
+
+**Nog niet waargenomen.** De testaanroep van 8 september gaf
+`vraag_type: "geen"` en produceerde dus geen kaarttekst die de nieuwe regel op
+de proef stelde. Of de fout weg is, blijkt uit de eerste echte kaarten — na te
+lezen in `kaart.boodschap`, waarvoor niets extra's nodig is.
+
+**Bewust niet verbreed** tot een algemene toon- of stijlherziening. Eén
+gerichte regel.
+
+---
+
+## 25. Bevinding — de ochtendkaart las `coach_memory` niet ✅ GEREPAREERD (11 september, `morning-checkin` v20)
+
+**Gevonden doordat de kaart zichzelf binnen één scherm tegensprak.**
+
+Op vrijdag 11 september, een werkvrije dag:
+
+| Veld | Tekst |
+|---|---|
+| `boodschap` | "Blijf ook op deze **kantoordag** rond 15:00 alert op de dip..." |
+| `contextTekst` | "**Vrije dag** — mooi moment om te herstellen van de Power Hour van gisteren." |
+
+De bron was het aandachtspunt van donderdagavond, dat het **correct
+voorwaardelijk** formuleerde: *"deze aanpak blijven aanhouden **op
+kantoordagen**."* Het model liet die voorwaarde vallen.
+
+### De oorzaak — geen promptprobleem maar een ontbrekende bron
+
+`morning-checkin` las `coach_memory` niet. Geen query, nergens in het bestand.
+De kaart kreeg alleen de dagfeiten uit het trainingsschema, `isThursday`, en de
+tekst van het aandachtspunt.
+
+De feiten dat kantoordagen dinsdag en donderdag zijn en dat vrijdag tot en met
+zondag werkvrij is, staan gewoon in `coach_memory` en gaan bij **elke**
+chatbeurt letterlijk mee naar de coach. De kaart had er geen enkel pad naartoe.
+
+**Daarom was een promptregel nooit de oplossing geweest.** De
+verzoeningsregel uit §15a zegt dat het model moet toetsen aan de
+"Vandaag is..."-feiten, en die set kent maar vier waarden: `training`, `rust`,
+`power_hour`, `boksen`. Er ís geen kantoordagwaarde om tegen te vergelijken.
+Ook een breder geformuleerde regel had hier niets kunnen doen. Het model kon
+"op kantoordagen" onmogelijk verwerpen, want het wist niet welke dagen dat
+waren; het gokte en het gokte mis.
+
+**Eén feit was letterlijk voor deze plek geschreven** en kwam er nooit aan:
+*"Op kantoordagen (dinsdag en donderdag) is er vaak een energiedip rond 15:00 —
+**mag proactief benoemd worden, bijvoorbeeld tijdens de ochtend check-in**."*
+
+### Een fout feit in `coach_memory`, eerst gecorrigeerd
+
+Bij het uitzoeken bleek de `definitie`-regel over Power Hour onjuist: hij
+beschreef het als een intensieve boksles bij een externe bokssportschool in
+Beverwijk. Het is een trainer-geleide les met HIIT, kracht en cardio op een
+externe locatie.
+
+**Waarom dit ernstiger is dan één verkeerd woord.** Dit feit ging bij elke
+chatbeurt mee en was als fout niet herkenbaar. Het is doorgesijpeld naar drie
+aandachtspunten in `coach_sessions` (21-08, 30-08, 31-08), die permanent zijn,
+en naar deze documentatie. Een fout feit ziet er niet fout uit.
+
+**Volgorde bewust aangehouden:** eerst het feit corrigeren via de chat, pas
+daarna de kaart eraan koppelen. Andersom zou de kaart een *fout* feit krijgen
+in plaats van een *ontbrekend* feit, en dat zou doorwerken in nieuwe
+aandachtspunten. De correctie is geverifieerd: dezelfde rij bijgewerkt (geen
+tweede rij ernaast), en "boks" komt nergens meer voor in `coach_memory`.
+
+De drie historische aandachtspunten zijn bewust niet hersteld. Ze vallen buiten
+het venster van vijf dagsamenvattingen en aanpassen zou teruggrijpen op
+afgesloten dagen. *Komt "boksles" toch terug in een nieuw aandachtspunt, dan
+komt het ergens anders vandaan.*
+
+### De fix
+
+**Alle actieve `coach_memory`-feiten gaan mee**, op precies dezelfde manier als
+bij `coach-chat`: geen categoriefilter, geen trefwoordfilter. Tien rijen,
+ongeveer 1900 tekens.
+
+**Bewust geen filter.** Een filter op categorie zou filteren op een grens die
+niemand kan uitleggen — de werkdagen staan onder `gewoonte`, de eetgewoontes
+onder `vaste_gewoonte`. Elke selectie die vandaag gemaakt wordt, is een gok die
+misgaat zodra er een elfde feit bij komt, en het feit dat speciaal voor deze
+plek geschreven was laat zien hoe die fout eruitziet.
+
+**En de categorie wordt niet meegestuurd in de prompt.** Dat onderscheid is
+niet alleen onverklaarbaar maar hier actief misleidend: de twee feiten die deze
+bug veroorzaakten staan onder `gewoonte`, terwijl een zachte, optionele
+gewoonte ("na training vaak eerst een shake") onder `vaste_gewoonte` staat. Een
+model dat die labels leest, kan redelijkerwijs concluderen dat het tweede harder
+is dan het eerste. Dat is omgekeerd.
+
+**Achtergrondkennis, geen suggestielijst.** Het sjabloonrisico uit §6 is bij een
+kaart van drie zinnen groter dan bij een chat: "banaan of een handje noten" en
+"na training vaak eerst een shake" worden een vast menu als het model ze als
+voorstellen leest. Dat is opgelost in de framing bij de feiten zelf, niet met
+een extra regel elders:
+
+> Achtergrondkennis over de gebruiker (langetermijngeheugen) — gebruik dit om
+> aannames te toetsen en tegenspraken te voorkomen, NIET als een lijst om
+> suggesties uit te putten: noem een van deze feiten alleen als de dag van
+> vandaag daar zelf om vraagt.
+
+**Plaatsing:** achteraan bij "Feiten om op te baseren", direct na het
+aandachtspunt en vóór de verzoeningsinstructies. Daardoor staan de
+kantoordagfeiten al in beeld op het moment dat het model "op kantoordagen"
+tegen vandaag afweegt.
+
+### Het donderdagblok ontdubbeld
+
+De prompt bevatte een hardcoded blok dat zowel beschreef **wat** Power Hour is
+als **hoe** je eromheen eet, afgeschermd door `isThursday`. De beschrijving
+stond óók in `coach_memory` — en de twee spraken elkaar al tegen ("HIIT, kracht
+en cardio" tegenover "boksles"). Zodra de kaart het geheugen meekrijgt, staan
+beide beschrijvingen in dezelfde prompt, wat slechter is dan elk apart. Dit kon
+dus niet uitgesteld worden.
+
+**De werkverdeling:** `coach_memory` beschrijft wat er in de week gebeurt, de
+prompt beschrijft hoe de coach erover adviseert.
+
+- **Weg uit de prompt:** de beschrijving van de activiteit.
+- **Blijft:** niet nuchter, snack rond 17:30, hoofdmaaltijd na de training. Dat
+  staat nergens anders.
+- **Blijft ook:** "Zondag is de vaste beendag, altijd nuchter." Dat is een
+  schemafeit, geen chatgeleerd feit, en hoort niet in `coach_memory`.
+
+**De poort gaat nu op `today.dayType === 'power_hour'` in plaats van
+`isThursday`.** Het schema levert dat dagtype zelf sinds de hernoeming van
+"Cardio Fitness" naar "Power Hour", en een `week_overrides`-rij wordt daarin wél
+gevolgd door `resolveWeekPlan` en niet door kalenderrekenkunde.
+
+**Bewust achtergelaten asymmetrie:** `hasNotableSignal` en het
+diagnostiekveld `cond.vandaagPowerHour` blijven op `isThursday`. Verplaatst
+Power Hour ooit naar een andere dag, dan volgt de kaarttekst het schema en die
+twee niet. Buiten scope gehouden omdat `hasNotableSignal` de lopende vraagmeting
+raakt; met een comment in de code gemarkeerd.
+
+**Klein, niet opgelost:** het advies over 17:30 hoort bij een sessie die om
+19:00 begint. De poort is nu schemagebaseerd, het tijdstip blijft hardcoded.
+
+### Verificatie — sterke opzet, eerlijk gerapporteerd
+
+De testaanroep draaide op **hetzelfde, ongewijzigde aandachtspunt** van 10-09
+dat 's ochtends de foute kaart opleverde. Zelfde invoer, alleen andere code:
+
+| | `boodschap` |
+|---|---|
+| v18, 11:28 | "Blijf ook op deze **kantoordag** rond 15:00 alert op de dip..." |
+| v20, testcall | "Fijne **rustdag** vandaag — mooi moment om te herstellen van de Power Hour van gisteren, zonder verder iets te moeten." |
+
+De fout reproduceerde niet, en het geheugenblok is de enige nieuwe invoer.
+
+**Wat er níet geclaimd wordt:** dat het model aantoonbaar heeft geredeneerd
+"vrijdag is werkvrij volgens feit X". De redeneerstap is niet zichtbaar. Dat de
+kaart het feit niet noemt, past bij de eigen weegregels: zonder vraag in het
+aandachtspunt valt de kaart terug op een korte boodschap zodra het kantooradvies
+terecht is verworpen.
+
+Testrij op vooraf vastgelegde id verwijderd, id-set van de dag daarna
+onafhankelijk gecontroleerd en terug bij de uitgangsstand.
 
 ---
 
@@ -989,3 +2154,8 @@ Give me a plan before building.
 
 ---
 Volledige bouw- en testdocumentatie: `voeding-app-volledige-documentatie.md`
+
+---
+Staande afspraken: `voeding-app-afspraken.md`
+Afgeronde bevindingen: `voeding-app-archief.md`
+Volledige bouw- en testdocumentatie fase 1: `voeding-app-volledige-documentatie.md`
