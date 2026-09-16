@@ -398,13 +398,32 @@ interface CheckinDiagPayload {
 // from "the model returned a question that failed to render" — currently
 // indistinguishable from the client's perspective. console.log line is the
 // same-day debugging copy; the checkin_diag row (diagServiceClient, RLS
-// locked to service-role) is the durable copy, since this project's log
-// retention (Free plan, 1 day) can't support the open-ended observation
-// window this feeds. Two independent failure boundaries rather than one
-// shared try/catch, so an insert failure can never suppress the console
-// line or vice versa. The insert is not awaited — EdgeRuntime.waitUntil is
-// Supabase's documented mechanism for background work that must not add
-// latency to the response but must still reliably complete.
+// locked to service-role) is the durable copy, since the edge log window
+// this feeds queries in 24h slices, one at a time (measured during a
+// 2026-09-16 investigation: retention itself actually reaches back
+// several weeks, more than the "Free plan, 1 day" this comment used to
+// claim — that number was never verified before now). Two independent
+// failure boundaries rather than one shared try/catch, so an insert
+// failure can never suppress the console line or vice versa. The insert
+// is not awaited — EdgeRuntime.waitUntil is Supabase's documented
+// mechanism for background work that must not add latency to the response
+// but must still reliably complete.
+//
+// A row here does NOT mean the user saw a card. This function never
+// checks req.signal, so it runs to completion — Claude call, validation,
+// this insert — regardless of what the client decided to do while
+// waiting. Confirmed 2026-09-16: a client-side timeout with no request
+// cancellation retried after the original call was already this far along
+// server-side, producing two rows (both modelOk: true) for a card the
+// user never saw either version of — the client had already given up and
+// fallen back to its own generic template before either response arrived.
+// The retry no longer fires on a timeout specifically (see
+// voeding-app/src/lib/morningCheckin.js's isTimeoutError), but this
+// function still has no idempotency of its own — a second POST for a day
+// already logged (from any cause, including a genuine transport-failure
+// retry) writes a second, independent row. Any count of vraag_type or
+// antwoordOpties distributions read from this table must de-duplicate by
+// `datum` first, or a day that produced two rows silently counts twice.
 function logCheckinDiag(payload: CheckinDiagPayload) {
   try {
     console.log('[checkin-diag] ' + JSON.stringify(payload))

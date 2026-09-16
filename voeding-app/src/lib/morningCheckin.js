@@ -1,9 +1,20 @@
 import { supabase } from '../supabase.js'
+import { FunctionsFetchError } from '@supabase/supabase-js'
 import { activeDate } from './threadStorage.js'
 import { isLateEvening } from '../data/seedMessages.js'
 
 const CHECKIN_SHOWN_KEY = 'coach_checkin_shown_v1'
-const CHECKIN_TIMEOUT_MS = 8000
+// Derived from 44 real morning-checkin invocations measured via Supabase's
+// edge logs (2026-08-25 through 2026-09-16, execution_time_ms): median
+// ~4.97s, p90 ~9.3s, max 11.08s (three of the five values over the old
+// 8000ms budget landed within 90 seconds of each other on 2026-08-27,
+// suggesting tail latency arrives in short clusters, not isolated
+// one-offs). 20000 is roughly 2x the measured p90 and ~80% headroom over
+// the highest value ever recorded in that sample — derived, not a round
+// guess. Re-measure if this budget starts tripping again; don't just bump
+// the number the way ANTWOORD_OPTIE_MAX_LENGTH was picked without checking
+// against real output and turned out too tight.
+const CHECKIN_TIMEOUT_MS = 20000
 
 // Same formula as _shared/today.ts's currentCalWeek (Deno, the Edge
 // Function runtime) and workout-app's original currentWeekIndex() — a third
@@ -110,13 +121,6 @@ export function markCheckinShown(today) {
   }
 }
 
-function withTimeout(promise, ms) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('morning-checkin call timed out')), ms)),
-  ])
-}
-
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -132,26 +136,59 @@ function delay(ms) {
 // saved, no later reopen the same day tries again (see restoreThread's
 // resume branch, which just replays the stored thread). One retry here is
 // contained, cheap insurance against exactly that kind of transient
-// failure, without touching the once-per-day thread logic at all.
+// failure — but only for that kind. See isTimeoutError below for why a
+// timeout must never take this same retry path.
 const CHECKIN_RETRY_DELAY_MS = 1500
 
+// Real incident (2026-09-16): a timeout used to retry exactly like a
+// network failure, but the two are opposites. A network failure means the
+// request never reached the server — retrying is free insurance. A
+// timeout means the request IS running (or, as happened here, already
+// succeeded) and the client simply stopped waiting — retrying fires a
+// second, fully independent invocation while the first is still in
+// flight. That morning both attempts independently exceeded the (then
+// 8000ms) budget, both succeeded server-side (checkin_diag: modelOk true
+// twice), and both were thrown away client-side as failures — the user
+// saw the generic template, and a genuinely good card was gone for good,
+// for nothing: two Claude calls burned to produce zero cards.
+//
+// supabase.functions.invoke's own `timeout` option (used below, replacing
+// a hand-rolled Promise.race that only stopped listening without ever
+// cancelling the underlying fetch) creates a real AbortController and
+// aborts the fetch when it fires — but the library wraps BOTH a genuine
+// network failure and an abort into the same FunctionsFetchError class
+// (confirmed by reading @supabase/functions-js's FunctionsClient.js: a
+// single `.catch(fetchError => { throw new FunctionsFetchError(fetchError) })`
+// covers both). What does differ, reliably, is the original error
+// preserved on `.context` (FunctionsError's constructor: `this.context =
+// context`): an aborted fetch always rejects with a DOMException named
+// 'AbortError', per the Fetch/AbortController spec — not a message string
+// that could vary or localize, an actual spec-guaranteed property.
+function isTimeoutError(err) {
+  return err instanceof FunctionsFetchError && err.context?.name === 'AbortError'
+}
+
 async function invokeMorningCheckin() {
-  const { data, error } = await withTimeout(supabase.functions.invoke('morning-checkin'), CHECKIN_TIMEOUT_MS)
+  const { data, error } = await supabase.functions.invoke('morning-checkin', { timeout: CHECKIN_TIMEOUT_MS })
   if (error || !data) throw error ?? new Error('No response from morning-checkin')
   return data
 }
 
 // Best-effort, same pattern as dayProgress.js's fetchProteinProgress — a
-// greeting is not worth a spinner or an error state. Any failure or
-// slowness (8s budget per attempt, longer than dayProgress's 3s since this
-// is an LLM call, not a DB query) falls back to {ok:false} after one
-// retry, letting the caller use the point-7 template instead.
+// greeting is not worth a spinner or an error state. A network failure
+// falls back to {ok:false} after one retry, letting the caller use the
+// point-7 template instead; a timeout falls back immediately, with no
+// retry (see isTimeoutError above).
 export async function fetchMorningCheckin() {
   try {
     const data = await invokeMorningCheckin()
     return { ok: true, card: data.card ?? null }
   } catch (firstErr) {
-    console.error('fetchMorningCheckin: first attempt failed, retrying once', firstErr)
+    if (isTimeoutError(firstErr)) {
+      console.error('fetchMorningCheckin: timed out — not retrying, the call may still complete server-side', firstErr)
+      return { ok: false }
+    }
+    console.error('fetchMorningCheckin: first attempt failed (network), retrying once', firstErr)
     await delay(CHECKIN_RETRY_DELAY_MS)
     try {
       const data = await invokeMorningCheckin()
