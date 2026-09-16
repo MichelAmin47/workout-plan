@@ -578,8 +578,26 @@ export default function FitnessSchema() {
       clearTimeout(saveTimers.current[timerKey]);
       delete saveTimers.current[timerKey];
     });
-    if (w.M !== "" && w.M !== undefined) saveMeasurement(exerciseName, weekNum, "M", w.M, effectiveReps(exerciseName, weekNum, "M"));
-    if (w.Z !== "" && w.Z !== undefined) saveMeasurement(exerciseName, weekNum, "Z", w.Z, effectiveReps(exerciseName, weekNum, "Z"));
+    const hasM = w.M !== "" && w.M !== undefined;
+    const hasZ = w.Z !== "" && w.Z !== undefined;
+    const repsM = effectiveReps(exerciseName, weekNum, "M");
+    const repsZ = effectiveReps(exerciseName, weekNum, "Z");
+    // Mirror into local state whatever is about to be sent below — without
+    // this, a flush (switching exercises, collapsing the panel) saves the
+    // prefilled reps to the database but leaves weights[k].reps<person>
+    // stale, exactly the bug handleWeightChange had.
+    if (hasM || hasZ) {
+      setWeights((prev) => ({
+        ...prev,
+        [k]: {
+          ...(prev[k] || { M: "", Z: "" }),
+          ...(hasM ? { repsM } : {}),
+          ...(hasZ ? { repsZ } : {}),
+        },
+      }));
+    }
+    if (hasM) saveMeasurement(exerciseName, weekNum, "M", w.M, repsM);
+    if (hasZ) saveMeasurement(exerciseName, weekNum, "Z", w.Z, repsZ);
   };
 
   const handleExerciseClick = (name) => {
@@ -592,13 +610,18 @@ export default function FitnessSchema() {
 
   const handleWeightChange = (exercise, weekNum, person, value) => {
     const k = wKey(exercise, weekNum);
+    // Computed once, used for both the local mirror and the save below, so
+    // the two can never disagree — this is what was missing: the save used
+    // to include the effective (possibly prefilled) reps value while the
+    // local state update didn't, leaving weights[k].reps<person> stale
+    // until the next full refetch.
+    const reps = effectiveReps(exercise, weekNum, person);
     setWeights((prev) => ({
       ...prev,
-      [k]: { ...(prev[k] || { M: "", Z: "" }), [person]: value },
+      [k]: { ...(prev[k] || { M: "", Z: "" }), [person]: value, [`reps${person}`]: reps },
     }));
     const timerKey = `${exercise}__${weekNum}__${person}`;
     clearTimeout(saveTimers.current[timerKey]);
-    const reps = effectiveReps(exercise, weekNum, person);
     saveTimers.current[timerKey] = setTimeout(() => saveMeasurement(exercise, weekNum, person, value, reps), 500);
   };
 
