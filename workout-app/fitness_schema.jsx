@@ -1042,9 +1042,7 @@ export default function FitnessSchema() {
                             placeholder="kg"
                             style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }}
                           />
-                          {savedIndicators[`${day.barbell.name}__${week.week}__${person}`] && (
-                            <span style={{ color: "#16a34a", fontSize: 14, fontWeight: 700, lineHeight: 1 }}>✓</span>
-                          )}
+                          <span style={{ display: "inline-flex", width: 14, justifyContent: "center", color: "#16a34a", fontSize: 14, fontWeight: 700, lineHeight: 1, visibility: savedIndicators[`${day.barbell.name}__${week.week}__${person}`] ? "visible" : "hidden" }}>✓</span>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
                             <button
                               type="button"
@@ -1544,9 +1542,7 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
                   placeholder="kg"
                   style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }}
                 />
-                {((person === "M" && savedM) || (person === "Z" && savedZ)) && (
-                  <span style={{ color: "#16a34a", fontSize: 14, fontWeight: 700, lineHeight: 1 }}>✓</span>
-                )}
+                <span style={{ display: "inline-flex", width: 14, justifyContent: "center", color: "#16a34a", fontSize: 14, fontWeight: 700, lineHeight: 1, visibility: ((person === "M" && savedM) || (person === "Z" && savedZ)) ? "visible" : "hidden" }}>✓</span>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
                   <button
                     type="button"
@@ -1640,7 +1636,7 @@ function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExer
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <label style={{ fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#888" }}>M:</label>
                     <input type="number" step="any" min={0} value={w.M} onChange={e => onWeightChange(ex.name, weekNum, "M", e.target.value)} placeholder="kg" style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }} />
-                    {savedIndicators[`${ex.name}__${weekNum}__M`] && <span style={{ color: "#16a34a", fontSize: 14, fontWeight: 700 }}>✓</span>}
+                    <span style={{ display: "inline-flex", width: 14, justifyContent: "center", color: "#16a34a", fontSize: 14, fontWeight: 700, visibility: savedIndicators[`${ex.name}__${weekNum}__M`] ? "visible" : "hidden" }}>✓</span>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
                       <button
                         type="button"
