@@ -554,8 +554,21 @@ export default function FitnessSchema() {
     return prescribed != null ? prescribed : "";
   };
 
+  // An empty weight means "clear this measurement" — deletes the row
+  // outright, rather than the old silent no-op (which only ever cleared
+  // local state, never the database; see CLAUDE.md "Reps logging" for the
+  // history). No saved-indicator flash for a delete: that checkmark means
+  // "your number was saved," and there's no number to confirm here.
   const saveMeasurement = (exercise, weekNum, person, weightValue, repsValue) => {
-    if (weightValue === "" || weightValue === null || weightValue === undefined) return;
+    if (weightValue === "" || weightValue === null || weightValue === undefined) {
+      supabase.from("weights")
+        .delete()
+        .eq("exercise", exercise)
+        .eq("week", weekNum)
+        .eq("person", person)
+        .then(({ error }) => { if (error) console.error("[saveMeasurement delete error]", error); });
+      return;
+    }
     const reps = (repsValue === "" || repsValue === null || repsValue === undefined) ? null : Number(repsValue);
     supabase.from("weights").upsert(
       { exercise, week: weekNum, person, weight: Number(weightValue), reps },
@@ -570,34 +583,43 @@ export default function FitnessSchema() {
     });
   };
 
+  // Only acts on a person whose debounce timer is still pending (not yet
+  // fired) — i.e. an edit actually happened since the last save and hasn't
+  // reached the database yet. Without this gate, every close of a panel
+  // that was merely viewed (never edited) would re-send its already-saved
+  // value, and — once empty weight meant delete — would fire a needless
+  // delete for every exercise that simply happens to be unlogged. The
+  // timer's presence is the one signal that distinguishes "just edited"
+  // from "already matches the database, nothing to do."
   const flushSave = (exerciseName, weekNum) => {
     const k = wKey(exerciseName, weekNum);
     const w = weights[k] || {};
+    const pending = {};
     ["M", "Z"].forEach((person) => {
       const timerKey = `${exerciseName}__${weekNum}__${person}`;
-      clearTimeout(saveTimers.current[timerKey]);
-      delete saveTimers.current[timerKey];
+      if (saveTimers.current[timerKey]) {
+        pending[person] = true;
+        clearTimeout(saveTimers.current[timerKey]);
+        delete saveTimers.current[timerKey];
+      }
     });
-    const hasM = w.M !== "" && w.M !== undefined;
-    const hasZ = w.Z !== "" && w.Z !== undefined;
-    const repsM = effectiveReps(exerciseName, weekNum, "M");
-    const repsZ = effectiveReps(exerciseName, weekNum, "Z");
-    // Mirror into local state whatever is about to be sent below — without
-    // this, a flush (switching exercises, collapsing the panel) saves the
-    // prefilled reps to the database but leaves weights[k].reps<person>
-    // stale, exactly the bug handleWeightChange had.
-    if (hasM || hasZ) {
-      setWeights((prev) => ({
-        ...prev,
-        [k]: {
-          ...(prev[k] || { M: "", Z: "" }),
-          ...(hasM ? { repsM } : {}),
-          ...(hasZ ? { repsZ } : {}),
-        },
-      }));
-    }
-    if (hasM) saveMeasurement(exerciseName, weekNum, "M", w.M, repsM);
-    if (hasZ) saveMeasurement(exerciseName, weekNum, "Z", w.Z, repsZ);
+    if (!pending.M && !pending.Z) return;
+    const stateUpdate = {};
+    ["M", "Z"].forEach((person) => {
+      if (!pending[person]) return;
+      const value = person === "M" ? w.M : w.Z;
+      const isClearing = value === "" || value === null || value === undefined;
+      // Clearing deletes the whole row, so its reps go with it — falling
+      // back to effectiveReps here (as the save path does) would leave a
+      // stale reps number mirrored for a row that no longer exists.
+      const reps = isClearing ? "" : effectiveReps(exerciseName, weekNum, person);
+      stateUpdate[`reps${person}`] = reps;
+      saveMeasurement(exerciseName, weekNum, person, value, reps);
+    });
+    setWeights((prev) => ({
+      ...prev,
+      [k]: { ...(prev[k] || { M: "", Z: "" }), ...stateUpdate },
+    }));
   };
 
   const handleExerciseClick = (name) => {
@@ -610,19 +632,26 @@ export default function FitnessSchema() {
 
   const handleWeightChange = (exercise, weekNum, person, value) => {
     const k = wKey(exercise, weekNum);
+    const isClearing = value === "" || value === null || value === undefined;
     // Computed once, used for both the local mirror and the save below, so
     // the two can never disagree — this is what was missing: the save used
     // to include the effective (possibly prefilled) reps value while the
     // local state update didn't, leaving weights[k].reps<person> stale
-    // until the next full refetch.
-    const reps = effectiveReps(exercise, weekNum, person);
+    // until the next full refetch. Clearing is its own case: the row is
+    // about to be deleted entirely, so reps resets to empty rather than
+    // falling back to the prescribed number — there is no row left for
+    // that number to describe.
+    const reps = isClearing ? "" : effectiveReps(exercise, weekNum, person);
     setWeights((prev) => ({
       ...prev,
       [k]: { ...(prev[k] || { M: "", Z: "" }), [person]: value, [`reps${person}`]: reps },
     }));
     const timerKey = `${exercise}__${weekNum}__${person}`;
     clearTimeout(saveTimers.current[timerKey]);
-    saveTimers.current[timerKey] = setTimeout(() => saveMeasurement(exercise, weekNum, person, value, reps), 500);
+    saveTimers.current[timerKey] = setTimeout(() => {
+      delete saveTimers.current[timerKey];
+      saveMeasurement(exercise, weekNum, person, value, reps);
+    }, 500);
   };
 
   // Reps-only edit (± buttons). Gated on weight already being present —
@@ -642,7 +671,10 @@ export default function FitnessSchema() {
     if (weightValue === "" || weightValue == null) return;
     const timerKey = `${exercise}__${weekNum}__${person}`;
     clearTimeout(saveTimers.current[timerKey]);
-    saveTimers.current[timerKey] = setTimeout(() => saveMeasurement(exercise, weekNum, person, weightValue, value), 500);
+    saveTimers.current[timerKey] = setTimeout(() => {
+      delete saveTimers.current[timerKey];
+      saveMeasurement(exercise, weekNum, person, weightValue, value);
+    }, 500);
   };
 
   const closeAndSave = () => {
