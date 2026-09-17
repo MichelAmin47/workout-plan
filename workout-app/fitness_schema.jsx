@@ -1811,7 +1811,7 @@ function ScoreSummary({ score, onOpenPrompt }) {
           <StarRow value={score?.training} />
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 12, color: "#9a3412", fontFamily: "sans-serif", minWidth: 90, textAlign: "right" }}>Motivatie</span>
+          <span style={{ fontSize: 12, color: "#9a3412", fontFamily: "sans-serif", minWidth: 90, textAlign: "right" }}>Energie</span>
           <StarRow value={score?.motivatie} />
         </div>
       </div>
@@ -2054,10 +2054,29 @@ function SwipeableRow({ onSwipeRight, onSwipeLeft, children }) {
   );
 }
 
+// Fixed per-value descriptions shown under each StarPicker row, so the
+// scale means the same thing every time it's used instead of drifting with
+// mood alone. Keyed 1-5 to match the star value directly; consulted only by
+// StarPicker below, kept local to it rather than declared per call site.
+const TRAINING_SCORE_DESCRIPTIONS = {
+  1: "Afgebroken door vermoeidheid",
+  2: "Schema niet helemaal kunnen volgen, was te zwaar",
+  3: "Niet mijn beste werk. Was pittig om af te maken",
+  4: "Goeie workout! Tank was niet helemaal leeg aan het eind",
+  5: "Kruipend naar huis 😈. Love it!",
+};
+const ENERGY_SCORE_DESCRIPTIONS = {
+  1: "Vermoeid, moest mezelf echt moed inpraten",
+  2: "Laag in mijn energie, niet meer recht te trekken",
+  3: "Moe, moest echt energie bijtanken van tevoren",
+  4: "Voelde goed. Geen vermoeidheid als belemmering",
+  5: "Kon niet wachten! Hoog in m'n energie",
+};
+
 // Interactive 1-5 star row for ScorePromptModal — tap a star to set the
 // value. Distinct from the read-only StarRow on PowerHourCard/BoksenCard,
 // which only ever displays a saved score.
-function StarPicker({ label, value, onChange }) {
+function StarPicker({ label, value, onChange, descriptions }) {
   return (
     <div style={{ marginBottom: 20 }}>
       <div style={{ fontFamily: "sans-serif", fontSize: 14, color: "#1a1a1a", marginBottom: 8, textAlign: "center" }}>{label}</div>
@@ -2072,6 +2091,13 @@ function StarPicker({ label, value, onChange }) {
             {n <= value ? "★" : "☆"}
           </button>
         ))}
+      </div>
+      {/* Reserves two lines' worth of height up front (the two longest
+          descriptions wrap at this modal's width; the shortest doesn't) so
+          the star row above never shifts when a shorter or longer
+          description swaps in on tap. */}
+      <div style={{ fontFamily: "sans-serif", fontSize: 12, color: "#999", textAlign: "center", marginTop: 8, lineHeight: 1.4, minHeight: 34 }}>
+        {value > 0 ? descriptions[value] : ""}
       </div>
     </div>
   );
@@ -2135,8 +2161,8 @@ function ScorePromptModal({ dayLabel, initialScore, onSubmit, onClose }) {
         {dayLabel && (
           <div style={{ textAlign: "center", fontFamily: "sans-serif", fontSize: 12, color: "#999", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 16 }}>{dayLabel}</div>
         )}
-        <StarPicker label="Hoe ging de training?" value={training} onChange={setTraining} />
-        <StarPicker label="Hoe was de motivatie om te trainen?" value={motivatie} onChange={setMotivatie} />
+        <StarPicker label="Hoe ging de training?" value={training} onChange={setTraining} descriptions={TRAINING_SCORE_DESCRIPTIONS} />
+        <StarPicker label="Hoe was je energie voor de training?" value={motivatie} onChange={setMotivatie} descriptions={ENERGY_SCORE_DESCRIPTIONS} />
         <button
           onClick={() => canSubmit && onSubmit(training, motivatie)}
           disabled={!canSubmit}
