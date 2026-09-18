@@ -817,7 +817,12 @@ export default function FitnessSchema() {
       })()}
 
       {/* Header */}
-      <div style={{ background: "#f37121", color: "#fff", padding: "24px 20px 20px", textAlign: "center" }}>
+      <div style={{ background: "#f37121", color: "#fff", padding: "14px 20px 20px", textAlign: "center" }}>
+        {week.startWeek != null && week.eindWeek != null && (
+          <div style={{ fontSize: 11, letterSpacing: 4, textTransform: "uppercase", color: "rgba(255,255,255,0.75)", marginBottom: 6 }}>
+            Week {week.week - week.startWeek + 1} van {week.eindWeek - week.startWeek + 1}
+          </div>
+        )}
         <h1 style={{ margin: 0, fontSize: 26, fontWeight: 700, letterSpacing: -0.5 }}>
           {week.startWeek != null && week.eindWeek != null ? `Week ${week.startWeek} – ${week.eindWeek}` : "Trainingsschema"}
         </h1>
