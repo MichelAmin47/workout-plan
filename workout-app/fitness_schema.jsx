@@ -279,7 +279,7 @@ function buildWeeks(schemas, schemaDays, exercises, weekOverrides = [], schemaWe
           core: dayExs.filter(e => e.categorie === "core").map(toEx),
         };
       });
-      allWeeks.push({ week: calWeek, label: `Week ${calWeek}`, phase, schemaId: s.id, days });
+      allWeeks.push({ week: calWeek, label: `Week ${calWeek}`, phase, schemaId: s.id, startWeek: s.start_week, eindWeek: s.eind_week, days });
     }
   }
   return allWeeks;
@@ -818,8 +818,9 @@ export default function FitnessSchema() {
 
       {/* Header */}
       <div style={{ background: "#f37121", color: "#fff", padding: "24px 20px 20px", textAlign: "center" }}>
-        <div style={{ fontSize: 11, letterSpacing: 4, textTransform: "uppercase", color: "#888", marginBottom: 6 }}>Basic Fit · Gevorderd</div>
-        <h1 style={{ margin: 0, fontSize: 26, fontWeight: 700, letterSpacing: -0.5 }}>7-Weken Trainingsschema</h1>
+        <h1 style={{ margin: 0, fontSize: 26, fontWeight: 700, letterSpacing: -0.5 }}>
+          {week.startWeek != null && week.eindWeek != null ? `Week ${week.startWeek} – ${week.eindWeek}` : "Trainingsschema"}
+        </h1>
         <div style={{ marginTop: 10, display: "flex", justifyContent: "center", alignItems: "center", gap: 8 }}>
           <span style={{ background: phase.bg, color: phase.text, fontSize: 14, fontWeight: 700, letterSpacing: 0.3, padding: "5px 16px", borderRadius: 20, fontFamily: "sans-serif" }}>
             {week.phase}
