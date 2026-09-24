@@ -36,6 +36,23 @@ function wKey(exercise, week) {
   return `${exercise}__${week}`;
 }
 
+// exercises.reps is free text: a single number ("8"), or — starting with
+// the week 41 block — a range ("10-12") where the upper bound is the
+// target to hit on every set before increasing weight, the lower bound a
+// floor (guidance only; the stepper never clamps to either). Only the
+// upper bound is ever prefilled. Absent/unparseable -> null, same as
+// today's "no prefill" behavior — never NaN (the old inline
+// `Number(e.reps)` produced a literal "NaN" in the stepper for a range,
+// with both +/- buttons permanently stuck reproducing NaN and no text
+// input to correct it — this replaces that call site).
+function parsePrescribedReps(raw) {
+  if (raw == null) return null;
+  const range = /^(\d+)\s*-\s*(\d+)$/.exec(String(raw).trim());
+  if (range) return Number(range[2]);
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
 function dKey(weekNum, dayId) {
   return `${weekNum}__${dayId}`;
 }
@@ -265,8 +282,9 @@ function buildWeeks(schemas, schemaDays, exercises, weekOverrides = [], schemaWe
           // clean rep-based exercises only — null for HIIT/time/distance
           // rows, where a reps prefill wouldn't mean anything. Used only
           // to prefill the reps control; the logged reps value itself
-          // lives on `weights.reps`, fetched separately.
-          reps: e.reps != null ? Number(e.reps) : null,
+          // lives on `weights.reps`, fetched separately. See
+          // parsePrescribedReps for the "N-M" range case (week 41+).
+          reps: parsePrescribedReps(e.reps),
           ...(e.optioneel ? { optional: true } : {}),
           ...(e.hiit_work != null ? { hiitInterval: { work: e.hiit_work, rest: e.hiit_rest } } : {}),
         });
