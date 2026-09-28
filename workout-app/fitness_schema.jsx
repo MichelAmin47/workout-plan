@@ -53,6 +53,24 @@ function parsePrescribedReps(raw) {
   return Number.isFinite(n) ? n : null;
 }
 
+// "Usable" means present and a positive number — 0, "", null, and
+// unparseable strings are all "no data" for 1RM purposes, matching the
+// same two-part empty-string-or-null guard every other reps consumer in
+// this file already uses (see the "Laatste keer" line).
+function usableReps(raw) {
+  if (raw === "" || raw == null) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+// Epley: weight * (1 + reps/30), rounded to 1 decimal. Used by the
+// Progressie chart to plot an estimated 1RM alongside logged weight, so a
+// weight/reps trade-off (e.g. lower weight, more reps) doesn't read as a
+// plain decline.
+function estimatedOneRepMax(weight, reps) {
+  return Math.round(weight * (1 + reps / 30) * 10) / 10;
+}
+
 function dKey(weekNum, dayId) {
   return `${weekNum}__${dayId}`;
 }
@@ -188,13 +206,19 @@ function CustomTooltip({ active, payload, label }) {
   return (
     <div style={{ background: "#fff", border: "1px solid #f0f0f0", borderRadius: 10, padding: "10px 14px", boxShadow: "0 4px 12px #0002" }}>
       <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6, color: "#1a1a1a" }}>{label}</div>
-      {payload.map((p, i) => (
-        <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
-          <div style={{ width: 8, height: 8, borderRadius: "50%", background: p.color }} />
-          <span style={{ color: "#666" }}>{p.name}:</span>
-          <span style={{ fontWeight: 700, color: "#1a1a1a" }}>{p.value} kg</span>
-        </div>
-      ))}
+      {payload.map((p, i) => {
+        // Reps only ever annotate the weight line ("M") — the 1RM line's
+        // own value already reflects reps, so repeating them there would
+        // double-count the same fact in the same tooltip.
+        const reps = p.dataKey === "M" ? p.payload.repsM : null;
+        return (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: p.color }} />
+            <span style={{ color: "#666" }}>{p.name}:</span>
+            <span style={{ fontWeight: 700, color: "#1a1a1a" }}>{p.value} kg{reps != null ? ` × ${reps}` : ""}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1317,20 +1341,25 @@ export default function FitnessSchema() {
           const allExercises = [...dayExercises, ...allBarbell, ...allSpiergroep, ...allKettlebell, ...allCore];
           const selEx = progressieExercise ?? allExercises[0];
           const chartData = schema.weeks.map(w => {
-            const mVal = weights[wKey(selEx, w.week)]?.M;
-            const zVal = weights[wKey(selEx, w.week)]?.Z;
+            const entry = weights[wKey(selEx, w.week)];
+            const mVal = entry?.M;
+            const mWeight = mVal !== "" && mVal != null ? Number(mVal) : null;
+            const mReps = usableReps(entry?.repsM);
             return {
               week: `W${w.label.replace("Week ", "")}`,
-              M: mVal !== "" && mVal != null ? Number(mVal) : null,
-              Z: zVal !== "" && zVal != null ? Number(zVal) : null,
+              M: mWeight,
+              repsM: mReps,
+              M1RM: mWeight != null && mReps != null ? estimatedOneRepMax(mWeight, mReps) : null,
             };
           });
           const mVals = chartData.map(d => d.M).filter(v => v != null);
-          const zVals = chartData.map(d => d.Z).filter(v => v != null);
           const mMax = mVals.length ? Math.max(...mVals) : null;
-          const zMax = zVals.length ? Math.max(...zVals) : null;
           const mGain = mVals.length >= 2 ? mVals[mVals.length - 1] - mVals[0] : null;
-          const zGain = zVals.length >= 2 ? zVals[zVals.length - 1] - zVals[0] : null;
+          // Whether this exercise has ANY usable 1RM point at all — decides
+          // whether the M1RM line (and its legend entry) renders below.
+          // Without this, a kettlebell exercise (weight logged, reps never)
+          // would still reserve a legend slot for a line that draws nothing.
+          const hasM1RM = chartData.some(d => d.M1RM != null);
           return (
             <div style={{ marginTop: 12 }}>
               <div style={{
@@ -1368,11 +1397,6 @@ export default function FitnessSchema() {
                         <div style={{ fontSize: 18, fontWeight: 700, color: "#f37121" }}>{mMax != null ? `${mMax} kg` : "—"}</div>
                         <div style={{ fontSize: 11, color: "#16a34a", fontWeight: 600 }}>{mGain != null ? `+${mGain} kg` : "—"}</div>
                       </div>
-                      <div style={{ flex: 1, background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
-                        <div style={{ fontSize: 11, color: "#888", marginBottom: 2 }}>Z — Max</div>
-                        <div style={{ fontSize: 18, fontWeight: 700, color: "#0ea5e9" }}>{zMax != null ? `${zMax} kg` : "—"}</div>
-                        <div style={{ fontSize: 11, color: "#16a34a", fontWeight: 600 }}>{zGain != null ? `+${zGain} kg` : "—"}</div>
-                      </div>
                     </div>
                     <ResponsiveContainer width="100%" height={220}>
                       <LineChart data={chartData} margin={{ top: 5, right: 5, left: -10, bottom: 5 }}>
@@ -1381,8 +1405,10 @@ export default function FitnessSchema() {
                         <YAxis tick={{ fontSize: 12, fill: "#888" }} unit=" kg" />
                         <Tooltip content={<CustomTooltip />} />
                         <Legend wrapperStyle={{ fontSize: 13, paddingTop: 8 }} formatter={v => <span style={{ color: "#555", fontWeight: 600 }}>{v}</span>} />
-                        <Line type="monotone" dataKey="M" stroke="#f37121" strokeWidth={3} dot={{ fill: "#f37121", strokeWidth: 2, r: 5 }} activeDot={{ r: 7 }} connectNulls />
-                        <Line type="monotone" dataKey="Z" stroke="#0ea5e9" strokeWidth={3} dot={{ fill: "#0ea5e9", strokeWidth: 2, r: 5 }} activeDot={{ r: 7 }} connectNulls />
+                        <Line type="monotone" dataKey="M" name="M" stroke="#f37121" strokeWidth={3} dot={{ fill: "#f37121", strokeWidth: 2, r: 5 }} activeDot={{ r: 7 }} connectNulls />
+                        {hasM1RM && (
+                          <Line type="monotone" dataKey="M1RM" name="M · 1RM" stroke="#f37121" strokeWidth={2} strokeOpacity={0.55} strokeDasharray="6 4" dot={{ fill: "#f37121", strokeWidth: 1, r: 3 }} activeDot={{ r: 5 }} />
+                        )}
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
