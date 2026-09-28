@@ -1395,7 +1395,7 @@ export default function FitnessSchema() {
                       <div style={{ flex: 1, background: "#fff8f3", border: "1px solid #f3712133", borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
                         <div style={{ fontSize: 11, color: "#888", marginBottom: 2 }}>M — Max</div>
                         <div style={{ fontSize: 18, fontWeight: 700, color: "#f37121" }}>{mMax != null ? `${mMax} kg` : "—"}</div>
-                        <div style={{ fontSize: 11, color: "#16a34a", fontWeight: 600 }}>{mGain != null ? `+${mGain} kg` : "—"}</div>
+                        <div style={{ fontSize: 11, color: mGain > 0 ? "#16a34a" : "#64748b", fontWeight: 600 }}>{mGain != null ? (mGain > 0 ? `+${mGain} kg` : `${mGain} kg`) : "—"}</div>
                       </div>
                     </div>
                     <ResponsiveContainer width="100%" height={220}>
@@ -1407,7 +1407,7 @@ export default function FitnessSchema() {
                         <Legend wrapperStyle={{ fontSize: 13, paddingTop: 8 }} formatter={v => <span style={{ color: "#555", fontWeight: 600 }}>{v}</span>} />
                         <Line type="monotone" dataKey="M" name="M" stroke="#f37121" strokeWidth={3} dot={{ fill: "#f37121", strokeWidth: 2, r: 5 }} activeDot={{ r: 7 }} connectNulls />
                         {hasM1RM && (
-                          <Line type="monotone" dataKey="M1RM" name="M · 1RM" stroke="#f37121" strokeWidth={2} strokeOpacity={0.55} strokeDasharray="6 4" dot={{ fill: "#f37121", strokeWidth: 1, r: 3 }} activeDot={{ r: 5 }} />
+                          <Line type="monotone" dataKey="M1RM" name="M · 1RM" stroke="#0ea5e9" strokeWidth={2} dot={{ fill: "#0ea5e9", strokeWidth: 1, r: 3 }} activeDot={{ r: 5 }} />
                         )}
                       </LineChart>
                     </ResponsiveContainer>
