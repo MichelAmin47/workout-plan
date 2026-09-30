@@ -292,21 +292,33 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
   const todayStr = isoDateString(activeDate)
   const timeStr = isoTimeString(now)
 
-  const [workoutSummary, weekPlan, yesterdayOutsideWeek, eiwitDoel, sessionsRes, mealsRes, memoryRes, weightTrendLine, weightTodayRes] = await Promise.all([
-    resolveTodayWorkout(calWeek, weekday),
-    resolveWeekPlan(calWeek, weekday),
-    resolveYesterdayIfOutsideWeek(activeDate, weekday),
-    getOrCreateTodayTarget(todayStr),
-    supabase
-      .from('coach_sessions')
-      .select('datum, samenvatting, aandachtspunt, eiwit_totaal, calorieen_totaal')
-      .order('datum', { ascending: false })
-      .limit(5),
-    supabase.from('nutrition_log').select('id, tijdstip, omschrijving, eiwitten_g, calorieen').eq('datum', todayStr).order('tijdstip', { ascending: true }),
-    supabase.from('coach_memory').select('id, feit, categorie').eq('actief', true).order('created_at', { ascending: true }),
-    resolveWeightTrend(),
-    supabase.from('weight_log').select('id, gewicht').eq('datum', todayStr).order('created_at', { ascending: true }),
-  ])
+  const [workoutSummary, weekPlan, yesterdayOutsideWeek, eiwitDoel, sessionsRes, mealsRes, memoryRes, weightTrendLine, weightTodayRes, checkinCardRes] =
+    await Promise.all([
+      resolveTodayWorkout(calWeek, weekday),
+      resolveWeekPlan(calWeek, weekday),
+      resolveYesterdayIfOutsideWeek(activeDate, weekday),
+      getOrCreateTodayTarget(todayStr),
+      supabase
+        .from('coach_sessions')
+        .select('datum, samenvatting, aandachtspunt, eiwit_totaal, calorieen_totaal')
+        .order('datum', { ascending: false })
+        .limit(5),
+      supabase.from('nutrition_log').select('id, tijdstip, omschrijving, eiwitten_g, calorieen').eq('datum', todayStr).order('tijdstip', { ascending: true }),
+      supabase.from('coach_memory').select('id, feit, categorie').eq('actief', true).order('created_at', { ascending: true }),
+      resolveWeightTrend(),
+      supabase.from('weight_log').select('id, gewicht').eq('datum', todayStr).order('created_at', { ascending: true }),
+      // Fixes a real gap: the client strips the morning check-in card's
+      // question out of the message history before it ever reaches this
+      // function (chatApi.js's toApiMessages drops the leading non-user
+      // entry — the card is always first — likely because the Messages API
+      // requires the first message to have role 'user'). Without this read,
+      // a bare reply to the card carries zero reference to what was asked,
+      // in either the message history or (until now) this context. Reading
+      // it here instead of fixing the client is more robust anyway: it
+      // survives localStorage clears, reinstalls, and multi-day gaps
+      // between card and reply.
+      supabase.from('coach_checkin_card').select('vraag_tekst').eq('datum', todayStr).limit(1),
+    ])
 
   const sessions = sessionsRes.data ?? []
   const recentSessionsText =
@@ -348,6 +360,8 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
       ? weightToday.map((w) => `- [${w.id}] ${w.gewicht}kg`).join('\n')
       : 'Nog geen gewicht gelogd vandaag.'
 
+  const checkinCardVraag = checkinCardRes.data?.[0]?.vraag_tekst ?? null
+
   const text = [
     `Het is nu ${timeStr} op ${todayStr} (Europe/Amsterdam-tijd).`,
     workoutSummary,
@@ -356,6 +370,11 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
     formatWeekPlan(weekPlan),
     'Recente dagafsluitingen (nieuwste eerst):',
     recentSessionsText,
+    ...(checkinCardVraag
+      ? [
+          `Vraag van de ochtend check-in kaart van vandaag: "${checkinCardVraag}" — gebruik dit ALLEEN om een bericht van de gebruiker te herkennen als antwoord hierop, net als de achtergrondkennis hieronder geen menu is om uit te putten. Stel deze vraag niet zelf opnieuw, breng hem niet ongevraagd ter sprake, en blijf er niet op teruggrijpen zodra de gebruiker al heeft gereageerd — ook niet later in hetzelfde gesprek.`,
+        ]
+      : []),
     `Eiwitdoel vandaag: ${eiwitDoel}g. Tot nu toe gelogd: ${eiwitTotaal}g (${Math.max(eiwitDoel - eiwitTotaal, 0)}g te gaan).`,
     `Calorieën vandaag (totaal): ${calorieTotaal}kcal — alleen laten zien als de gebruiker er expliciet naar vraagt.`,
     weightTrendLine,

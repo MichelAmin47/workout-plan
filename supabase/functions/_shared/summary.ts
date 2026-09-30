@@ -14,6 +14,11 @@ const RECORD_SUMMARY_TOOL = {
     properties: {
       samenvatting: { type: 'string', description: 'Short reflective summary of the day, in Dutch, 1-2 sentences.' },
       aandachtspunt: { type: 'string', description: 'What to carry into tomorrow, in Dutch.' },
+      vraag_voor_morgen: {
+        type: 'string',
+        description:
+          'Optioneel: één concrete vraag die de ochtend check-in kaart morgen aan de gebruiker kan stellen, gebaseerd op iets uit het gesprek van vandaag (indien beschikbaar) of anders op de gelogde maaltijden/training van vandaag. Vooruitkijkend geformuleerd ("zou je morgen kunnen...", "ga je nog...") — nooit verwijtend ("je hebt gisteren maar..."). Noem hierin NOOIT gewicht, een gewichtstrend of onderhoudsniveau, en NOOIT calorieën. Laat dit veld gewoon weg (of leeg) als de dag echt niets opleverde om morgen naar te vragen — verzin dan niets.',
+      },
     },
     required: ['samenvatting', 'aandachtspunt'],
   },
@@ -164,14 +169,23 @@ export async function closeDayWithSummary(
     return { ok: false, error: 'No summary produced' }
   }
 
-  const { samenvatting, aandachtspunt } = toolUse.input as { samenvatting?: string; aandachtspunt?: string }
+  const { samenvatting, aandachtspunt, vraag_voor_morgen } = toolUse.input as {
+    samenvatting?: string
+    aandachtspunt?: string
+    vraag_voor_morgen?: string
+  }
   if (!samenvatting || !aandachtspunt) {
     return { ok: false, error: 'Incomplete summary' }
   }
 
-  const { error: insertError } = await supabase
-    .from('coach_sessions')
-    .insert({ datum, samenvatting, aandachtspunt, eiwit_totaal: eiwitTotaal, calorieen_totaal: calorieTotaal })
+  const { error: insertError } = await supabase.from('coach_sessions').insert({
+    datum,
+    samenvatting,
+    aandachtspunt,
+    eiwit_totaal: eiwitTotaal,
+    calorieen_totaal: calorieTotaal,
+    vraag_voor_morgen: vraag_voor_morgen || null,
+  })
   if (insertError) {
     return { ok: false, error: insertError.message }
   }
