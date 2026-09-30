@@ -54,14 +54,20 @@ function jsonResponse(body: unknown, status = 200) {
   })
 }
 
-// Longest existing fixed mood label ("Niet zo goed") is 12 characters
-// (code-point length); this gives ~1.5-2x headroom for a model-supplied
-// answer option while still guaranteeing a single-line, non-wrapping pill
-// (.quick-reply in Coach.css is white-space: nowrap) at any supported phone
-// width. Referenced from both RENDER_CHECKIN_TOOL's schema description and
+// Was 20 (calibrated on the longest hand-written mood label, "Niet zo
+// goed" at 12 chars, never on real model output). Raised to 40 after real
+// September output showed 20 was too tight for natural Dutch phrasing:
+// 13-09 "Ja, top"/"Gaat wel" (7/8, fine either way), 15-09 "Goed, veel
+// gedronken"/"Nog niet echt op gelet" (20/22 — the second REJECTED the
+// whole pair under the old limit), 16-09 "Ja, hou ik vast"/"Nog niet echt"
+// (13/15, fine either way). 40 clears all four with headroom. Coach.css's
+// .quick-reply no longer assumes a non-wrapping single line at this length
+// — see that file's own comment — so this number isn't chosen to fit a
+// fixed-width pill anymore, just to keep labels reasonably tap-sized.
+// Referenced from both RENDER_CHECKIN_TOOL's schema description and
 // buildSystemPrompt's prompt text below, so the model-facing number and the
 // validator's enforced number can never drift apart.
-const ANTWOORD_OPTIE_MAX_LENGTH = 20
+const ANTWOORD_OPTIE_MAX_LENGTH = 40
 
 const RENDER_CHECKIN_TOOL = {
   name: 'render_checkin_card',
@@ -81,7 +87,7 @@ const RENDER_CHECKIN_TOOL = {
       antwoord_opties: {
         type: 'array',
         items: { type: 'string' },
-        description: `Alleen invullen als vraag_type "anders" is en de vraag 2 of 3 natuurlijke, korte antwoorden heeft waarmee de gebruiker met één tik kan reageren (bijv. een keuze tussen twee tijdstippen, of een simpele ja/nee-variant). Elk label max ${ANTWOORD_OPTIE_MAX_LENGTH} tekens. Heeft de vraag geen natuurlijke korte antwoorden, laat dit veld dan gewoon weg — de gebruiker typt dan vrij.`,
+        description: `Alleen invullen als vraag_type "anders" is en de vraag 2 of 3 natuurlijke, korte antwoorden heeft waarmee de gebruiker met één tik kan reageren (bijv. een keuze tussen twee tijdstippen, of een simpele ja/nee-variant). Elk label max ${ANTWOORD_OPTIE_MAX_LENGTH} tekens (dit is een bovengrens, geen doel — hou elk label zo kort als nog natuurlijk klinkt). Heeft de vraag geen natuurlijke korte antwoorden, laat dit veld dan gewoon weg — de gebruiker typt dan vrij.`,
       },
     },
     required: ['boodschap', 'context_label', 'context_tekst', 'vraag_type'],
@@ -138,6 +144,16 @@ function aandachtspuntHasQuestion(text: string | null): boolean {
 // rule. aandachtspunt now always reaches the model unfiltered — nothing
 // upstream of buildSystemPrompt drops it anymore.
 
+// leeg_label/label_te_lang/duplicaat_label stay here for historical rows
+// (pre-this-change checkin_diag payloads can carry them as a whole-set
+// rejection reason) but validateAntwoordOpties below no longer *produces*
+// them as a top-level reason — a content problem on one label no longer
+// fails the whole set, so there's no longer a single label-level cause to
+// name at that level. te_weinig_geldige_labels is the new top-level reason
+// for "2-3 labels came in, but fewer than 2 survived per-label filtering"
+// — deliberately not reusing one of the three retired values, since a
+// shortfall can now come from a mix of causes and per-label specificity
+// lives in AntwoordOptieLabelDiag.dropReden instead (see below).
 export type AntwoordOptieAfkeurReden =
   | 'geen_array'
   | 'te_weinig_opties'
@@ -145,27 +161,67 @@ export type AntwoordOptieAfkeurReden =
   | 'leeg_label'
   | 'label_te_lang'
   | 'duplicaat_label'
+  | 'te_weinig_geldige_labels'
   | null
 
 export interface AntwoordOptiesResultaat {
+  // The KEPT labels when validatie is 'geaccepteerd' or 'deels_geaccepteerd'
+  // (i.e. whatever survived per-label filtering) — never the raw list.
   opties: string[] | null
   aangeboden: number // 0 when absent, empty array, or not an array
-  validatie: 'nvt' | 'geaccepteerd' | 'afgekeurd'
+  // 'deels_geaccepteerd': 2+ labels came in, all of the structural/count
+  // checks passed, but one or more were dropped by per-label filtering
+  // (empty, too long, or a duplicate) — opties is the surviving subset.
+  validatie: 'nvt' | 'geaccepteerd' | 'deels_geaccepteerd' | 'afgekeurd'
   afkeurReden: AntwoordOptieAfkeurReden
+}
+
+export type AntwoordOptieLabelDropReden = 'leeg' | 'te_lang' | 'duplicaat'
+
+interface AntwoordOptieLabelClassificatie {
+  waarde: string
+  behouden: boolean
+  dropReden?: AntwoordOptieLabelDropReden
+}
+
+// Classifies already-trimmed labels one at a time, in order: dropped if
+// empty, over ANTWOORD_OPTIE_MAX_LENGTH code points, or an exact-match
+// repeat of an earlier-kept label (first occurrence wins, same identity
+// rule the old whole-array Set check used, now applied per label instead
+// of failing the whole array). Shared by validateAntwoordOpties and
+// diagnoseAntwoordOptieLabels so the two can never disagree about which
+// labels were dropped or why — same principle as sharing
+// ANTWOORD_OPTIE_MAX_LENGTH and the [...s].length code-point count.
+function classifyAntwoordOptieLabels(trimmedLabels: string[]): AntwoordOptieLabelClassificatie[] {
+  const seen = new Set<string>()
+  return trimmedLabels.map((waarde) => {
+    if (waarde.length === 0) return { waarde, behouden: false, dropReden: 'leeg' as const }
+    if ([...waarde].length > ANTWOORD_OPTIE_MAX_LENGTH) return { waarde, behouden: false, dropReden: 'te_lang' as const }
+    if (seen.has(waarde)) return { waarde, behouden: false, dropReden: 'duplicaat' as const }
+    seen.add(waarde)
+    return { waarde, behouden: true }
+  })
 }
 
 // Validates the model's optional antwoord_opties field (see
 // RENDER_CHECKIN_TOOL's schema above) — only ever called when vraag_type ===
 // 'anders' (see the Deno.serve handler below); 'stemming'/'geen' never touch
-// this, by design. Fails closed: any check failing drops the whole field
-// (opties: null), never a partial/truncated list — a malformed set must
-// degrade to today's no-pills behavior, not a repaired or truncated row.
+// this, by design.
 //
-// Absent/empty ('nvt') and "the model supplied something but it didn't pass"
-// ('afgekeurd') are deliberately different validatie values even though both
-// end in "no pills" — that distinction is the whole point of recording this
-// in checkin_diag: otherwise "the model supplied nothing" and "validation
-// rejected what it supplied" are indistinguishable after the fact.
+// Structural problems (not an array, wrong count, a non-string element)
+// still fail the whole field closed — opties: null, same as before. Content
+// problems on an individual label no longer do: each label is classified on
+// its own (see classifyAntwoordOptieLabels), and the surviving ones are
+// shown as long as at least 2 remain. Only when fewer than 2 survive does
+// the whole set get rejected (te_weinig_geldige_labels) — a longer, wrapping
+// pill beats no pill at all, but 1 pill or 0 pills isn't a usable choice.
+//
+// Absent/empty ('nvt'), "the model supplied something but it didn't pass"
+// ('afgekeurd'), and "supplied enough, but not everything survived"
+// ('deels_geaccepteerd') are three deliberately distinct validatie values —
+// that distinction is the whole point of recording this in checkin_diag:
+// otherwise "the model supplied nothing," "validation rejected everything,"
+// and "validation kept most of it" are indistinguishable after the fact.
 export function validateAntwoordOpties(raw: unknown): AntwoordOptiesResultaat {
   if (raw == null) return { opties: null, aangeboden: 0, validatie: 'nvt', afkeurReden: null }
   if (!Array.isArray(raw)) return { opties: null, aangeboden: 0, validatie: 'afgekeurd', afkeurReden: 'geen_array' }
@@ -178,23 +234,23 @@ export function validateAntwoordOpties(raw: unknown): AntwoordOptiesResultaat {
   if (aangeboden < 2) return { opties: null, aangeboden, validatie: 'afgekeurd', afkeurReden: 'te_weinig_opties' }
   if (aangeboden > 3) return { opties: null, aangeboden, validatie: 'afgekeurd', afkeurReden: 'te_veel_opties' }
 
-  // Trim before every check below, and store the trimmed values rather than
-  // raw — otherwise " Ja " passes the empty check and is stored with its
-  // padding, and worse, "Ja" vs "Ja " pass the duplicate check (distinct by
-  // Set identity) while rendering as two pills the user can't tell apart.
-  // Trimming is the only normalization applied — still fails closed, no
-  // other repair.
+  // Trim before classifying — otherwise " Ja " passes the empty check and
+  // is kept with its padding, and worse, "Ja" vs "Ja " pass the duplicate
+  // check (distinct by Set identity) while rendering as two pills the user
+  // can't tell apart. Trimming is the only normalization applied.
   const trimmed = raw.map((label) => label.trim())
-  if (trimmed.some((label) => label.length === 0)) {
-    return { opties: null, aangeboden, validatie: 'afgekeurd', afkeurReden: 'leeg_label' }
+  const classified = classifyAntwoordOptieLabels(trimmed)
+  const kept = classified.filter((c) => c.behouden).map((c) => c.waarde)
+
+  if (kept.length < 2) {
+    return { opties: null, aangeboden, validatie: 'afgekeurd', afkeurReden: 'te_weinig_geldige_labels' }
   }
-  if (trimmed.some((label) => [...label].length > ANTWOORD_OPTIE_MAX_LENGTH)) {
-    return { opties: null, aangeboden, validatie: 'afgekeurd', afkeurReden: 'label_te_lang' }
+  return {
+    opties: kept,
+    aangeboden,
+    validatie: kept.length === aangeboden ? 'geaccepteerd' : 'deels_geaccepteerd',
+    afkeurReden: null,
   }
-  if (new Set(trimmed).size !== aangeboden) {
-    return { opties: null, aangeboden, validatie: 'afgekeurd', afkeurReden: 'duplicaat_label' }
-  }
-  return { opties: trimmed, aangeboden, validatie: 'geaccepteerd', afkeurReden: null }
 }
 
 // Counts what the model supplied without validating it — used on paths
@@ -207,18 +263,21 @@ function ongevalideerdeAantal(raw: unknown): number {
 }
 
 export type AntwoordOptieLabelDiag =
-  | { waarde: string; lengte: number }
+  | { waarde: string; lengte: number; behouden: boolean; dropReden?: AntwoordOptieLabelDropReden }
   | { waarde: null; ruwType: string }
 
 // Per-option diagnostic view of whatever the model supplied in
 // antwoord_opties, independent of validateAntwoordOpties's pass/fail
 // verdict — logged on BOTH the accepted and rejected path (a limit tuned
-// only on rejections is tuned on half the distribution). `lengte` reuses
-// validateAntwoordOpties's own [...label].length code-point count (not
-// .length — see that function's comment), so the logged number and the
-// enforced number can never disagree for the same input. `waarde` is
-// post-trim, the only normalisation the validator performs, so it's what
-// was actually measured against the limit.
+// only on rejections is tuned on half the distribution). `behouden`/
+// `dropReden` come from the exact same classifyAntwoordOptieLabels call
+// validateAntwoordOpties itself uses, so this can never disagree with what
+// was actually kept/shown for the same input — including on a
+// 'deels_geaccepteerd' result, where this is the only place that records
+// which specific label(s) got dropped and why. `lengte` reuses the same
+// [...label].length code-point count (not .length), so the logged number
+// and the enforced number can never disagree either. `waarde` is post-trim,
+// the only normalisation performed, so it's what was actually measured.
 //
 // Two different malformed shapes both fail validateAntwoordOpties with
 // 'geen_array' and must stay distinguishable here, not collapse into the
@@ -228,13 +287,33 @@ export type AntwoordOptieLabelDiag =
 // the same as an array holding one non-string item (which logs its own
 // typeof, e.g. 'object'/'number'). Using typeof for both would make
 // `{foo: 1}` and `[{foo: 1}]` produce an identical entry.
+//
+// Classification runs only across the string entries, in their original
+// relative order, skipping non-string entries entirely (they can't be
+// classified — they only ever get a ruwType marker here) — this matches
+// validateAntwoordOpties exactly for the common case (every element a
+// string, since that function bails out before classifying otherwise), and
+// gives sensible duplicate-detection among just the comparable string
+// values on the looser diagnostic-only paths where the array is mixed.
 export function diagnoseAntwoordOptieLabels(raw: unknown): AntwoordOptieLabelDiag[] {
   if (raw == null) return []
   if (!Array.isArray(raw)) return [{ waarde: null, ruwType: 'geen_array' }]
-  return raw.map((item): AntwoordOptieLabelDiag => {
+
+  const stringIndices: number[] = []
+  const trimmedStrings: string[] = []
+  raw.forEach((item, i) => {
+    if (typeof item === 'string') {
+      stringIndices.push(i)
+      trimmedStrings.push(item.trim())
+    }
+  })
+  const classified = classifyAntwoordOptieLabels(trimmedStrings)
+  const classifiedByIndex = new Map(stringIndices.map((i, j) => [i, classified[j]]))
+
+  return raw.map((item, i): AntwoordOptieLabelDiag => {
     if (typeof item !== 'string') return { waarde: null, ruwType: typeof item }
-    const trimmed = item.trim()
-    return { waarde: trimmed, lengte: [...trimmed].length }
+    const c = classifiedByIndex.get(i)!
+    return { waarde: c.waarde, lengte: [...c.waarde].length, behouden: c.behouden, ...(c.dropReden ? { dropReden: c.dropReden } : {}) }
   })
 }
 
@@ -320,7 +399,7 @@ Regels:
 - De boodschap en de context-regel mogen elkaar nooit tegenspreken over welke dag iets was.
 ${!hasNotableSignal ? '- Niets bijzonders vandaag: geen training gisteren of vandaag, geen donderdag, geen aandachtspunt met iets te vragen. Schrijf dan een gewone, rustige opening die simpelweg aansluit bij het dag-type van vandaag hierboven, zonder een kunstmatige vraag, haak of trainingsverwijzing te verzinnen die er niet is. vraag_type is in dit geval altijd "geen".\n' : ''}- Motiverende, warme toon, kort en concreet — geen algemeenheid die net zo goed op elke willekeurige dag zou passen.
 - vraag_type: "geen" als de boodschap een statement of constatering is, zonder iets te vragen. Stelt de boodschap wél een vraag, kies dan tussen "stemming" (een vraag over hoe iemand zich voelt of geslapen heeft — iets waar een algemeen gevoel een passend antwoord op is) en "anders" (elke andere vraag, bijvoorbeeld naar een tijdstip, een keuze, of iets specifieks dat niets met stemming te maken heeft).
-- Als vraag_type "anders" is en de vraag 2 of 3 natuurlijke, korte antwoorden heeft waarmee de gebruiker met één tik kan reageren, geef die dan mee in antwoord_opties (2 of 3 korte labels, elk max ${ANTWOORD_OPTIE_MAX_LENGTH} tekens). Heeft de vraag geen natuurlijke korte antwoorden, of twijfel je, laat antwoord_opties dan gewoon weg — vrij typen is een prima uitkomst. Verzin geen opties die de vraag versimpelen of een keuze suggereren die er niet is.
+- Als vraag_type "anders" is en de vraag 2 of 3 natuurlijke, korte antwoorden heeft waarmee de gebruiker met één tik kan reageren, geef die dan mee in antwoord_opties (2 of 3 korte labels, elk max ${ANTWOORD_OPTIE_MAX_LENGTH} tekens — dit is een bovengrens, geen doel; hou elk label zo kort als nog natuurlijk klinkt). Heeft de vraag geen natuurlijke korte antwoorden, of twijfel je, laat antwoord_opties dan gewoon weg — vrij typen is een prima uitkomst. Verzin geen opties die de vraag versimpelen of een keuze suggereren die er niet is.
 - Gebruik het render_checkin_card tool om dit vast te leggen.`
 }
 
@@ -333,8 +412,22 @@ ${!hasNotableSignal ? '- Niets bijzonders vandaag: geen training gisteren of van
 // apart after the fact, and "the advice got generic" had no way to be
 // checked at all. v1/v2 rows are untouched and coexist — readers filter on
 // payload->>'v'.
+//
+// v4 (2026-09-30): antwoordOpties.validatie gained a fourth value,
+// 'deels_geaccepteerd' (see validateAntwoordOpties) — this bump is about
+// that, specifically. Adding labels[].behouden/dropReden and the getoond
+// count below is purely additive and, on its own, would NOT have forced a
+// bump (same precedent as labels[] itself, added under v3 without one) —
+// but 'validatie' is an EXISTING field, and its value set changing meaning
+// is different from a new sibling key appearing: before this, "the model
+// tried and it didn't fully go through" was entirely captured by
+// 'afgekeurd'; after this, that population splits into 'afgekeurd' (fewer
+// than 2 usable labels) and 'deels_geaccepteerd' (2+ usable, something
+// trimmed). Anyone aggregating validatie values across this date needs to
+// know 'afgekeurd' narrowed at this exact version. v1/v2/v3 rows are
+// untouched and coexist, as always — readers filter on payload->>'v'.
 interface CheckinDiagPayload {
-  v: 3
+  v: 4
   ts_utc: string
   datum_lokaal: string
   vandaag: { type: string | null; naam: string | null }
@@ -380,15 +473,23 @@ interface CheckinDiagPayload {
   } | null
   antwoordOpties: {
     aangeboden: number
-    validatie: 'nvt' | 'geaccepteerd' | 'afgekeurd'
+    // How many labels actually survived to be shown — labels.filter(l =>
+    // 'behouden' in l && l.behouden).length, saves unnesting the array for
+    // a simple count query. Added alongside the v4 bump (see above); on its
+    // own this wouldn't have forced one.
+    getoond: number
+    validatie: 'nvt' | 'geaccepteerd' | 'deels_geaccepteerd' | 'afgekeurd'
     afkeurReden: AntwoordOptieAfkeurReden
     // Per-option content (label + measured length), logged on both the
     // accepted and rejected path — see diagnoseAntwoordOptieLabels. Added
     // 2026-09-08 after the first real rejection (06-09, label_te_lang)
     // proved unanswerable from `afkeurReden` alone: it names which rule
     // failed first, never what the label actually said or how long it was.
-    // No version bump — a sibling key on an existing object, absent (not
-    // misleading) on every row before this shipped.
+    // No version bump at the time — a sibling key on an existing object,
+    // absent (not misleading) on every row before it shipped. Gained
+    // `behouden`/`dropReden` per entry as part of the v4 bump above — that
+    // addition alone wouldn't have forced the bump either; `validatie`
+    // gaining a new value is what did.
     labels: AntwoordOptieLabelDiag[]
   }
   modelOk: boolean
@@ -521,7 +622,7 @@ Deno.serve(async (req: Request) => {
     // never be silently suppressed by a display decision.
     const aandachtspuntGeeftSignaal = aandachtspuntHasQuestion(aandachtspunt)
     const diagBasePayload = {
-      v: 3 as const,
+      v: 4 as const,
       datum_lokaal: isoDateString(activeDate),
       vandaag: { type: todayInfo.dayType, naam: todayInfo.naam },
       gisteren: { datum: yesterdayDateStr, type: yesterdayInfo.dayType, naam: yesterdayInfo.naam },
@@ -537,7 +638,7 @@ Deno.serve(async (req: Request) => {
     // No model output exists yet at any of these four early exits, so
     // there is genuinely nothing to count/show — 0/null/[] here isn't a
     // hardcoded shortcut, it's simply true.
-    const NO_ANTWOORD_OPTIES = { aangeboden: 0, validatie: 'nvt' as const, afkeurReden: null, labels: [] }
+    const NO_ANTWOORD_OPTIES = { aangeboden: 0, getoond: 0, validatie: 'nvt' as const, afkeurReden: null, labels: [] }
     const NO_KAART = null
 
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
@@ -582,12 +683,16 @@ Deno.serve(async (req: Request) => {
         vraag_type: vraag_type ?? null,
         vraagTekst: null,
         kaart: NO_KAART,
-        antwoordOpties: {
-          aangeboden: ongevalideerdeAantal(antwoord_opties),
-          validatie: 'nvt',
-          afkeurReden: null,
-          labels: diagnoseAntwoordOptieLabels(antwoord_opties),
-        },
+        antwoordOpties: (() => {
+          const labels = diagnoseAntwoordOptieLabels(antwoord_opties)
+          return {
+            aangeboden: ongevalideerdeAantal(antwoord_opties),
+            getoond: labels.filter((l) => 'behouden' in l && l.behouden).length,
+            validatie: 'nvt' as const,
+            afkeurReden: null,
+            labels,
+          }
+        })(),
         modelOk: false,
       })
       return jsonResponse({ card: null })
@@ -626,10 +731,17 @@ Deno.serve(async (req: Request) => {
         contextLabel: context_label,
         contextTekst: context_tekst,
         vraagType: vraag_type,
-        antwoordOpties: antwoordOptiesResultaat.validatie === 'geaccepteerd' ? antwoordOptiesResultaat.opties : null,
+        // opties is non-null exactly when validatie is 'geaccepteerd' or
+        // 'deels_geaccepteerd' (validateAntwoordOpties always sets it to
+        // the kept list on both, null on 'nvt'/'afgekeurd') — checking the
+        // field directly instead of enumerating both validatie strings
+        // means this can't fall out of sync if another accepted-ish state
+        // is ever added.
+        antwoordOpties: antwoordOptiesResultaat.opties,
       },
       antwoordOpties: {
         aangeboden: antwoordOptiesResultaat.aangeboden,
+        getoond: antwoordOptiesResultaat.opties?.length ?? 0,
         validatie: antwoordOptiesResultaat.validatie,
         afkeurReden: antwoordOptiesResultaat.afkeurReden,
         labels: diagnoseAntwoordOptieLabels(antwoord_opties),
@@ -644,7 +756,11 @@ Deno.serve(async (req: Request) => {
         contextLabel: context_label,
         contextText: context_tekst,
         questionType,
-        ...(antwoordOptiesResultaat.validatie === 'geaccepteerd' ? { answerOptions: antwoordOptiesResultaat.opties } : {}),
+        // Same opties != null check as kaart.antwoordOpties above — must
+        // stay in sync with it (both come from the same
+        // antwoordOptiesResultaat), or the checkin_diag row would say pills
+        // were shown while the client never actually received them.
+        ...(antwoordOptiesResultaat.opties != null ? { answerOptions: antwoordOptiesResultaat.opties } : {}),
       },
     })
   } catch (err) {

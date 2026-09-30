@@ -524,7 +524,17 @@
   color: var(--accent);
   cursor: pointer;
   font-family: inherit;
-  white-space: nowrap;
+  /* Was white-space: nowrap with no max-width — fine for the old 20-char
+     answer-option limit, but a longer label (limit raised to 40, see
+     morning-checkin/index.ts) doesn't truncate or scroll at that width: it
+     hard-clips at .app's overflow: hidden. max-width: 100% resolves against
+     .quick-replies' content box, so a long label wraps inside its own pill
+     instead of overflowing the row; .quick-replies' flex-wrap: wrap still
+     lets multiple pills drop to their own rows as before. */
+  white-space: normal;
+  overflow-wrap: break-word;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .quick-reply:active {
   background: rgba(232, 114, 28, 0.08);
