@@ -136,6 +136,27 @@ async function harvestSourcesForDay(dateStr) {
   return Array.from(names)
 }
 
+// Platform-independent display read, deliberately separate from syncSteps()
+// below — the header must show whatever is already in step_log for today
+// regardless of whether a native sync just ran, succeeded, or is even
+// possible on this platform (plain web browser, old APK, no permission).
+// Coupling the display to "did a sync happen this session" would mean a
+// perfectly valid existing row for today renders as nothing whenever that
+// session's own sync attempt failed or never ran — exactly what "render
+// based on whether a row exists" is supposed to prevent. syncSteps() still
+// separately pushes a fresher value into the display immediately after a
+// successful write, via its own return value.
+export async function fetchTodaySteps() {
+  try {
+    const { data } = await supabase.from('step_log').select('stappen').eq('datum', stepDayString()).limit(1)
+    if (!data || data.length === 0) return { ok: false }
+    return { ok: true, stappen: data[0].stappen }
+  } catch (err) {
+    console.error('fetchTodaySteps failed', err)
+    return { ok: false }
+  }
+}
+
 // Best-effort, silent-degradation sync — same shape as dayProgress.js's
 // fetchProteinProgress / morningCheckin.js's fetchMorningCheckin: one
 // exported async function, never throws, returns null on any failure, no

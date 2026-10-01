@@ -16,7 +16,7 @@ import { supabase } from '../supabase.js'
 import { fetchProteinProgress } from '../lib/dayProgress.js'
 import { todayDateString, loadStoredThread, saveThread, clearThread } from '../lib/threadStorage.js'
 import { shouldShowCheckin, hasShownCheckinToday, markCheckinShown, fetchMorningCheckin } from '../lib/morningCheckin.js'
-import { syncSteps } from '../lib/stepSync.js'
+import { syncSteps, fetchTodaySteps } from '../lib/stepSync.js'
 
 const FALLBACK_ERROR_TEXT = 'Sorry, ik kan even niet reageren — probeer het zo nog eens.'
 // Same intent as the block 4b opening variant, phrased for arriving
@@ -211,6 +211,12 @@ export default function Coach() {
   // null and nothing renders.
   useEffect(() => {
     let cancelled = false
+    // Display read first — platform-independent, shows whatever is already
+    // stored for today regardless of sync outcome. The sync's own result
+    // (native-gated) overwrites it with a fresher value if one lands.
+    fetchTodaySteps().then((result) => {
+      if (!cancelled && result.ok) setTodaySteps(result.stappen)
+    })
     syncSteps().then((today) => {
       if (!cancelled && today) setTodaySteps(today.stappen)
     })
@@ -295,6 +301,9 @@ export default function Coach() {
       // Own branch, own state, same reasoning as the mount effect above —
       // runs independently of the rollover check below, which only fires
       // on an actual date change.
+      fetchTodaySteps().then((result) => {
+        if (result.ok) setTodaySteps(result.stappen)
+      })
       syncSteps().then((today) => {
         if (today) setTodaySteps(today.stappen)
       })
