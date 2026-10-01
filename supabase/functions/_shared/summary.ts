@@ -17,7 +17,7 @@ const RECORD_SUMMARY_TOOL = {
       vraag_voor_morgen: {
         type: 'string',
         description:
-          'Optioneel: één concrete vraag die de ochtend check-in kaart morgen aan de gebruiker kan stellen, gebaseerd op iets uit het gesprek van vandaag (indien beschikbaar) of anders op de gelogde maaltijden/training van vandaag. Vooruitkijkend geformuleerd ("zou je morgen kunnen...", "ga je nog...") — nooit verwijtend ("je hebt gisteren maar..."). Noem hierin NOOIT gewicht, een gewichtstrend of onderhoudsniveau, en NOOIT calorieën. Laat dit veld gewoon weg (of leeg) als de dag echt niets opleverde om morgen naar te vragen — verzin dan niets.',
+          'Optioneel: één concrete vraag die de ochtend check-in kaart morgen aan de gebruiker kan stellen, gebaseerd op iets uit het gesprek van vandaag (indien beschikbaar) of anders op de gelogde maaltijden/training van vandaag. Precies één vraag over precies één onderwerp — nooit twee dingen in één vraag samengevoegd met "en" (bv. nooit "heb je goed geslapen EN hoe voelen je schouders aan", kies er dan één). Vooruitkijkend geformuleerd ("zou je morgen kunnen...", "ga je nog...") — nooit verwijtend ("je hebt gisteren maar..."). Noem hierin NOOIT gewicht, een gewichtstrend of onderhoudsniveau, en NOOIT calorieën. Laat dit veld gewoon weg (of leeg) als de dag echt niets opleverde om morgen naar te vragen — verzin dan niets.',
       },
     },
     required: ['samenvatting', 'aandachtspunt'],

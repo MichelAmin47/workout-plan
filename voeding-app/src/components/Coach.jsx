@@ -512,6 +512,7 @@ export default function Coach() {
                   key={msg.id}
                   eyebrow={msg.eyebrow}
                   question={msg.question}
+                  boodschap={msg.boodschap}
                   contextLabel={msg.contextLabel}
                   contextText={msg.contextText}
                 />

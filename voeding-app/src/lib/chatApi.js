@@ -3,7 +3,7 @@ import { supabase } from '../supabase.js'
 function cardToText(msg) {
   switch (msg.type) {
     case 'checkin-card':
-      return `${msg.question} (${msg.contextLabel} ${msg.contextText})`
+      return `${msg.question}${msg.boodschap ? ` ${msg.boodschap}` : ''} (${msg.contextLabel} ${msg.contextText})`
     case 'meal-card': {
       const items = msg.items.map((i) => `${i.name} (${i.detail})`).join(', ')
       const macros = msg.macros.map((m) => `${m.val} ${m.label}`).join(', ')

@@ -34,7 +34,7 @@ import {
   sortMealsByActiveDayOrder,
   type WeekDayInfo,
 } from '../_shared/today.ts'
-import { callClaude } from '../_shared/anthropic.ts'
+import { callClaude, type ClaudeCallResult, type ClaudeMessage } from '../_shared/anthropic.ts'
 import { supabase } from '../_shared/supabaseClient.ts'
 
 // Diagnostic-only client, separate from the shared `supabase` (anon-key)
@@ -79,6 +79,38 @@ const ANTWOORD_OPTIE_MAX_LENGTH = 40
 // in the facts block below, not to gate or judge anything.
 const EIWIT_DOEL_G = 165
 
+// Caps how long the literal question (vraag) may be. Real single-topic
+// questions in production output run 80-100 chars; the two-topic failure
+// that prompted this field (01-10 — sleep AND shoulders in one question)
+// was 97 chars, so a single-topic cap of 140 has real headroom without
+// inviting rambling. Referenced from both buildRenderCheckinTool's schema
+// description and the handler's own validation, so the model-facing number
+// and the enforced number can never drift apart — same principle as
+// ANTWOORD_OPTIE_MAX_LENGTH.
+const VRAAG_MAX_LENGTH = 140
+
+// The client's own hard timeout (voeding-app/src/lib/morningCheckin.js) —
+// it does not retry on timeout, so a response that arrives after this is
+// never seen (the documented 16-09 failure). Duplicated here rather than
+// shared, same cross-file duplication precedent as EIWIT_DOEL_G/
+// currentCalWeek — no shared location for a single constant exists in this
+// codebase.
+const CLIENT_TIMEOUT_MS = 20_000
+// Reserved off the end of attempt 1's own deadline so a timed-out attempt 1
+// still leaves enough room for the fast, model-free hardcoded fallback to
+// be assembled and reach the client.
+const ATTEMPT_MARGIN_MS = 2_000
+// Minimum remaining budget required to even START a retry after attempt 1
+// completes (within its own deadline) but fails validation — rounds the
+// measured 9.3s p90 single-call latency up with a small safety margin. A
+// tighter floor risks starting a retry that itself blows the budget; a
+// looser one abandons a retry more often than necessary.
+const RETRY_BUDGET_FLOOR_MS = 10_000
+// Reserved off the end of the retry's own deadline — smaller than
+// ATTEMPT_MARGIN_MS since nothing follows a failed retry but the fallback
+// path, which is faster to assemble than a fresh decision.
+const RETRY_SAFETY_MARGIN_MS = 1_000
+
 // vraag_type "geen" no longer exists — every card asks something now (see
 // file header / buildSystemPrompt's priority ladder). vraag_bron is new:
 // the model self-reports which priority tier it actually used, which is
@@ -97,32 +129,50 @@ function allowedVraagBron(excludeStemming: boolean): VraagBron[] {
   return excludeStemming ? ALL_VRAAG_BRON.filter((b) => b !== 'stemming') : ALL_VRAAG_BRON
 }
 
-// Built as a function, not a static const, because its vraag_bron enum
-// varies per request: when yesterday's card already used vraag_bron
-// 'stemming', 'stemming' is removed from today's enum entirely so the
-// model literally cannot select it twice running — the same
-// structural-not-prompt-only treatment already applied to removing "geen".
-function buildRenderCheckinTool(excludeStemming: boolean) {
+// Built as a function, not a static const, because its contents vary per
+// request on two independent axes: when yesterday's card already used
+// vraag_bron 'stemming', 'stemming' is removed from today's vraag_bron enum
+// entirely so the model literally cannot select it twice running (the same
+// structural-not-prompt-only treatment already applied to removing "geen");
+// and when a vraag_voor_morgen is actually available, the model gains one
+// extra optional field to explain itself if it chooses NOT to use it — a
+// field that would make no sense to offer on a day with no vraag_voor_morgen
+// to begin with.
+function buildRenderCheckinTool(excludeStemming: boolean, vraagVoorMorgenBeschikbaar: boolean) {
   return {
     name: 'render_checkin_card',
     description: 'Render the morning check-in card.',
     input_schema: {
       type: 'object',
       properties: {
-        boodschap: { type: 'string', description: 'The main reasoning/advice for the card, 1-2 sentences, Dutch.' },
+        // The 01-10 bug in one sentence: there was no field for this. The
+        // model's free-text `boodschap` doubled as "the question," so
+        // nothing forced an actual question to exist in the text the user
+        // reads, and nothing stopped it from narrating its own source
+        // handling instead. `vraag` is now the one thing the card is built
+        // around; `boodschap` below is demoted to optional framing.
+        vraag: {
+          type: 'string',
+          description: `De letterlijke vraag aan de gebruiker — dit komt prominent op de kaart te staan. Exact één zin, over exact één onderwerp: voeg nooit twee dingen samen met "en" (bv. nooit "heb je goed geslapen en hoe voelen je schouders aan" — kies er dan één). Moet eindigen op een vraagteken. Max ${VRAAG_MAX_LENGTH} tekens. Spreek de gebruiker rechtstreeks aan: noem of verwijs NOOIT naar hoe deze vraag tot stand kwam (geen "de klaargezette vraag", "het aandachtspunt", "de afsluiter", "het geheugen"), en leg nooit uit waarom je iets wel of niet gebruikt hebt — dat hoort hooguit in vraag_voor_morgen_niet_gebruikt_reden hieronder, nooit in wat de gebruiker te lezen krijgt.`,
+        },
+        boodschap: {
+          type: 'string',
+          description:
+            'Optioneel, kort (max ~100 tekens): een aanvullende framing- of overgangszin naast de vraag. De meeste dagen kun je dit gewoon weglaten — vraag draagt de kaart nu. Spreekt de gebruiker rechtstreeks aan, net als vraag: nooit verwijzen naar hoe de kaart of de vraag tot stand kwam.',
+        },
         context_label: { type: 'string', description: 'Short label for the supporting context line, e.g. "Vandaag:"' },
         context_tekst: { type: 'string', description: 'The supporting context line itself, e.g. "Rustdag — mooi moment voor herstel."' },
         vraag_type: {
           type: 'string',
           enum: ['stemming', 'anders'],
           description:
-            'What kind of question boodschap poses — every card asks something now, there is no "no question" option. "stemming": a mood/wellbeing question the user could answer with a general feeling (e.g. how did you sleep, how are you feeling) — reserved for vraag_bron "stemming" below, the client shows fixed mood-reply buttons for this case. "anders": any other kind of question (a specific time, a yes/no, something concrete about yesterday) — used for vraag_bron "afsluiter"/"maaltijden", where the question is concrete enough to have a specific answer, not a general mood check; the client shows free text input (or antwoord_opties pills) instead.',
+            'What kind of question `vraag` poses — every card asks something now, there is no "no question" option. "stemming": a mood/wellbeing question the user could answer with a general feeling (e.g. how did you sleep, how are you feeling) — reserved for vraag_bron "stemming" below, the client shows fixed mood-reply buttons for this case. "anders": any other kind of question (a specific time, a yes/no, something concrete about yesterday) — used for vraag_bron "afsluiter"/"maaltijden", where the question is concrete enough to have a specific answer, not a general mood check; the client shows free text input (or antwoord_opties pills) instead.',
         },
         vraag_bron: {
           type: 'string',
           enum: allowedVraagBron(excludeStemming),
           description:
-            'Which source the question actually came from — report this honestly, it drives diagnostics and the no-repeat/no-two-stemming-days-running checks. "afsluiter": based on the vraag_voor_morgen klaargezet in de feiten hieronder (only when present AND still consistent with today\'s day-type). "maaltijden": based on de maaltijden van gisteren of het rooster van vandaag/gisteren — used whenever vraag_voor_morgen is absent or no longer consistent.' +
+            'Which source the question actually came from — report this honestly, it drives diagnostics and the no-repeat/no-two-stemming-days-running checks. "afsluiter": gebaseerd op de vraag_voor_morgen in de feiten hieronder — dit is het DEFAULT wanneer die beschikbaar is, gebruik hem tenzij hij iets veronderstelt dat de feiten hieronder rechtstreeks tegenspreken (een training noemt die niet heeft plaatsgevonden, of een dagtype aanneemt dat is verplaatst). "maaltijden": gebaseerd op de maaltijden van gisteren of het rooster van vandaag/gisteren — gebruikt wanneer vraag_voor_morgen afwezig is, of rechtstreeks wordt tegengesproken door de feiten.' +
             (excludeStemming
               ? ' "stemming" is NIET beschikbaar vandaag — gisteren was de vraag al een stemmingsvraag, dus kies hier altijd "afsluiter" of "maaltijden", ook als er weinig materiaal is.'
               : ' "stemming": only when neither of the above yields anything usable.'),
@@ -130,10 +180,19 @@ function buildRenderCheckinTool(excludeStemming: boolean) {
         antwoord_opties: {
           type: 'array',
           items: { type: 'string' },
-          description: `Alleen invullen als vraag_type "anders" is en de vraag 2 of 3 natuurlijke, korte antwoorden heeft waarmee de gebruiker met één tik kan reageren (bijv. een keuze tussen twee tijdstippen, of een simpele ja/nee-variant). Elk label max ${ANTWOORD_OPTIE_MAX_LENGTH} tekens (dit is een bovengrens, geen doel — hou elk label zo kort als nog natuurlijk klinkt). Heeft de vraag geen natuurlijke korte antwoorden, laat dit veld dan gewoon weg — de gebruiker typt dan vrij.`,
+          description: `Alleen invullen als vraag_type "anders" is en vraag 2 of 3 natuurlijke, korte antwoorden heeft waarmee de gebruiker met één tik kan reageren (bijv. een keuze tussen twee tijdstippen, of een simpele ja/nee-variant) — dit zijn ALTIJD antwoorden op vraag, nooit op iets anders. Elk label max ${ANTWOORD_OPTIE_MAX_LENGTH} tekens (dit is een bovengrens, geen doel — hou elk label zo kort als nog natuurlijk klinkt). Heeft de vraag geen natuurlijke korte antwoorden, laat dit veld dan gewoon weg — de gebruiker typt dan vrij.`,
         },
+        ...(vraagVoorMorgenBeschikbaar
+          ? {
+              vraag_voor_morgen_niet_gebruikt_reden: {
+                type: 'string',
+                description:
+                  'Alleen invullen als je vraag_bron NIET "afsluiter" hebt gekozen, terwijl er wel een vraag_voor_morgen klaarstond (zie de feiten hieronder): één korte zin over waarom die vraag niet meer bruikbaar was (bv. "de training waar de vraag over ging heeft al plaatsgevonden", "het dagtype klopte niet meer"). Laat dit veld weg als vraag_bron wel "afsluiter" is.',
+              },
+            }
+          : {}),
       },
-      required: ['boodschap', 'context_label', 'context_tekst', 'vraag_type', 'vraag_bron'],
+      required: ['vraag', 'context_label', 'context_tekst', 'vraag_type', 'vraag_bron'],
     },
   }
 }
@@ -146,6 +205,37 @@ function dayLabel(info: DayFact): string {
   if (info.dayType === 'power_hour') return `Power Hour${info.naam ? ` (${info.naam})` : ''}`
   if (info.dayType === 'boksen') return `Boksen${info.naam ? ` (${info.naam})` : ''}`
   return 'onbekend'
+}
+
+interface CheckinCardFields {
+  vraag: string
+  boodschap: string | null
+  context_label: string
+  context_tekst: string
+  vraag_type: 'stemming' | 'anders'
+  vraag_bron: VraagBron
+}
+
+// The absolute last resort — reached only when no model call produced a
+// usable card in time (attempt 1 and, if there was budget, a retry). Not
+// another model call: this must never itself fail, and must stay fast, so
+// it's built entirely from data already resolved earlier in the handler.
+// vraag_bron 'stemming' bypasses excludeStemming deliberately — this isn't
+// a normal tier-c pick subject to the no-two-days-running rule, it's a
+// fixed escape hatch, and the client's mood buttons always work regardless
+// of what was asked yesterday. Capitalizes dayLabel's output since that
+// helper is written for mid-sentence use ("Vandaag is een trainingsdag")
+// but this needs a standalone context line ("Trainingsdag (Schouders).").
+function buildHardcodedFallbackCard(todayInfo: DayFact): CheckinCardFields {
+  const label = dayLabel(todayInfo)
+  return {
+    vraag: 'Hoe voel je je vanochtend?',
+    boodschap: null,
+    context_label: 'Vandaag:',
+    context_tekst: `${label.charAt(0).toUpperCase()}${label.slice(1)}.`,
+    vraag_type: 'stemming',
+    vraag_bron: 'stemming',
+  }
 }
 
 // Cheap heuristic for "does the aandachtspunt contain something worth
@@ -426,7 +516,7 @@ function buildSystemPrompt(
       ? gisterenMeals.map((m) => `- ${m.tijdstip ?? '?'} ${m.omschrijving}: ${m.eiwitten_g}g eiwit`).join('\n')
       : 'Geen maaltijden gelogd.'
 
-  return `Je schrijft een korte ochtend check-in kaart voor de voedingscoach-app "Coach" — het eerste wat de gebruiker ziet bij het openen van de app, in plaats van een generieke groet. Vier velden: een boodschap (1-2 zinnen, de kern van het advies), een context-regel (label + tekst, een korte ondersteunende regel), en vraag_type (welke vraag de boodschap stelt).
+  return `Je schrijft een korte ochtend check-in kaart voor de voedingscoach-app "Coach" — het eerste wat de gebruiker ziet bij het openen van de app, in plaats van een generieke groet. Velden: vraag (de letterlijke vraag, komt prominent op de kaart), optioneel een korte boodschap (zelden nodig), een context-regel (label + tekst, een korte ondersteunende regel), en vraag_type/vraag_bron (welke soort vraag, via welke route).
 
 Feiten om op te baseren (gebruik alleen wat hier staat, verzin niets):
 - Gisteren was een ${dayLabel(yesterday)}.
@@ -454,8 +544,10 @@ Regels:
 - Schrijf natuurlijk Nederlands: vorm nooit een bezitsvorm door 's of se aan een dagnaam of bijwoord te plakken (fout: "gisteren se rustdag", "gisteren's sessie") — gebruik in plaats daarvan "de rustdag van gisteren" of "gisteren was een rustdag".
 - De boodschap en de context-regel mogen elkaar nooit tegenspreken over welke dag iets was.
 - Motiverende, warme toon, kort en concreet — geen algemeenheid die net zo goed op elke willekeurige dag zou passen.
+- vraag is precies één vraag over precies één onderwerp — voeg nooit twee dingen samen met "en" (kies er dan één).
+- vraag en boodschap spreken de gebruiker rechtstreeks aan — noem nooit hoe de kaart of de vraag tot stand kwam (geen "de klaargezette vraag", "het aandachtspunt", "de afsluiter", "het geheugen"), en leg nooit uit waarom je iets gekozen of weggelaten hebt.
 - Elke kaart stelt een vraag — er is geen "geen vraag"-optie meer. Kies de bron in deze volgorde en rapporteer die eerlijk in vraag_bron:
-  a. ${vraagVoorMorgen ? `Er staat een vraag klaar (zie de feiten hierboven). Vergelijk hem met de "Vandaag is..."-feiten — verwijst hij naar iets dat nog moet gebeuren en klopt het veronderstelde dagtype nog, gebruik hem dan (natuurlijk verwoord, geen letterlijk citaat) met vraag_bron "afsluiter". Is hij duidelijk achterhaald (de genoemde actie is al gebeurd, of het dagtype klopt niet meer), val terug op optie b.` : 'Er staat geen vraag klaar vanuit gisteren — ga direct naar optie b.'}
+  a. ${vraagVoorMorgen ? `Er staat een vraag klaar (zie de feiten hierboven) — dit is het DEFAULT, gebruik hem (natuurlijk verwoord, geen letterlijk citaat) met vraag_bron "afsluiter". Vragen over slaap, energie, hoe het lichaam aanvoelt, of hoe iets gisteren ging zijn ALTIJD bruikbaar, ongeacht het dagtype van vandaag — dat soort vraag hoeft nooit te "passen" bij vandaag. Gebruik hem alleen NIET als hij rechtstreeks wordt tegengesproken door de "Vandaag is..."-feiten hierboven (hij veronderstelt een training die niet heeft plaatsgevonden, of een dagtype dat is verplaatst) — val dan terug op optie b, en vul vraag_voor_morgen_niet_gebruikt_reden in met één korte zin waarom.` : 'Er staat geen vraag klaar vanuit gisteren — ga direct naar optie b.'}
   b. Baseer een vraag op iets concreets uit de maaltijden van gisteren hierboven (bv. een tijdstip, wat er gegeten werd) of op het rooster van vandaag/gisteren, met vraag_bron "maaltijden".
   ${excludeStemming ? '' : 'c. Alleen als zowel a als b niets bruikbaars opleveren: een stemmingsvraag, vraag_type "stemming", vraag_bron "stemming".\n  '}
 - vraag_type "stemming" hoort uitsluitend bij vraag_bron "stemming" (optie c) — een vraag over hoe iemand zich voelt of geslapen heeft, waar een algemeen gevoel een passend antwoord op is. vraag_bron "afsluiter" of "maaltijden" hoort altijd bij vraag_type "anders": die vragen zijn concreet genoeg om een specifiek antwoord te hebben, ook als het onderwerp toevallig gevoel-gerelateerd aandoet.
@@ -498,8 +590,31 @@ ${recentTopics.length > 0 ? '- Herhaal niet het onderwerp van een van je laatste
 // actually used, self-reported — this is what feeds the no-repeat check
 // and the never-two-stemming-days-running rule. v1-v4 rows are untouched
 // and coexist, as always — readers filter on payload->>'v'.
+//
+// v6 (2026-10-01, same day as v5 — the first real v5 card exposed a second,
+// deeper bug within hours): `vraagTekst` now holds the model's dedicated
+// `vraag` field instead of `boodschap` — before this bump, `boodschap`
+// doubled as "the question" with nothing forcing it to actually be one
+// (the 01-10 card showed a statement, not a question, while the pills
+// silently answered a question that was never asked in the text). This is
+// again an existing-field-reinterpretation, not an additive change — the
+// same precedent that earned v5 its own bump. New: `vraagVoorMorgen` makes
+// the reconciliation rule in buildSystemPrompt's priority-ladder item (a)
+// checkable against real data instead of anecdotes (the 01-10 card wrongly
+// discarded a perfectly good vraag_voor_morgen; this is the gap that let
+// that ship unnoticed) — `beschikbaar` is known before the model is even
+// called, `gebruikt`/`nietGebruiktReden` are null until a card exists.
+// `cardBron` distinguishes a model-produced card from the hardcoded
+// last-resort fallback (see buildHardcodedFallbackCard) — should stay rare
+// in production. `timing` records how many model calls were made and how
+// long each took against the client's 20s budget (voeding-app/src/lib/
+// morningCheckin.js does not retry on timeout) — see the handler's deadline
+// logic. `kaart.vraag` is added and `kaart.boodschap` becomes nullable,
+// mirroring the response object exactly as this field has always done.
+// v1-v5 rows are untouched and coexist, as always — readers filter on
+// payload->>'v'.
 interface CheckinDiagPayload {
-  v: 5
+  v: 6
   ts_utc: string
   datum_lokaal: string
   vandaag: { type: string | null; naam: string | null }
@@ -525,34 +640,67 @@ interface CheckinDiagPayload {
     // still carry the old enum values.
     gedroptReden: 'dagtype_mismatch_verwacht_training' | 'dagtype_mismatch_verwacht_rust' | null
   }
+  // Whether/how yesterday's vraag_voor_morgen was used today — see
+  // buildSystemPrompt's priority-ladder item (a) and VRAAG_MAX_LENGTH's
+  // neighbouring comment on why this exists. `beschikbaar` is independent
+  // of modelOk (known before any model call); `gebruikt`/`nietGebruiktReden`
+  // are null until a card exists (model or fallback) and are set to
+  // false/null specifically (not left null) once cardBron is
+  // 'hardcoded_fallback', since no real reconciliation decision happened.
+  vraagVoorMorgen: {
+    beschikbaar: boolean
+    gebruikt: boolean | null
+    nietGebruiktReden: string | null
+  }
   vraag_type: string | null
-  // The literal question text the model asked — `boodschap` doubles as the
-  // question (there's no separate "question" field in the model's own
-  // output, see buildRenderCheckinTool). Always populated on the success
-  // path since v5 (vraag_type is never 'geen' anymore); null only on the
-  // early-exit paths where no model output exists at all, or on v3/v4 rows
-  // where vraag_type was 'geen'.
+  // The literal question text — the model's dedicated `vraag` field as of
+  // v6 (was `boodschap`, see this bump's own comment above for why that was
+  // wrong), or the hardcoded fallback's fixed question when cardBron is
+  // 'hardcoded_fallback'. Always populated now (a card always exists, see
+  // buildHardcodedFallbackCard); null only on v1-v4 rows where vraag_type
+  // was 'geen'.
   vraagTekst: string | null
   // Which priority tier (see buildSystemPrompt) the model self-reported
-  // using — 'afsluiter' | 'maaltijden' | 'stemming' | null. null on every
-  // early-exit path (no model output) and on all v1-v4 rows (field didn't
-  // exist yet). This is the single source both the no-repeat check and the
-  // never-two-stemming-days-running rule read back the next day, via
-  // coach_checkin_card rather than this diagnostics table — see that
-  // table's own write below for why.
+  // using — 'afsluiter' | 'maaltijden' | 'stemming' | null. 'stemming' when
+  // cardBron is 'hardcoded_fallback' (the fallback's fixed vraag_bron); null
+  // on all v1-v4 rows (field didn't exist yet). This is the single source
+  // both the no-repeat check and the never-two-stemming-days-running rule
+  // read back the next day, via coach_checkin_card rather than this
+  // diagnostics table — see that table's own write below for why.
   vraagBron: VraagBron | null
+  // Which path actually produced the card. 'model' is the normal case;
+  // 'hardcoded_fallback' means neither attempt 1 nor a (possibly skipped)
+  // retry produced a valid card within the client's time budget — see the
+  // handler's deadline logic. Lets the fallback rate be monitored in
+  // production; it should stay rare. null only on v1-v5 rows (field didn't
+  // exist yet — there was no fallback path before v6, a failure meant
+  // {card: null} instead).
+  cardBron: 'model' | 'hardcoded_fallback' | null
+  // How many model calls were actually made and how long each took, against
+  // CLIENT_TIMEOUT_MS. null only on v1-v5 rows. `pogingen` is 0 when no
+  // model call was attempted at all (e.g. ANTHROPIC_API_KEY unset).
+  timing: {
+    pogingen: 0 | 1 | 2
+    eersteAanroepMs: number
+    eersteAanroepAfgebroken: boolean
+    tweedeAanroepMs: number | null
+    tweedeAanroepAfgebroken: boolean
+    retryOvergeslagenWegensBudget: boolean
+  } | null
   // The full check-in card as returned to the client, mirrored field-for-
   // field from the same variables the `card:` response object below is
-  // built from — never re-derived separately, so the two can't drift.
-  // null wherever no card was built (every early-exit path).
+  // built from — never re-derived separately, so the two can't drift. A
+  // card always exists as of v6 (model or hardcoded fallback), so this is
+  // no longer ever null on a new row.
   kaart: {
     eyebrow: string
-    boodschap: string
+    vraag: string
+    boodschap: string | null
     contextLabel: string
     contextTekst: string
     vraagType: string
     antwoordOpties: string[] | null
-  } | null
+  }
   antwoordOpties: {
     aangeboden: number
     // How many labels actually survived to be shown — labels.filter(l =>
@@ -662,6 +810,78 @@ function logCheckinCard(datum: string, vraagTekst: string, vraagType: string, vr
   EdgeRuntime.waitUntil(insert)
 }
 
+// Result of trying to extract a usable card from one callClaude response —
+// shared by attempt 1 and the retry so the two can never disagree about
+// what counts as valid. `problem` is a short Dutch sentence naming the
+// FIRST validation failure found (vraag checked before the older required
+// fields, since it's the new, most failure-prone field) — used both to log
+// why a response was rejected and as the retry's corrective tool_result
+// text. `toolUseId` is carried separately from the parsed fields so the
+// retry can reference it even when the fields themselves are invalid.
+interface ParsedCheckinCard {
+  valid: boolean
+  problem: string | null
+  toolUseId: string | null
+  vraag?: string
+  boodschap: string | null
+  context_label?: string
+  context_tekst?: string
+  vraag_type?: 'stemming' | 'anders'
+  vraag_bron?: VraagBron
+  antwoord_opties?: unknown
+  vraagVoorMorgenNietGebruiktReden: string | null
+}
+
+function parseCheckinToolUse(result: ClaudeCallResult, excludeStemming: boolean): ParsedCheckinCard {
+  const empty = { boodschap: null, vraagVoorMorgenNietGebruiktReden: null }
+  const toolUse = result.data?.content.find((b) => b.type === 'tool_use')
+  if (!toolUse || !toolUse.input) {
+    return { valid: false, problem: 'geen render_checkin_card tool-aanroep in de respons', toolUseId: toolUse?.id ?? null, ...empty }
+  }
+
+  const input = toolUse.input as {
+    vraag?: string
+    boodschap?: string
+    context_label?: string
+    context_tekst?: string
+    vraag_type?: 'stemming' | 'anders'
+    vraag_bron?: VraagBron
+    antwoord_opties?: unknown
+    vraag_voor_morgen_niet_gebruikt_reden?: string
+  }
+
+  const vraagTrimmed = input.vraag?.trim()
+  const problem = !vraagTrimmed
+    ? 'vraag ontbreekt of is leeg'
+    : !vraagTrimmed.endsWith('?')
+      ? 'vraag eindigt niet op een vraagteken'
+      : [...vraagTrimmed].length > VRAAG_MAX_LENGTH
+        ? `vraag is langer dan ${VRAAG_MAX_LENGTH} tekens`
+        : !input.context_label
+          ? 'context_label ontbreekt'
+          : !input.context_tekst
+            ? 'context_tekst ontbreekt'
+            : !input.vraag_type || !['stemming', 'anders'].includes(input.vraag_type)
+              ? 'vraag_type ontbreekt of is ongeldig'
+              : !input.vraag_bron || !allowedVraagBron(excludeStemming).includes(input.vraag_bron)
+                ? 'vraag_bron ontbreekt of is ongeldig'
+                : null
+
+  return {
+    valid: problem === null,
+    problem,
+    toolUseId: toolUse.id ?? null,
+    vraag: vraagTrimmed,
+    boodschap: input.boodschap?.trim() || null,
+    context_label: input.context_label,
+    context_tekst: input.context_tekst,
+    vraag_type: input.vraag_type,
+    vraag_bron: input.vraag_bron,
+    antwoord_opties: input.antwoord_opties,
+    vraagVoorMorgenNietGebruiktReden: input.vraag_voor_morgen_niet_gebruikt_reden?.trim() || null,
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS_HEADERS })
@@ -672,6 +892,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    // Tracked from literally the first line — the client's 20s timeout
+    // (voeding-app/src/lib/morningCheckin.js) covers the whole request, not
+    // just the model call(s) below. Everything the attempt-1/retry deadline
+    // logic computes is measured against this, not against when the model
+    // call itself starts.
+    const requestStartedAt = Date.now()
     const now = amsterdamNow()
     // Same threshold the closing question owns the other end of — the
     // evening already has its own check-in, this one is morning/daytime
@@ -775,7 +1001,7 @@ Deno.serve(async (req: Request) => {
     // never be silently suppressed by a display decision.
     const aandachtspuntGeeftSignaal = aandachtspuntHasQuestion(aandachtspunt)
     const diagBasePayload = {
-      v: 5 as const,
+      v: 6 as const,
       datum_lokaal: todayDateStr,
       vandaag: { type: todayInfo.dayType, naam: todayInfo.naam },
       gisteren: { datum: yesterdayDateStr, type: yesterdayInfo.dayType, naam: yesterdayInfo.naam },
@@ -788,116 +1014,191 @@ Deno.serve(async (req: Request) => {
       },
     }
 
-    // No model output exists yet at any of these four early exits, so
-    // there is genuinely nothing to count/show — 0/null/[] here isn't a
-    // hardcoded shortcut, it's simply true.
-    const NO_ANTWOORD_OPTIES = { aangeboden: 0, getoond: 0, validatie: 'nvt' as const, afkeurReden: null, labels: [] }
-    const NO_KAART = null
+    // Known before any model call — whether yesterday's close left a
+    // question ready for today. Feeds both buildSystemPrompt/
+    // buildRenderCheckinTool (whether to even offer the niet_gebruikt_reden
+    // field) and the diagnostics below (vraagVoorMorgen.beschikbaar).
+    const vraagVoorMorgenBeschikbaar = vraagVoorMorgen !== null
 
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
+
+    // Filled by either the model path or the hardcoded-fallback path below
+    // — every branch assigns all of these, so a card always exists by the
+    // time this block ends. See buildHardcodedFallbackCard's own comment
+    // for why the fallback never itself fails.
+    let cardBron: 'model' | 'hardcoded_fallback'
+    let finalCard: CheckinCardFields
+    let finalAntwoordOptiesRaw: unknown
+    let vraagVoorMorgenNietGebruiktReden: string | null = null
+    let timing: NonNullable<CheckinDiagPayload['timing']>
+
     if (!apiKey) {
       console.error('ANTHROPIC_API_KEY secret is not set')
-      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: null, vraagTekst: null, vraagBron: null, kaart: NO_KAART, antwoordOpties: NO_ANTWOORD_OPTIES, modelOk: false })
-      return jsonResponse({ card: null })
-    }
+      cardBron = 'hardcoded_fallback'
+      finalCard = buildHardcodedFallbackCard(todayInfo)
+      finalAntwoordOptiesRaw = undefined
+      timing = { pogingen: 0, eersteAanroepMs: 0, eersteAanroepAfgebroken: false, tweedeAanroepMs: null, tweedeAanroepAfgebroken: false, retryOvergeslagenWegensBudget: false }
+    } else {
+      const tool = buildRenderCheckinTool(gisterenWasStemming, vraagVoorMorgenBeschikbaar)
+      const systemPrompt = buildSystemPrompt(yesterdayInfo, todayInfo, isThursday, aandachtspunt, memoryFacts, vraagVoorMorgen, gisterenMeals, recentTopics, gisterenWasStemming)
+      const userMessage: ClaudeMessage = { role: 'user', content: 'Genereer de ochtend check-in kaart voor vandaag.' }
 
-    const result = await callClaude(apiKey, {
-      model: 'claude-sonnet-5',
-      system: buildSystemPrompt(yesterdayInfo, todayInfo, isThursday, aandachtspunt, memoryFacts, vraagVoorMorgen, gisterenMeals, recentTopics, gisterenWasStemming),
-      messages: [{ role: 'user', content: 'Genereer de ochtend check-in kaart voor vandaag.' }],
-      tools: [buildRenderCheckinTool(gisterenWasStemming)],
-      toolChoice: { type: 'tool', name: 'render_checkin_card' },
-      maxTokens: 400,
-    })
-
-    if (!result.ok) {
-      console.error('morning-checkin: Claude call failed', result.status, result.errorText)
-      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: null, vraagTekst: null, vraagBron: null, kaart: NO_KAART, antwoordOpties: NO_ANTWOORD_OPTIES, modelOk: false })
-      return jsonResponse({ card: null })
-    }
-
-    const toolUse = result.data?.content.find((b) => b.type === 'tool_use')
-    if (!toolUse || !toolUse.input) {
-      logCheckinDiag({ ...diagBasePayload, ts_utc: new Date().toISOString(), vraag_type: null, vraagTekst: null, vraagBron: null, kaart: NO_KAART, antwoordOpties: NO_ANTWOORD_OPTIES, modelOk: false })
-      return jsonResponse({ card: null })
-    }
-
-    const { boodschap, context_label, context_tekst, vraag_type, vraag_bron, antwoord_opties } = toolUse.input as {
-      boodschap?: string
-      context_label?: string
-      context_tekst?: string
-      vraag_type?: 'stemming' | 'anders'
-      vraag_bron?: VraagBron
-      antwoord_opties?: unknown
-    }
-    if (
-      !boodschap ||
-      !context_label ||
-      !context_tekst ||
-      !vraag_type ||
-      !['stemming', 'anders'].includes(vraag_type) ||
-      !vraag_bron ||
-      !allowedVraagBron(gisterenWasStemming).includes(vraag_bron)
-    ) {
-      logCheckinDiag({
-        ...diagBasePayload,
-        ts_utc: new Date().toISOString(),
-        vraag_type: vraag_type ?? null,
-        vraagTekst: null,
-        vraagBron: vraag_bron ?? null,
-        kaart: NO_KAART,
-        antwoordOpties: (() => {
-          const labels = diagnoseAntwoordOptieLabels(antwoord_opties)
-          return {
-            aangeboden: ongevalideerdeAantal(antwoord_opties),
-            getoond: labels.filter((l) => 'behouden' in l && l.behouden).length,
-            validatie: 'nvt' as const,
-            afkeurReden: null,
-            labels,
-          }
-        })(),
-        modelOk: false,
+      // Attempt 1 gets its own deadline, computed from whatever budget the
+      // Promise.all reads above already consumed — the client's 20s timeout
+      // covers the whole request, not just this call. If this times out,
+      // there is by construction no budget left for a retry (see
+      // ATTEMPT_MARGIN_MS/RETRY_BUDGET_FLOOR_MS's own comments).
+      const elapsedBeforeAttempt1 = Date.now() - requestStartedAt
+      const attempt1TimeoutMs = CLIENT_TIMEOUT_MS - elapsedBeforeAttempt1 - ATTEMPT_MARGIN_MS
+      const attempt1StartedAt = Date.now()
+      const attempt1 = await callClaude(apiKey, {
+        model: 'claude-sonnet-5',
+        system: systemPrompt,
+        messages: [userMessage],
+        tools: [tool],
+        toolChoice: { type: 'tool', name: 'render_checkin_card' },
+        maxTokens: 400,
+        timeoutMs: attempt1TimeoutMs,
       })
-      return jsonResponse({ card: null })
+      const eersteAanroepMs = Date.now() - attempt1StartedAt
+      const eersteAanroepAfgebroken = Boolean(attempt1.timedOut)
+
+      let parsed: ParsedCheckinCard | null = null
+      if (attempt1.timedOut) {
+        // No budget left for a retry by construction — falls through to
+        // the fallback below.
+      } else if (!attempt1.ok) {
+        console.error('morning-checkin: Claude call failed (attempt 1)', attempt1.status, attempt1.errorText)
+      } else {
+        parsed = parseCheckinToolUse(attempt1, gisterenWasStemming)
+      }
+
+      let tweedeAanroepMs: number | null = null
+      let tweedeAanroepAfgebroken = false
+      let retryOvergeslagenWegensBudget = false
+
+      // Only even consider a retry when attempt 1 itself completed (wasn't
+      // aborted) but came back invalid — a corrective nudge can fix a
+      // malformed field, it can't do anything about a request that already
+      // ran out the clock.
+      if (!eersteAanroepAfgebroken && attempt1.ok && (!parsed || !parsed.valid)) {
+        const elapsedAfterAttempt1 = Date.now() - requestStartedAt
+        if (CLIENT_TIMEOUT_MS - elapsedAfterAttempt1 < RETRY_BUDGET_FLOOR_MS) {
+          retryOvergeslagenWegensBudget = true
+        } else {
+          const retryTimeoutMs = CLIENT_TIMEOUT_MS - elapsedAfterAttempt1 - RETRY_SAFETY_MARGIN_MS
+          // Same no-op-retry shape coach-chat/index.ts already uses: push
+          // the failed assistant tool-use block, then a tool_result
+          // explaining what was wrong, and call again with the same forced
+          // tool/toolChoice.
+          const correctionMessage: ClaudeMessage = {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: parsed?.toolUseId ?? '',
+                content: JSON.stringify({ error: `Ongeldige kaart: ${parsed?.problem ?? 'onbekende fout'}. Probeer het opnieuw.` }),
+              },
+            ],
+          }
+          const retryStartedAt = Date.now()
+          const retryResult = await callClaude(apiKey, {
+            model: 'claude-sonnet-5',
+            system: systemPrompt,
+            messages: [userMessage, { role: 'assistant', content: attempt1.data!.content }, correctionMessage],
+            tools: [tool],
+            toolChoice: { type: 'tool', name: 'render_checkin_card' },
+            maxTokens: 400,
+            timeoutMs: retryTimeoutMs,
+          })
+          tweedeAanroepMs = Date.now() - retryStartedAt
+          if (retryResult.timedOut) {
+            tweedeAanroepAfgebroken = true
+          } else if (!retryResult.ok) {
+            console.error('morning-checkin: Claude call failed (retry)', retryResult.status, retryResult.errorText)
+          } else {
+            parsed = parseCheckinToolUse(retryResult, gisterenWasStemming)
+          }
+        }
+      }
+
+      timing = {
+        pogingen: tweedeAanroepMs !== null || tweedeAanroepAfgebroken ? 2 : 1,
+        eersteAanroepMs,
+        eersteAanroepAfgebroken,
+        tweedeAanroepMs,
+        tweedeAanroepAfgebroken,
+        retryOvergeslagenWegensBudget,
+      }
+
+      if (parsed && parsed.valid) {
+        cardBron = 'model'
+        finalCard = {
+          vraag: parsed.vraag!,
+          boodschap: parsed.boodschap,
+          context_label: parsed.context_label!,
+          context_tekst: parsed.context_tekst!,
+          vraag_type: parsed.vraag_type!,
+          vraag_bron: parsed.vraag_bron!,
+        }
+        finalAntwoordOptiesRaw = parsed.antwoord_opties
+        vraagVoorMorgenNietGebruiktReden = parsed.vraagVoorMorgenNietGebruiktReden
+      } else {
+        // Neither attempt 1 nor (if there was budget) a retry produced a
+        // valid card — go straight to the hardcoded fallback. This now
+        // covers every failure shape uniformly (timeout, API error,
+        // malformed/invalid response): the guarantee is that the user
+        // always gets a card with a real question, never nothing.
+        cardBron = 'hardcoded_fallback'
+        finalCard = buildHardcodedFallbackCard(todayInfo)
+        finalAntwoordOptiesRaw = undefined
+      }
     }
 
+    // From here on, regardless of cardBron, finalCard is a complete, valid
+    // card — the rest of this handler no longer branches on success/failure.
+    //
     // 'mood' gets the client's fixed mood-reply buttons; anything else is a
     // real question but not one those buttons make sense as answers to —
-    // free text (or antwoord_opties pills) instead. vraag_type is never
-    // 'geen' anymore (see buildRenderCheckinTool), so this is no longer a
-    // three-way branch. See Coach.jsx's showQuickReplies for the one place
-    // this is consumed.
-    const questionType = vraag_type === 'stemming' ? 'mood' : 'other'
+    // free text (or antwoord_opties pills) instead. See Coach.jsx's
+    // showQuickReplies for the one place this is consumed.
+    const questionType = finalCard.vraag_type === 'stemming' ? 'mood' : 'other'
 
     // antwoord_opties is only ever validated for 'anders' — 'stemming'
-    // keeps its proven, model-independent behavior untouched (fixed mood
-    // buttons, client-side). The model may still have put something in
-    // antwoord_opties on 'stemming' (or the field could be malformed in
-    // some other way) — that's recorded via ongevalideerdeAantal (count
-    // only, no validation), not silently discarded as a hardcoded 0.
+    // (model-chosen or the hardcoded fallback, both share vraag_type
+    // 'stemming') keeps its proven, model-independent behavior untouched
+    // (fixed mood buttons, client-side).
     const antwoordOptiesResultaat: AntwoordOptiesResultaat =
-      vraag_type === 'anders'
-        ? validateAntwoordOpties(antwoord_opties)
-        : { opties: null, aangeboden: ongevalideerdeAantal(antwoord_opties), validatie: 'nvt', afkeurReden: null }
+      finalCard.vraag_type === 'anders'
+        ? validateAntwoordOpties(finalAntwoordOptiesRaw)
+        : { opties: null, aangeboden: ongevalideerdeAantal(finalAntwoordOptiesRaw), validatie: 'nvt', afkeurReden: null }
 
-    // boodschap always doubles as the question now — vraag_type is never
-    // 'geen' anymore, so there's no case where a card has no question to
-    // record. See CheckinDiagPayload's field comment.
     logCheckinDiag({
       ...diagBasePayload,
       ts_utc: new Date().toISOString(),
-      vraag_type,
-      vraagTekst: boodschap,
-      vraagBron: vraag_bron,
+      vraagVoorMorgen: {
+        beschikbaar: vraagVoorMorgenBeschikbaar,
+        // No real reconciliation decision happened on the fallback path —
+        // false/null rather than left null, so a reader doesn't mistake
+        // "no data" for "the model considered it and declined."
+        gebruikt: cardBron === 'model' ? finalCard.vraag_bron === 'afsluiter' : false,
+        nietGebruiktReden: cardBron === 'model' ? vraagVoorMorgenNietGebruiktReden : null,
+      },
+      vraag_type: finalCard.vraag_type,
+      vraagTekst: finalCard.vraag,
+      vraagBron: finalCard.vraag_bron,
+      cardBron,
+      timing,
       // Mirrors the `card:` response object below field-for-field, from the
       // same variables — never re-derived separately, so this can't drift
       // from what the client actually receives.
       kaart: {
         eyebrow: 'Ochtend check-in',
-        boodschap,
-        contextLabel: context_label,
-        contextTekst: context_tekst,
-        vraagType: vraag_type,
+        vraag: finalCard.vraag,
+        boodschap: finalCard.boodschap,
+        contextLabel: finalCard.context_label,
+        contextTekst: finalCard.context_tekst,
+        vraagType: finalCard.vraag_type,
         // opties is non-null exactly when validatie is 'geaccepteerd' or
         // 'deels_geaccepteerd' (validateAntwoordOpties always sets it to
         // the kept list on both, null on 'nvt'/'afgekeurd') — checking the
@@ -911,9 +1212,9 @@ Deno.serve(async (req: Request) => {
         getoond: antwoordOptiesResultaat.opties?.length ?? 0,
         validatie: antwoordOptiesResultaat.validatie,
         afkeurReden: antwoordOptiesResultaat.afkeurReden,
-        labels: diagnoseAntwoordOptieLabels(antwoord_opties),
+        labels: diagnoseAntwoordOptieLabels(finalAntwoordOptiesRaw),
       },
-      modelOk: true,
+      modelOk: cardBron === 'model',
     })
 
     // Durable record of what this card actually asked — separate from
@@ -921,15 +1222,22 @@ Deno.serve(async (req: Request) => {
     // plan's investigation notes) so the no-repeat check and the
     // never-two-stemming-days-running rule aren't built on top of a table
     // flagged for deletion. See logCheckinCard's own comment for the
-    // first-write-wins reasoning.
-    logCheckinCard(todayDateStr, boodschap, vraag_type, vraag_bron, antwoordOptiesResultaat.opties)
+    // first-write-wins reasoning. vraagTekst is now finalCard.vraag — the
+    // model's dedicated question field (or the fallback's fixed one), never
+    // boodschap (see CheckinDiagPayload's v6 comment for why that changed).
+    logCheckinCard(todayDateStr, finalCard.vraag, finalCard.vraag_type, finalCard.vraag_bron, antwoordOptiesResultaat.opties)
 
     return jsonResponse({
       card: {
         eyebrow: 'Ochtend check-in',
-        question: boodschap,
-        contextLabel: context_label,
-        contextText: context_tekst,
+        question: finalCard.vraag,
+        // Optional now — most cards omit it (see buildRenderCheckinTool's
+        // vraag/boodschap field descriptions). Absent entirely rather than
+        // sent as null/empty, consistent with answerOptions' own
+        // sometimes-absent convention below.
+        ...(finalCard.boodschap ? { boodschap: finalCard.boodschap } : {}),
+        contextLabel: finalCard.context_label,
+        contextText: finalCard.context_tekst,
         questionType,
         // Same opties != null check as kaart.antwoordOpties above — must
         // stay in sync with it (both come from the same

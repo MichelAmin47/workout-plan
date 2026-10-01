@@ -199,6 +199,19 @@
   line-height: 1.35;
   margin-bottom: 16px;
 }
+/* Demoted framing text (server's optional `boodschap` field) — rendered
+   between the question and the context block, lighter than the question
+   and without the context block's own top border/label so the two don't
+   read as the same kind of line. overflow-wrap guards against a long
+   sentence at phone width, same precaution .quick-reply needed after a
+   real overflow incident there (see that rule's own comment). */
+.checkin-boodschap {
+  font-size: 14px;
+  color: var(--text-dim);
+  line-height: 1.45;
+  margin-bottom: 16px;
+  overflow-wrap: break-word;
+}
 .checkin-context {
   font-size: 13px;
   color: var(--text-dim);

@@ -316,8 +316,10 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
       // in either the message history or (until now) this context. Reading
       // it here instead of fixing the client is more robust anyway: it
       // survives localStorage clears, reinstalls, and multi-day gaps
-      // between card and reply.
-      supabase.from('coach_checkin_card').select('vraag_tekst').eq('datum', todayStr).limit(1),
+      // between card and reply. antwoord_opties is also read now (was
+      // vraag_tekst only) so the injected line below can tell the model
+      // what the pill labels were, not just the question text.
+      supabase.from('coach_checkin_card').select('vraag_tekst, antwoord_opties').eq('datum', todayStr).limit(1),
     ])
 
   const sessions = sessionsRes.data ?? []
@@ -361,6 +363,7 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
       : 'Nog geen gewicht gelogd vandaag.'
 
   const checkinCardVraag = checkinCardRes.data?.[0]?.vraag_tekst ?? null
+  const checkinCardOpties: string[] | null = checkinCardRes.data?.[0]?.antwoord_opties ?? null
 
   const text = [
     `Het is nu ${timeStr} op ${todayStr} (Europe/Amsterdam-tijd).`,
@@ -372,7 +375,7 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
     recentSessionsText,
     ...(checkinCardVraag
       ? [
-          `Vraag van de ochtend check-in kaart van vandaag: "${checkinCardVraag}" — gebruik dit ALLEEN om een bericht van de gebruiker te herkennen als antwoord hierop, net als de achtergrondkennis hieronder geen menu is om uit te putten. Stel deze vraag niet zelf opnieuw, breng hem niet ongevraagd ter sprake, en blijf er niet op teruggrijpen zodra de gebruiker al heeft gereageerd — ook niet later in hetzelfde gesprek.`,
+          `Vraag van de ochtend check-in kaart van vandaag: "${checkinCardVraag}"${checkinCardOpties && checkinCardOpties.length > 0 ? ` (keuzeknoppen die de gebruiker kon tikken: ${checkinCardOpties.map((o) => `"${o}"`).join(', ')})` : ''} — gebruik dit ALLEEN om een bericht van de gebruiker te herkennen als antwoord hierop, net als de achtergrondkennis hieronder geen menu is om uit te putten. Stel deze vraag niet zelf opnieuw, breng hem niet ongevraagd ter sprake, en blijf er niet op teruggrijpen zodra de gebruiker al heeft gereageerd — ook niet later in hetzelfde gesprek. Zegt de gebruiker dat hij de kaart niet begrijpt of niet snapt wat er gevraagd werd: herhaal dan gewoon deze letterlijke vraag in je eigen woorden — verzin of gok nooit wat de kaart bedoeld zou kunnen hebben.`,
         ]
       : []),
     `Eiwitdoel vandaag: ${eiwitDoel}g. Tot nu toe gelogd: ${eiwitTotaal}g (${Math.max(eiwitDoel - eiwitTotaal, 0)}g te gaan).`,
