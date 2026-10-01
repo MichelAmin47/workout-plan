@@ -23,7 +23,7 @@ Each app (`workout-app/`, `voeding-app/`) is a fully independent Vite + React pr
 ```bash
 npm run build --prefix voeding-app && (cd voeding-app && npx cap sync android)
 ```
-`voeding-app/android/` is `.gitignore`d like the root `android/`, with the same force-track precedent for the files that need version control: `voeding-app/android/app/build.gradle` and `voeding-app/android/app/src/main/res/values/strings.xml` are force-added (`git add -f`), mirroring the root `android/`'s own two force-tracked files. No `signingConfigs`/keystore exists in this repo for either app — release signing for both has always happened outside version control, on whatever machine holds the keystore.
+`voeding-app/android/` is `.gitignore`d like the root `android/`, with the same force-track precedent for the files that need version control: `voeding-app/android/app/build.gradle`, `voeding-app/android/app/src/main/res/values/strings.xml`, and `voeding-app/android/variables.gradle` are force-added (`git add -f`) — one more file than the root `android/`'s own two, because voeding-app's `minSdkVersion` had to be raised to 26 (Health Connect's own minimum). No `signingConfigs`/keystore exists in this repo for either app — release signing for both has always happened outside version control, on whatever machine holds the keystore.
 
 ## Working in this repo
 
