@@ -253,6 +253,76 @@ async function resolveWeightTrend(): Promise<string> {
   return `Gewichtstrend (alleen op verzoek noemen): onderhoudsniveau ~${Math.round(maintenanceLevel)} kcal, gebaseerd op ${weeks.length} weken data.`
 }
 
+// Local, unexported, deliberately duplicated — NOT folded into
+// `_shared/today.ts`'s `amsterdamNow()`. That function is also imported by
+// morning-checkin and close-day-cron; generalizing it here would pull both
+// into this build's redeploy/byte-diff/verify scope, which this build
+// explicitly must not touch (morning-checkin's new question flow and
+// close-day-cron's summary logic are both mid-evaluation this week). Same
+// `Intl.DateTimeFormat` approach as `amsterdamNow()`, parameterized by an
+// input date instead of always `new Date()`. Worth folding into
+// `_shared/today.ts` once those two are back in scope to redeploy alongside
+// it.
+function toAmsterdam(d: Date): Date {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Amsterdam',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(d)
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value)
+  return new Date(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'))
+}
+
+interface StepLogRow {
+  datum: string
+  stappen: number
+  bronnen: string[] | null
+  bijgewerkt_op: string
+}
+
+// Steps deliberately use the PLAIN Amsterdam calendar day, never
+// `resolveActiveDate`'s 04:00-shifted "active day" the nutrition side uses
+// — stated explicitly per the task that introduced this: the two are
+// different on purpose. `todayPlainStr` (passed in) is `isoDateString(now)`
+// in buildDynamicContext, i.e. `now` (amsterdamNow()) formatted directly,
+// with no cutoff shift applied.
+function buildStepContext(rows: StepLogRow[], todayPlainStr: string): string | null {
+  if (rows.length === 0) return null
+  const newest = rows[0]
+  const todayLine =
+    newest.datum === todayPlainStr
+      ? `Stappen vandaag: ${newest.stappen} (laatste sync om ${isoTimeString(toAmsterdam(new Date(newest.bijgewerkt_op)))} — dit is een momentopname bij het laatst openen van de app, geen definitief eindtotaal).`
+      : 'Stappen vandaag: nog geen stappen gesynchroniseerd vandaag.'
+  const priorRows = newest.datum === todayPlainStr ? rows.slice(1) : rows
+  const priorText =
+    priorRows.length > 0
+      ? priorRows.map((r) => `- ${r.datum}: ${r.stappen}`).join('\n')
+      : 'Geen eerdere dagen binnen de laatste 7 dagen.'
+  return [
+    todayLine,
+    'Laatste 7 dagen (stappen):',
+    priorText,
+    'Gebruik dit alleen wanneer relevant (de gebruiker noemt wandelen, of vraagt ernaar). Reken stappen NOOIT om naar calorieën of "verbrande energie" — die schattingen zijn onbetrouwbaar en mogen nooit genoemd worden, ook niet als de gebruiker er zelf naar vraagt. Stel nooit een stappendoel voor en impliceer er ook geen. Breng stappen niet ongevraagd zelf ter sprake.',
+  ].join('\n')
+}
+
+// Noon-anchored before formatting back to YYYY-MM-DD — avoids DST-transition
+// skew in day-increment arithmetic (same reasoning as the client's own
+// stepSync.js date-list math). Only ever used for the `.gte` filter's date
+// string, never for an instant boundary.
+function addDaysNoonAnchored(dateStr: string, n: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const noon = new Date(y, m - 1, d, 12, 0, 0)
+  noon.setDate(noon.getDate() + n)
+  const pad = (x: number) => String(x).padStart(2, '0')
+  return `${noon.getFullYear()}-${pad(noon.getMonth() + 1)}-${pad(noon.getDate())}`
+}
+
 async function getOrCreateTodayTarget(todayStr: string): Promise<number> {
   const { data: existing } = await supabase.from('daily_targets').select('eiwit_doel_g').eq('datum', todayStr).limit(1)
   if (existing && existing.length > 0) {
@@ -291,8 +361,12 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
   const weekday = activeDate.getDay() || 7
   const todayStr = isoDateString(activeDate)
   const timeStr = isoTimeString(now)
+  // Plain Amsterdam calendar day, deliberately NOT activeDate's 04:00-shifted
+  // version — steps use plain midnight-to-midnight days, see buildStepContext.
+  const todayPlainStr = isoDateString(now)
+  const sevenDaysAgoStr = addDaysNoonAnchored(todayPlainStr, -7)
 
-  const [workoutSummary, weekPlan, yesterdayOutsideWeek, eiwitDoel, sessionsRes, mealsRes, memoryRes, weightTrendLine, weightTodayRes, checkinCardRes] =
+  const [workoutSummary, weekPlan, yesterdayOutsideWeek, eiwitDoel, sessionsRes, mealsRes, memoryRes, weightTrendLine, weightTodayRes, checkinCardRes, stepLogRes] =
     await Promise.all([
       resolveTodayWorkout(calWeek, weekday),
       resolveWeekPlan(calWeek, weekday),
@@ -320,6 +394,18 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
       // vraag_tekst only) so the injected line below can tell the model
       // what the pill labels were, not just the question text.
       supabase.from('coach_checkin_card').select('vraag_tekst, antwoord_opties').eq('datum', todayStr).limit(1),
+      // Filtered by date, not row count (`.limit(8)` would return the 8
+      // newest rows, which is wrong after any gap in opens — see
+      // buildStepContext's own comment on why `todayPlainStr`, not
+      // `todayStr`, is the comparison point). Zero rows (no sync has ever
+      // happened, or none within the window) is handled by buildStepContext
+      // returning null, which omits the whole block — also what makes this
+      // query a genuine no-op before any device has ever written to step_log.
+      supabase
+        .from('step_log')
+        .select('datum, stappen, bronnen, bijgewerkt_op')
+        .gte('datum', sevenDaysAgoStr)
+        .order('datum', { ascending: false }),
     ])
 
   const sessions = sessionsRes.data ?? []
@@ -365,6 +451,8 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
   const checkinCardVraag = checkinCardRes.data?.[0]?.vraag_tekst ?? null
   const checkinCardOpties: string[] | null = checkinCardRes.data?.[0]?.antwoord_opties ?? null
 
+  const stepContextText = buildStepContext((stepLogRes.data ?? []) as StepLogRow[], todayPlainStr)
+
   const text = [
     `Het is nu ${timeStr} op ${todayStr} (Europe/Amsterdam-tijd).`,
     workoutSummary,
@@ -387,6 +475,7 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
     mealsText,
     'Wat je over de gebruiker weet (langetermijngeheugen):',
     memoryText,
+    ...(stepContextText ? [stepContextText] : []),
   ].join('\n')
 
   return { text, startingEiwitTotaal: eiwitTotaal, startingCalorieTotaal: calorieTotaal }

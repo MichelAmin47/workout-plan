@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Coach</string>
+    <string name="title_activity_main">Coach</string>
+    <string name="package_name">com.nutrition.coach</string>
+    <string name="custom_url_scheme">com.nutrition.coach</string>
+    <string name="health_connect_privacy_policy_url">https://workout-plan-77mz.vercel.app/privacypolicy.html</string>
+</resources>

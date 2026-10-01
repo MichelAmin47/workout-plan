@@ -62,6 +62,16 @@
   background: #34C759;
   display: inline-block;
 }
+/* Step count — conditionally rendered (Coach.jsx returns null, not an empty
+   span, when there's no row for today), so this rule never needs to hide
+   anything itself. Deliberately NOT inside .coach-counters: that row's
+   .counter-values box is a fixed 92px, overflow:hidden width sized exactly
+   for the calorie+protein pair, with no spare room for a third value — this
+   line has no such width pressure. No icon-heavy treatment, no goal/
+   progress/percentage, matching the rest of .coach-status' plain styling. */
+.coach-status-steps {
+  color: var(--text-dim);
+}
 
 /* Nutrition counters — pushed to the far right by margin-left: auto,
    entirely independent of the identity block's own (unconditional, never

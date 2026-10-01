@@ -16,6 +16,7 @@ import { supabase } from '../supabase.js'
 import { fetchProteinProgress } from '../lib/dayProgress.js'
 import { todayDateString, loadStoredThread, saveThread, clearThread } from '../lib/threadStorage.js'
 import { shouldShowCheckin, hasShownCheckinToday, markCheckinShown, fetchMorningCheckin } from '../lib/morningCheckin.js'
+import { syncSteps } from '../lib/stepSync.js'
 
 const FALLBACK_ERROR_TEXT = 'Sorry, ik kan even niet reageren — probeer het zo nog eens.'
 // Same intent as the block 4b opening variant, phrased for arriving
@@ -120,6 +121,11 @@ export default function Coach() {
   const [eiwitDoel, setEiwitDoel] = useState(null)
   const [calorieTotaal, setCalorieTotaal] = useState(null)
   const [caloriesRevealed, setCaloriesRevealed] = useState(false)
+  // Today's step count, or null when unavailable (old APK, no plugin, no
+  // permission, no row for today, or Health Connect itself absent) — null
+  // means "render nothing", never "0". Written only by syncSteps' own
+  // independent effects below; never fetched a second way.
+  const [todaySteps, setTodaySteps] = useState(null)
   // Bumped by the notification tap listener; consumed by the join-effect
   // below once thread restoration has also finished. Two independent async
   // signals (tap event, thread restore) that can arrive in either order —
@@ -194,6 +200,25 @@ export default function Coach() {
     }
   }, [threadDate])
 
+  // Step sync — deliberately its own independent effect, not folded into
+  // restoreThread's mount chain or the rollover transition below, even
+  // though both run "on open/resume" too. Keeping this uncoupled is what
+  // guarantees it never interacts with morning-checkin logic sharing that
+  // chain — it only ever reads Health Connect and writes step_log, then
+  // updates this component's own local state. Silent no-op by construction
+  // (syncSteps never throws) on the web, on an old APK without the plugin,
+  // without permission, or without Health Connect — todaySteps just stays
+  // null and nothing renders.
+  useEffect(() => {
+    let cancelled = false
+    syncSteps().then((today) => {
+      if (!cancelled && today) setTodaySteps(today.stappen)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // On mount: resume a stored thread unless a summary appeared for its date
   // *after* the thread was stamped fresh (the cron fallback closed it out
   // server-side while we were away — the server can't touch localStorage
@@ -266,7 +291,14 @@ export default function Coach() {
   // above instead.
   useEffect(() => {
     function handleVisibilityChange() {
-      if (document.visibilityState !== 'visible' || !threadDate) return
+      if (document.visibilityState !== 'visible') return
+      // Own branch, own state, same reasoning as the mount effect above —
+      // runs independently of the rollover check below, which only fires
+      // on an actual date change.
+      syncSteps().then((today) => {
+        if (today) setTodaySteps(today.stappen)
+      })
+      if (!threadDate) return
       const today = todayDateString()
       if (threadDate === today) return
       ;(async () => {
@@ -475,7 +507,12 @@ export default function Coach() {
           <div className="coach-avatar">🌿</div>
           <div className="coach-identity-text">
             <div className="coach-name">Coach</div>
-            <div className="coach-status">Jouw voedingscoach</div>
+            <div className="coach-status">
+              Jouw voedingscoach
+              {todaySteps !== null && (
+                <span className="coach-status-steps">· 👟 {todaySteps.toLocaleString('nl-NL')}</span>
+              )}
+            </div>
           </div>
           <div className="coach-counters">
             <button
