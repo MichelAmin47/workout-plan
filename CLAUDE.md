@@ -37,6 +37,15 @@ npm run build --prefix voeding-app && (cd voeding-app && npx cap sync android)
 - **Native Android build (voeding-app)** → run from inside `voeding-app/` (see above) — a separate Capacitor project, not covered by the root-level command.
 - **Supabase schema / table reference** → `knowledge_docs/supabase_kennis_doc.md`.
 
+## voeding-app step sync (Health Connect)
+
+`voeding-app/src/lib/stepSync.js` reads steps from Health Connect via `@capgo/capacitor-health` and upserts one row per calendar day into `step_log` (`datum`, `stappen`, `bronnen`, `bijgewerkt_op`), on app open and on resume. `fetchTodaySteps()` (header display) is separate and platform-independent; `syncSteps()` is native-only, best-effort, never throws.
+
+- **Check plugin return shapes against the plugin source, not assumptions.** Read `node_modules/@capgo/capacitor-health/dist/esm/definitions.d.ts` and the Android source (`android/src/main/java/app/capgo/plugin/health/`). `checkAuthorization`/`requestAuthorization` return `{ readAuthorized, readDenied, writeAuthorized, writeDenied }` — there is no `read` field. Reading `result.read` once stored every real grant as "denied" and silently disabled the sync on device (fixed in PR #2).
+- **Permission handling:** `checkAuthorization` runs on every sync (cheap, no UI), so grants/revokes made in Health Connect settings are always picked up — don't cache "granted". localStorage `step_permission_denied_v2` records only an explicit denial, to avoid re-prompting on every open. The old `step_permission_decided_v1` key is deleted on every sync; don't reuse it.
+- **Range:** first sync backfills 30 days (Health Connect's default read cap without the history permission); later syncs re-sync from the last stored date, at most 7 days back. Days are plain local calendar days — not threadStorage's 04:00-shifted nutrition day. A day with no Health Connect data is skipped, never written as 0.
+- **Diagnosing on device:** every early exit logs `console.warn('[stepSync] <reason>', …)`, and Supabase errors are logged rather than ignored. Debug builds are inspectable via `chrome://inspect` (USB), or `adb logcat` filtered on `Capacitor/Console`. When USB isn't an option, a temporary read-only in-app panel worked well (PR #1, since removed). Supabase edge logs show which `step_log` requests the phone actually makes: no "latest `datum`" query means the sync exited before its first Supabase call.
+
 ## Vercel deployment
 
 Production URL `https://workout-plan-taupe.vercel.app` serves `workout-app/`; `https://workout-plan-77mz.vercel.app` serves `voeding-app/` as its own separate Vercel project. No `vercel.json` exists for either — each project's **Root Directory** is set in its own Vercel dashboard (Settings → General). Live-update (picking up `main` pushes without an APK rebuild) is confirmed working for both apps against this setting. See `workout-app/CLAUDE.md` → "Vercel deployment" for the rest of workout-app's dashboard settings.
