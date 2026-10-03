@@ -17,7 +17,12 @@ const PERMISSION_DENIED_KEY = 'step_permission_denied_v2'
 // residual risk, not a solved one.
 const SAMPLES_LIMIT_PER_DAY = 500
 const BACKFILL_DAYS = 29 // + today = 30, Health Connect's own default cap
-const CATCHUP_DAYS = 6 // + the re-synced last-stored date = 7
+// Every sync after the first re-reads this whole window, regardless of what
+// is already stored: source apps (Samsung Health) often write a day to
+// Health Connect late, so a date skipped as "no data" must get another
+// chance on later syncs — a start date derived from the latest stored datum
+// left such gaps permanently unfilled.
+const CATCHUP_DAYS = 6 // + today = 7
 
 // Plain Europe/Amsterdam calendar day — NOT threadStorage.js's activeDate(),
 // which shifts by a 04:00 cutoff for the nutrition day. Steps deliberately
@@ -65,8 +70,11 @@ function dayInstantBounds(dateStr) {
   return { startDate: start.toISOString(), endDate: end.toISOString() }
 }
 
-function laterOf(a, b) {
-  return a > b ? a : b
+// Dates one sync reads: the 30-day backfill on the very first sync (empty
+// table), otherwise always today − 6 … today.
+function syncDates(todayStr, tableEmpty) {
+  const back = tableEmpty ? BACKFILL_DAYS : CATCHUP_DAYS
+  return enumerateDates(addDaysNoonAnchored(todayStr, -back), todayStr)
 }
 
 // One console.warn per reason a sync stopped short — the only trace a
@@ -126,7 +134,9 @@ async function ensureAuthorized() {
 // whether the plugin buckets by local period or by fixed UTC duration
 // across a multi-day range. Empty `samples` is treated as "no data," not
 // "zero steps" — skip rather than risk stomping a real value with an
-// assumed 0 (documented assumption, not yet device-verified).
+// assumed 0 (the plugin only emits a bucket whose aggregate is non-null).
+// All buckets are summed: the plugin's 'day' bucket is a fixed 24h
+// Duration, so a 25h DST fall-back day comes back as two buckets.
 async function readAggregatedStepsForDay(dateStr) {
   const { startDate, endDate } = dayInstantBounds(dateStr)
   const { samples } = await Health.queryAggregated({
@@ -137,7 +147,7 @@ async function readAggregatedStepsForDay(dateStr) {
     aggregation: 'sum',
   })
   if (!samples || samples.length === 0) return null
-  return Math.round(samples[0].value)
+  return Math.round(samples.reduce((sum, s) => sum + (s.value ?? 0), 0))
 }
 
 // Also per date — readSamples() has no cursor/offset at all (confirmed from
@@ -208,20 +218,14 @@ export async function syncSteps() {
     const authorized = await ensureAuthorized()
     if (!authorized) return null
 
-    const { data: lastRows, error: lastError } = await supabase
-      .from('step_log')
-      .select('datum')
-      .order('datum', { ascending: false })
-      .limit(1)
-    if (lastError) logExit('latest-date query error', lastError)
+    // Only "is the table empty?" — the window itself never depends on what
+    // is stored. On error this falls back to the 30-day backfill, which is
+    // safe: the upsert only ever writes Health Connect's own values.
+    const { data: anyRows, error: anyRowsError } = await supabase.from('step_log').select('datum').limit(1)
+    if (anyRowsError) logExit('table-empty query error', anyRowsError)
 
     const todayStr = stepDayString()
-    const startStr =
-      !lastRows || lastRows.length === 0
-        ? addDaysNoonAnchored(todayStr, -BACKFILL_DAYS)
-        : laterOf(lastRows[0].datum, addDaysNoonAnchored(todayStr, -CATCHUP_DAYS))
-
-    const dates = enumerateDates(startStr, todayStr)
+    const dates = syncDates(todayStr, !anyRows || anyRows.length === 0)
     const rows = []
     for (const d of dates) {
       const total = await readAggregatedStepsForDay(d)
