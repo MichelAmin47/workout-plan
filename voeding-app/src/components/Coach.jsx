@@ -17,6 +17,7 @@ import { fetchProteinProgress } from '../lib/dayProgress.js'
 import { todayDateString, loadStoredThread, saveThread, clearThread } from '../lib/threadStorage.js'
 import { shouldShowCheckin, hasShownCheckinToday, markCheckinShown, fetchMorningCheckin } from '../lib/morningCheckin.js'
 import { syncSteps, fetchTodaySteps } from '../lib/stepSync.js'
+import StepDebugPanel from './StepDebugPanel.jsx'
 
 const FALLBACK_ERROR_TEXT = 'Sorry, ik kan even niet reageren — probeer het zo nog eens.'
 // Same intent as the block 4b opening variant, phrased for arriving
@@ -126,6 +127,8 @@ export default function Coach() {
   // means "render nothing", never "0". Written only by syncSteps' own
   // independent effects below; never fetched a second way.
   const [todaySteps, setTodaySteps] = useState(null)
+  // TEMPORARY: step-sync debug panel, opened by tapping the avatar.
+  const [stepDebugOpen, setStepDebugOpen] = useState(false)
   // Bumped by the notification tap listener; consumed by the join-effect
   // below once thread restoration has also finished. Two independent async
   // signals (tap event, thread restore) that can arrive in either order —
@@ -513,7 +516,7 @@ export default function Coach() {
     <div className="app">
       <div className="coach-header">
         <div className="coach-identity">
-          <div className="coach-avatar">🌿</div>
+          <div className="coach-avatar" onClick={() => setStepDebugOpen(true)}>🌿</div>
           <div className="coach-identity-text">
             <div className="coach-name">Coach</div>
             <div className="coach-status">
@@ -612,6 +615,7 @@ export default function Coach() {
           <SendIcon />
         </button>
       </form>
+      {stepDebugOpen && <StepDebugPanel onClose={() => setStepDebugOpen(false)} />}
     </div>
   )
 }
