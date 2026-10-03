@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core'
 import { Health } from '@capgo/capacitor-health'
 import { supabase } from '../supabase.js'
+import { stepDebugLog } from './stepDebug.js'
 
 const PERMISSION_DECIDED_KEY = 'step_permission_decided_v1'
 // Per-date readSamples() limit, raised from the plugin's own default of
@@ -72,10 +73,12 @@ async function ensureAuthorized() {
   } catch {
     decided = null
   }
+  stepDebugLog('stored permission flag', decided)
   if (decided === 'granted') return true
   if (decided === 'denied') return false
 
   const status = await Health.checkAuthorization({ read: ['steps'] })
+  stepDebugLog('checkAuthorization raw', status)
   if (status?.read?.includes?.('steps')) {
     try {
       localStorage.setItem(PERMISSION_DECIDED_KEY, 'granted')
@@ -86,6 +89,7 @@ async function ensureAuthorized() {
   }
 
   const result = await Health.requestAuthorization({ read: ['steps'], write: [] })
+  stepDebugLog('requestAuthorization raw', result)
   const granted = !!result?.read?.includes?.('steps')
   try {
     localStorage.setItem(PERMISSION_DECIDED_KEY, granted ? 'granted' : 'denied')
@@ -162,25 +166,39 @@ export async function fetchTodaySteps() {
 // exported async function, never throws, returns null on any failure, no
 // retry loop (if it fails, the next app open/resume just tries again).
 export async function syncSteps() {
-  if (!Capacitor.isNativePlatform()) return null
+  stepDebugLog('sync start')
+  if (!Capacitor.isNativePlatform()) {
+    stepDebugLog('exit: not native platform')
+    return null
+  }
   // Deterministic guard for "old APK running new web code" (the plugin
   // simply isn't registered) — used alongside, not instead of, the
   // try/catch below, which also covers "plugin present but Health Connect
   // itself unavailable" or "permission denied".
-  if (!Capacitor.isPluginAvailable('Health')) return null
+  if (!Capacitor.isPluginAvailable('Health')) {
+    stepDebugLog('exit: Health plugin not available')
+    return null
+  }
 
   try {
     const available = await Health.isAvailable()
-    if (!available?.available) return null
+    if (!available?.available) {
+      stepDebugLog('exit: Health Connect not available', available)
+      return null
+    }
 
     const authorized = await ensureAuthorized()
-    if (!authorized) return null
+    if (!authorized) {
+      stepDebugLog('exit: not authorized')
+      return null
+    }
 
-    const { data: lastRows } = await supabase
+    const { data: lastRows, error: lastError } = await supabase
       .from('step_log')
       .select('datum')
       .order('datum', { ascending: false })
       .limit(1)
+    if (lastError) stepDebugLog('latest-date query error', lastError)
 
     const todayStr = stepDayString()
     const startStr =
@@ -196,12 +214,19 @@ export async function syncSteps() {
       const bronnen = await harvestSourcesForDay(d)
       rows.push({ datum: d, stappen: total, bronnen, bijgewerkt_op: new Date().toISOString() })
     }
-    if (rows.length === 0) return null
+    stepDebugLog('dates read', { dates: dates.length, rowsWithData: rows.length })
+    if (rows.length === 0) {
+      stepDebugLog('exit: no step data for any date')
+      return null
+    }
 
-    const { data } = await supabase.from('step_log').upsert(rows, { onConflict: 'datum' }).select()
+    const { data, error: upsertError } = await supabase.from('step_log').upsert(rows, { onConflict: 'datum' }).select()
+    if (upsertError) stepDebugLog('upsert error', upsertError)
+    else stepDebugLog('upsert ok', { rows: data?.length })
     return data?.find((r) => r.datum === todayStr) ?? null
   } catch (err) {
     console.error('syncSteps failed, will retry on next open/resume', err)
+    stepDebugLog('exit: exception', err?.message ?? String(err))
     return null
   }
 }
