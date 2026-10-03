@@ -1,9 +1,12 @@
 import { Capacitor } from '@capacitor/core'
 import { Health } from '@capgo/capacitor-health'
 import { supabase } from '../supabase.js'
-import { stepDebugLog } from './stepDebug.js'
 
-const PERMISSION_DECIDED_KEY = 'step_permission_decided_v1'
+// v1 stored a decision derived from a nonexistent `read` field on the
+// plugin's AuthorizationStatus, so every real grant was saved as 'denied'.
+// It is ignored and removed; v2 only ever records an explicit denial.
+const LEGACY_PERMISSION_KEY = 'step_permission_decided_v1'
+const PERMISSION_DENIED_KEY = 'step_permission_denied_v2'
 // Per-date readSamples() limit, raised from the plugin's own default of
 // 100 — see the build plan's "Native call strategy" section. The plugin's
 // QueryOptions exposes no cursor/offset at all, so this isn't true
@@ -66,37 +69,56 @@ function laterOf(a, b) {
   return a > b ? a : b
 }
 
-async function ensureAuthorized() {
-  let decided
+// One console.warn per reason a sync stopped short — the only trace a
+// silent-degradation sync leaves, visible via chrome://inspect or
+// `adb logcat` (Capacitor/Console).
+function logExit(reason, details) {
+  console.warn(`[stepSync] ${reason}`, details ?? '')
+}
+
+function readsSteps(status) {
+  return Array.isArray(status?.readAuthorized) && status.readAuthorized.includes('steps')
+}
+
+function storageGet(key) {
   try {
-    decided = localStorage.getItem(PERMISSION_DECIDED_KEY)
+    return localStorage.getItem(key)
   } catch {
-    decided = null
+    return null
   }
-  stepDebugLog('stored permission flag', decided)
-  if (decided === 'granted') return true
-  if (decided === 'denied') return false
+}
 
-  const status = await Health.checkAuthorization({ read: ['steps'] })
-  stepDebugLog('checkAuthorization raw', status)
-  if (status?.read?.includes?.('steps')) {
-    try {
-      localStorage.setItem(PERMISSION_DECIDED_KEY, 'granted')
-    } catch {
-      // non-fatal
-    }
-    return true
-  }
-
-  const result = await Health.requestAuthorization({ read: ['steps'], write: [] })
-  stepDebugLog('requestAuthorization raw', result)
-  const granted = !!result?.read?.includes?.('steps')
+function storageSet(key, value) {
   try {
-    localStorage.setItem(PERMISSION_DECIDED_KEY, granted ? 'granted' : 'denied')
+    if (value === null) localStorage.removeItem(key)
+    else localStorage.setItem(key, value)
   } catch {
     // non-fatal
   }
-  return granted
+}
+
+// checkAuthorization() runs on every sync (cheap, no UI), so a grant or a
+// revoke made in Health Connect's own settings is always picked up — a
+// cached 'granted' could go stale. The stored flag only gates the prompt:
+// after an explicit denial we don't re-prompt on every open.
+async function ensureAuthorized() {
+  storageSet(LEGACY_PERMISSION_KEY, null)
+
+  const status = await Health.checkAuthorization({ read: ['steps'] })
+  if (readsSteps(status)) {
+    storageSet(PERMISSION_DENIED_KEY, null)
+    return true
+  }
+  if (storageGet(PERMISSION_DENIED_KEY) === 'denied') {
+    logExit('not authorized; previously denied, not re-prompting', status)
+    return false
+  }
+
+  const result = await Health.requestAuthorization({ read: ['steps'], write: [] })
+  if (readsSteps(result)) return true
+  storageSet(PERMISSION_DENIED_KEY, 'denied')
+  logExit('not authorized; permission request denied', result)
+  return false
 }
 
 // Per date, not one multi-day bucketed call — when the requested range
@@ -166,39 +188,32 @@ export async function fetchTodaySteps() {
 // exported async function, never throws, returns null on any failure, no
 // retry loop (if it fails, the next app open/resume just tries again).
 export async function syncSteps() {
-  stepDebugLog('sync start')
-  if (!Capacitor.isNativePlatform()) {
-    stepDebugLog('exit: not native platform')
-    return null
-  }
+  if (!Capacitor.isNativePlatform()) return null
   // Deterministic guard for "old APK running new web code" (the plugin
   // simply isn't registered) — used alongside, not instead of, the
   // try/catch below, which also covers "plugin present but Health Connect
   // itself unavailable" or "permission denied".
   if (!Capacitor.isPluginAvailable('Health')) {
-    stepDebugLog('exit: Health plugin not available')
+    logExit('Health plugin not available')
     return null
   }
 
   try {
     const available = await Health.isAvailable()
     if (!available?.available) {
-      stepDebugLog('exit: Health Connect not available', available)
+      logExit('Health Connect not available', available)
       return null
     }
 
     const authorized = await ensureAuthorized()
-    if (!authorized) {
-      stepDebugLog('exit: not authorized')
-      return null
-    }
+    if (!authorized) return null
 
     const { data: lastRows, error: lastError } = await supabase
       .from('step_log')
       .select('datum')
       .order('datum', { ascending: false })
       .limit(1)
-    if (lastError) stepDebugLog('latest-date query error', lastError)
+    if (lastError) logExit('latest-date query error', lastError)
 
     const todayStr = stepDayString()
     const startStr =
@@ -214,19 +229,19 @@ export async function syncSteps() {
       const bronnen = await harvestSourcesForDay(d)
       rows.push({ datum: d, stappen: total, bronnen, bijgewerkt_op: new Date().toISOString() })
     }
-    stepDebugLog('dates read', { dates: dates.length, rowsWithData: rows.length })
     if (rows.length === 0) {
-      stepDebugLog('exit: no step data for any date')
+      logExit('no step data for any date')
       return null
     }
 
     const { data, error: upsertError } = await supabase.from('step_log').upsert(rows, { onConflict: 'datum' }).select()
-    if (upsertError) stepDebugLog('upsert error', upsertError)
-    else stepDebugLog('upsert ok', { rows: data?.length })
+    if (upsertError) {
+      logExit('upsert error', upsertError)
+      return null
+    }
     return data?.find((r) => r.datum === todayStr) ?? null
   } catch (err) {
     console.error('syncSteps failed, will retry on next open/resume', err)
-    stepDebugLog('exit: exception', err?.message ?? String(err))
     return null
   }
 }
