@@ -12,12 +12,20 @@ const RECORD_SUMMARY_TOOL = {
   input_schema: {
     type: 'object',
     properties: {
-      samenvatting: { type: 'string', description: 'Short reflective summary of the day, in Dutch, 1-2 sentences.' },
-      aandachtspunt: { type: 'string', description: 'What to carry into tomorrow, in Dutch.' },
+      samenvatting: {
+        type: 'string',
+        description:
+          'Short reflective summary of the day, in Dutch, 1-2 sentences. Verwijs naar de gebruiker als "de gebruiker" of "hij/hem/zijn" — nooit "zij/haar". Reken stappen nooit om naar calorieën of verbrande energie.',
+      },
+      aandachtspunt: {
+        type: 'string',
+        description:
+          'What to carry into tomorrow, in Dutch. Verwijs naar de gebruiker als "de gebruiker" of "hij/hem/zijn" — nooit "zij/haar". Reken stappen nooit om naar calorieën of verbrande energie, en noem geen stappendoel.',
+      },
       vraag_voor_morgen: {
         type: 'string',
         description:
-          'Optioneel: één concrete vraag die de ochtend check-in kaart morgen aan de gebruiker kan stellen, gebaseerd op iets uit het gesprek van vandaag (indien beschikbaar) of anders op de gelogde maaltijden/training van vandaag. Precies één vraag over precies één onderwerp — nooit twee dingen in één vraag samengevoegd met "en" (bv. nooit "heb je goed geslapen EN hoe voelen je schouders aan", kies er dan één). Vooruitkijkend geformuleerd ("zou je morgen kunnen...", "ga je nog...") — nooit verwijtend ("je hebt gisteren maar..."). Noem hierin NOOIT gewicht, een gewichtstrend of onderhoudsniveau, en NOOIT calorieën. Laat dit veld gewoon weg (of leeg) als de dag echt niets opleverde om morgen naar te vragen — verzin dan niets.',
+          'Optioneel: één concrete vraag die de ochtend check-in kaart morgen aan de gebruiker kan stellen, gebaseerd op iets uit het gesprek van vandaag (indien beschikbaar) of anders op de gelogde maaltijden/training van vandaag. Precies één vraag over precies één onderwerp — nooit twee dingen in één vraag samengevoegd met "en" (bv. nooit "heb je goed geslapen EN hoe voelen je schouders aan", kies er dan één). Vooruitkijkend geformuleerd ("zou je morgen kunnen...", "ga je nog...") — nooit verwijtend ("je hebt gisteren maar..."). Noem hierin NOOIT gewicht, een gewichtstrend of onderhoudsniveau, en NOOIT calorieën — ook niet via stappen (reken stappen nooit om naar calorieën, geen stappendoel). Spreek de gebruiker rechtstreeks aan met "je". Laat dit veld gewoon weg (of leeg) als de dag echt niets opleverde om morgen naar te vragen — verzin dan niets.',
       },
     },
     required: ['samenvatting', 'aandachtspunt'],
@@ -68,6 +76,19 @@ function dagAnchorLine(datum: string): string {
 const AANDACHTSPUNT_ANKER_REGEL =
   '- Verwijst het aandachtspunt naar een gebeurtenis op een specifieke dag (een training, maaltijd, klacht) → noem die dag erbij (bv. "de boksles van donderdag"), nooit de gebeurtenis kaal. Gebruik zelf GEEN relatief dagwoord als "gisteren" of "vandaag" in het aandachtspunt — dit wordt op een latere dag door een ander proces gelezen, waar zo\'n woord een andere dag zou betekenen.'
 
+// The day-close model writes samenvatting/aandachtspunt in the third
+// person and otherwise has to guess the user's gender (02-10: "die aanpak
+// werkt goed voor haar", corrected by hand — the user is a man). Shared by
+// both prompt variants; same rule sits in the two field descriptions above.
+const GEBRUIKER_VERWIJZING_REGEL =
+  '- Verwijs in samenvatting en aandachtspunt naar de gebruiker als "de gebruiker" of "hij/hem/zijn" — nooit "zij/haar".'
+
+// coach-chat's PERSONA_PROMPT holds the same rule; this model does not
+// inherit that prompt, so it has to be stated here too (prompt rule
+// propagation — see the "never mention weight" bug).
+const STAPPEN_REGEL =
+  '- Reken stappen of wandelen NOOIT om naar calorieën of "verbrande energie", in geen enkel veld — ook niet als het in het gesprek ter sprake kwam. Noem ook geen stappendoel.'
+
 function buildRichSystemPrompt(datum: string, workoutSummary: string, mealsText: string): string {
   return `Je bent een samenvattingsmodel voor de voedingscoach-app "Coach". Je taak: comprimeer één dag naar twee korte velden voor coach_sessions — samenvatting en aandachtspunt. Dit vervangt het bewaren van de losse chatberichten; wat je hier niet vastlegt is morgen weg.
 
@@ -79,6 +100,8 @@ Regels:
 - samenvatting: 1-2 zinnen, reflectief — wat ging er goed, hoe verliep de dag.
 - aandachtspunt: wat de coach morgen moet onthouden — concreet, geen open zin.
 ${AANDACHTSPUNT_ANKER_REGEL}
+${GEBRUIKER_VERWIJZING_REGEL}
+${STAPPEN_REGEL}
 - Zodra de gebruiker in het gesprek heeft aangegeven vol of klaar te zijn voor die dag: sluit af op wat goed ging. Noem GEEN manieren om het eiwitdoel alsnog te halen en geen "je had nog wat kunnen eten" — dat is precies het gedrag dat de coach zelf ook al vermijdt.
 - De caloriewaarden hieronder staan erbij voor nauwkeurigheid, niet om standaard te noemen. Focus zoals gebruikelijk op eiwitten en hoe de dag verliep — noem calorieën alleen als dat al onderdeel was van het gesprek zelf.
 - Noem NOOIT gewicht, een gewichtstrend of onderhoudsniveau in samenvatting of aandachtspunt — ook niet als dit in het gesprek zelf ter sprake kwam (bv. een weegmoment). Dit wordt bewust nergens teruggegeven, ook niet hier.
@@ -100,6 +123,8 @@ Regels:
 - samenvatting: 1-2 zinnen, feitelijk — gelogde maaltijden/eiwitten en trainingsdata van die dag.
 - aandachtspunt: een feitelijke observatie op basis van de cijfers (bv. eiwitdoel wel/niet gehaald), geen gok over intentie of stemming.
 ${AANDACHTSPUNT_ANKER_REGEL}
+${GEBRUIKER_VERWIJZING_REGEL}
+${STAPPEN_REGEL}
 - De caloriewaarden hieronder staan erbij voor nauwkeurigheid, niet om standaard te noemen — focus zoals gebruikelijk op eiwitten, niet op calorieën.
 - Gebruik het record_summary tool om dit vast te leggen.
 

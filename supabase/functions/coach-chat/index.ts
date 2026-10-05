@@ -61,6 +61,15 @@ const MAX_RETRY_ITERATIONS = 3
 // appends a disclaimer, never calls a tool, never writes anything.
 const EIWIT_CLAIM_PATTERN = /\d+\s*g\s*eiwit/i
 
+// executeTool results may carry client-only payload under "_"-prefixed keys
+// (the log card, a deleted row id — see tools.ts). Those go to the client
+// via onToolResult, never back to the model: the card is for the user, and
+// echoing it into the tool_result would only add tokens.
+function withoutClientKeys(result: unknown): unknown {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return result
+  return Object.fromEntries(Object.entries(result as Record<string, unknown>).filter(([key]) => !key.startsWith('_')))
+}
+
 interface TurnResult {
   finalReplyText: string | null
   lastAssistantContent: unknown
@@ -107,7 +116,7 @@ async function runToolLoop(
           calledToolNames.push(block.name)
           const toolResult = await executeTool(block.name, block.input ?? {}, todayStr, workingMessages)
           onToolResult(block.name, toolResult)
-          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(toolResult) })
+          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(withoutClientKeys(toolResult)) })
         }
       }
       workingMessages.push({ role: 'user', content: toolResults })
@@ -168,6 +177,13 @@ Deno.serve(async (req: Request) => {
     // pre-turn snapshot to catch a write that ran but didn't change
     // anything.
     let lastNutritionTotals: { eiwitTotaal: number; calorieTotaal: number } | null = null
+    // Log cards for every successful nutrition_log_add/_update this request,
+    // in call order (several meals in one message → several cards). Built in
+    // tools.ts from the row as stored, post-trigger — never from the model's
+    // input or reply text. deletedLogIds lets the client mark the card of a
+    // removed row instead of leaving it looking current.
+    const logCards: unknown[] = []
+    const deletedLogIds: string[] = []
 
     const onToolResult = (name: string, toolResult: unknown) => {
       if (name === 'close_day_summary' && toolResult && typeof toolResult === 'object' && !('error' in toolResult)) {
@@ -184,6 +200,11 @@ Deno.serve(async (req: Request) => {
         'eiwitTotaal' in toolResult
       ) {
         lastNutritionTotals = toolResult as { eiwitTotaal: number; calorieTotaal: number }
+      }
+      if (toolResult && typeof toolResult === 'object' && !('error' in toolResult)) {
+        const r = toolResult as { _kaart?: unknown; _deletedLogId?: unknown }
+        if (r._kaart) logCards.push(r._kaart)
+        if (typeof r._deletedLogId === 'string') deletedLogIds.push(r._deletedLogId)
       }
     }
 
@@ -282,7 +303,10 @@ Deno.serve(async (req: Request) => {
     // function already computed. Purely additive: null when no nutrition
     // write happened this turn, no change to any other field, no prompt
     // change.
-    return jsonResponse({ reply: finalReplyText, daySummaryWritten, activeDate: todayStr, mealCard, dayTotals: lastNutritionTotals })
+    //
+    // logCards/deletedLogIds: see their declaration above. Additive — an
+    // older client ignores both fields.
+    return jsonResponse({ reply: finalReplyText, daySummaryWritten, activeDate: todayStr, mealCard, dayTotals: lastNutritionTotals, logCards, deletedLogIds })
   } catch (err) {
     console.error('coach-chat error', err)
     return jsonResponse({ error: 'Er ging iets mis.' }, 500)

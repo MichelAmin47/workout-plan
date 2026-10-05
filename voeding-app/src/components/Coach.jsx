@@ -5,6 +5,7 @@ import './Coach.css'
 import DayMarker from './DayMarker.jsx'
 import CheckinCard from './CheckinCard.jsx'
 import MealCard from './MealCard.jsx'
+import LogCard from './LogCard.jsx'
 import SummaryCard from './SummaryCard.jsx'
 import { UserBubble, CoachBubble } from './ChatBubble.jsx'
 import TypingIndicator from './TypingIndicator.jsx'
@@ -22,6 +23,16 @@ const FALLBACK_ERROR_TEXT = 'Sorry, ik kan even niet reageren — probeer het zo
 // Same intent as the block 4b opening variant, phrased for arriving
 // mid-conversation (via a notification tap) rather than as a greeting.
 const NOTIFICATION_TAP_QUESTION = 'Is er nog iets dat je vandaag hebt gegeten dat ik nog niet weet, zodat ik de dag kan samenvatten? 🌿'
+
+// Several cards for the same row within ONE turn (logged, then corrected
+// before the reply): only the last is current; earlier ones are marked
+// 'vervangen'. A row deleted later in the same turn is handled by the
+// caller's deletedLogIds pass over the whole thread.
+function markSupersededInTurn(cards) {
+  return cards.map((card, i) =>
+    cards.slice(i + 1).some((later) => later.logId === card.logId) ? { ...card, status: 'vervangen' } : card,
+  )
+}
 
 function nowTime() {
   const d = new Date()
@@ -431,12 +442,16 @@ export default function Coach() {
     let daySummaryWritten = false
     let closedActiveDate = null
     let mealCard = null
+    let logCards = []
+    let deletedLogIds = []
     try {
       const result = await askCoach(threadWithUserMessage)
       replyText = result.reply
       daySummaryWritten = result.daySummaryWritten
       closedActiveDate = result.activeDate
       mealCard = result.mealCard
+      logCards = result.logCards
+      deletedLogIds = result.deletedLogIds
       // Rides directly on the value coach-chat already computed for this
       // turn's nutrition write (see chatApi.js) — null when no write
       // happened, in which case the counters are simply left as they were.
@@ -464,9 +479,32 @@ export default function Coach() {
     // on screen, fully persisted (saveThread covers this array like any
     // other message), until the user taps it. Chat stays usable in the
     // meantime; nothing here blocks sendMessage from being called again.
+    //
+    // Log cards: an earlier card for a row that was corrected or deleted this
+    // turn stays in the thread as history but is marked, so it no longer
+    // reads as the current value. Only display fields are stored (see
+    // LogCard), keeping the persisted thread small.
+    const updatedLogIds = new Set(logCards.map((c) => c.logId))
+    const removedLogIds = new Set(deletedLogIds)
     setMessages((prev) => [
-      ...prev,
+      ...prev.map((m) => {
+        if (m.type !== 'log-card' || m.status === 'verwijderd') return m
+        if (removedLogIds.has(m.logId)) return { ...m, status: 'verwijderd' }
+        if (updatedLogIds.has(m.logId)) return { ...m, status: 'vervangen' }
+        return m
+      }),
       ...(mealCard ? [{ id: makeMessageId(), type: 'meal-card', ...mealCard }] : []),
+      ...markSupersededInTurn(logCards).map((card) => ({
+        id: makeMessageId(),
+        type: 'log-card',
+        logId: card.logId,
+        titel: card.titel,
+        tijdstip: card.tijdstip,
+        rows: card.rows,
+        totaal: card.totaal,
+        actie: card.actie,
+        ...(card.status ? { status: card.status } : {}),
+      })),
       { id: makeMessageId(), type: 'coach', text: replyText, time: nowTime() },
       ...(daySummaryWritten
         ? [{ id: makeMessageId(), type: 'day-close-button', activeDate: closedActiveDate ?? todayDateString() }]
@@ -565,6 +603,18 @@ export default function Coach() {
               )
             case 'meal-card':
               return <MealCard key={msg.id} title={msg.title} tag={msg.tag} items={msg.items} macros={msg.macros} />
+            case 'log-card':
+              return (
+                <LogCard
+                  key={msg.id}
+                  titel={msg.titel}
+                  tijdstip={msg.tijdstip}
+                  rows={msg.rows}
+                  totaal={msg.totaal}
+                  actie={msg.actie}
+                  status={msg.status}
+                />
+              )
             case 'summary-card':
               return (
                 <SummaryCard key={msg.id} eyebrow={msg.eyebrow} text={msg.text} note={msg.note} streak={msg.streak} />
