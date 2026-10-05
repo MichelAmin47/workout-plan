@@ -458,6 +458,127 @@
   margin-top: 2px;
 }
 
+/* Log card — same shell as the meal card (incl. flex-shrink: 0, see the
+   flexbox note on .meal-suggestion-card). Rows are a 3-column grid with a
+   minmax(0, 1fr) name column: long component names wrap inside their own
+   column instead of pushing the numbers off-screen at 390px. */
+.log-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  margin: 4px 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  flex-shrink: 0;
+}
+.log-card-inactive {
+  opacity: 0.55;
+}
+.log-card-inactive .log-card-title {
+  text-decoration: line-through;
+}
+.log-card-header {
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.log-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.log-card-tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.log-card-rows {
+  padding: 8px 16px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.log-card-colhead,
+.log-card-row,
+.log-card-total {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 3.4em 3em;
+  column-gap: 8px;
+  align-items: baseline;
+}
+.log-card-colhead {
+  font-size: 10px;
+  color: var(--text-xdim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  text-align: right;
+}
+.log-card-row {
+  font-size: 13px;
+  color: var(--text);
+}
+/* The visual distinction is the point of the card: estimated rows are the
+   numbers to check. */
+.log-card-row-geschat {
+  border-left: 2px dashed #D69E2E;
+  padding-left: 8px;
+  margin-left: -10px;
+}
+.log-card-row-geschat .log-card-num {
+  color: #9C6B12;
+  font-style: italic;
+}
+.log-card-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.log-card-amount {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 1px;
+}
+.log-card-chip {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+.log-card-chip-geschat {
+  color: #9C6B12;
+  background: #FDF3DC;
+}
+.log-card-chip-product {
+  color: var(--protein-target-green);
+  background: rgba(29, 158, 117, 0.1);
+}
+.log-card-num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.log-card-total {
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
 /* Summary card */
 .summary-card {
   background: var(--surface);

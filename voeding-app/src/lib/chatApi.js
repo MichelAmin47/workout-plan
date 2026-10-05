@@ -11,6 +11,14 @@ function cardToText(msg) {
     }
     case 'summary-card':
       return `${msg.text} Wat ik onthoud voor morgen: ${msg.note} ${msg.streak}`
+    // Deliberately not sent: the same rows (with components, ids and
+    // indices) are already in coach-chat's own context as today's meal list
+    // — one source, read fresh from the database each turn. Sending the card
+    // too would duplicate it, put kcal into the assistant history (nudging
+    // the coach to talk calories), and bloat the payload and the day-close
+    // transcript.
+    case 'log-card':
+      return null
     default:
       return null
   }
@@ -101,5 +109,10 @@ export async function askCoach(messages) {
     // directly rather than re-querying, so they can never drift from what
     // the coach itself just computed and (if asked) reported.
     dayTotals: data.dayTotals ?? null,
+    // Log cards built server-side from the stored nutrition_log rows, and
+    // ids of rows deleted this turn — see coach-chat/index.ts. Absent on an
+    // older server, which simply means no cards.
+    logCards: Array.isArray(data.logCards) ? data.logCards : [],
+    deletedLogIds: Array.isArray(data.deletedLogIds) ? data.deletedLogIds : [],
   }
 }

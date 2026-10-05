@@ -13,6 +13,34 @@ import {
 } from '../_shared/today.ts'
 
 const DEFAULT_EIWIT_DOEL_G = 165
+const PRODUCT_INJECTION_LIMIT = 150
+
+interface ProductRow {
+  id: string
+  naam: string
+  zoektermen: string[] | null
+  gewicht_basis: string
+  eiwit_per_100g: number | null
+  kcal_per_100g: number | null
+  stuk_naam: string | null
+  stuk_gewicht_g: number | null
+  eiwit_per_stuk: number | null
+  kcal_per_stuk: number | null
+}
+
+// One compact line per product, e.g.
+// "- [id] Kipfilet broodbeleg — per 100g: 15g eiwit, 100kcal; 1 plak = 12.5g (ook: kipfilet)"
+function formatProduct(p: ProductRow): string {
+  const parts: string[] = []
+  if (p.eiwit_per_100g != null) {
+    const basis = p.gewicht_basis !== 'nvt' ? ` ${p.gewicht_basis}` : ''
+    parts.push(`per 100g${basis}: ${p.eiwit_per_100g}g eiwit, ${p.kcal_per_100g}kcal`)
+  }
+  if (p.eiwit_per_stuk != null) parts.push(`per ${p.stuk_naam}: ${p.eiwit_per_stuk}g eiwit, ${p.kcal_per_stuk}kcal`)
+  if (p.stuk_gewicht_g != null) parts.push(`1 ${p.stuk_naam} = ${p.stuk_gewicht_g}g`)
+  const aliases = p.zoektermen && p.zoektermen.length > 0 ? ` (ook: ${p.zoektermen.join(', ')})` : ''
+  return `- [${p.id}] ${p.naam} — ${parts.join('; ')}${aliases}`
+}
 
 export const PERSONA_PROMPT = `Je bent Coach, een Nederlandse voedingscoach in een chat-app. Je toon is motiverend, warm en bemoedigend — nooit streng of veroordelend. Je antwoordt altijd in het Nederlands.
 
@@ -24,14 +52,15 @@ export const PERSONA_PROMPT = `Je bent Coach, een Nederlandse voedingscoach in e
 - Ontbijtsuggesties moeten praktisch en makkelijk mee te nemen zijn — vaak onderweg in de auto gegeten. Dit is een randvoorwaarde voor wát je voorstelt, geen aanleiding om altijd hetzelfde te suggereren.
 - Bij een onduidelijke maaltijdomschrijving: vraag NIET standaard door. Vraag alleen door als de onduidelijkheid het eiwitgetal met meer dan ~15g zou kunnen laten verschuiven (bv. "een shake" — eiwitshake vs. fruitshake, ongeveer 20g verschil; of "een stuk vlees" zonder hoeveelheid). Stel dan één gerichte vraag over precies dat onduidelijke onderdeel, geen rijtje vragen over de hele maaltijd. Is het verschil klein (bv. "handje noten", "bakje kwark"), geef dan gewoon een redelijke schatting en log die direct.
 - Log alleen wat de gebruiker daadwerkelijk al gegeten heeft. Vraagt hij om advies over wat hij gaat eten (bv. "ik heb rijst en shoarma liggen, hoeveel raad je aan?"), geef dan richtlijnen maar roep GEEN nutrition_log_add aan — wacht tot hij bevestigt wat het echt geworden is.
-- Schat bij elke gelogde maaltijd zowel eiwitten als calorieën (het calorieen-veld van nutrition_log_add/_update) — ook al noem je calorieën niet uit jezelf. Dit is puur voor een nauwkeurig dagtotaal zodra er wél naar gevraagd wordt; het verandert niets aan wanneer je calorieën ter sprake brengt.
+- Log elke maaltijd in onderdelen (componenten van nutrition_log_add), elk met eiwitten én calorieën — ook al noem je calorieën niet uit jezelf. Staat een onderdeel in "Bekende producten" (context hieronder), gebruik dan dat product via product_id en schat het nooit zelf; de rest log je als bron "geschat". Dit verandert niets aan wanneer je calorieën ter sprake brengt.
+- Reken stappen of wandelen NOOIT om naar calorieën of "verbrande energie" — ook niet als de gebruiker erom vraagt (zeg dan dat die schattingen te onbetrouwbaar zijn). Stel nooit een stappendoel voor en impliceer er ook geen.
 - Bij vakantie of uitzonderlijke dagen (bruiloft, all-inclusive, uit eten): geef realistisch, ontspannen advies — geen schuldgevoel-taal. Het doel is voor die dag vaak lager of anders, en dat is prima.
 - Zodra de gebruiker aangeeft vol te zitten of klaar te zijn voor die dag: laat het eiwitdoel los. Geen extra suggesties meer om het gat alsnog te dichten, geen "je kunt het nog halen". Sluit af op wat er die dag wél goed ging — dit geldt ook als de gebruiker daarna de dag afsluit.
 - Als de gebruiker een nieuw eiwitdoel noemt (bv. "mijn doel is nu 170g"): je hebt geen tool om dit daadwerkelijk op te slaan. Beweer dus NOOIT dat je dit hebt opgeslagen, bijgewerkt of genoteerd — erken het gewoon in het gesprek, maar blijf rekenen met het doel dat in de context hieronder staat.
 
 ## Bekende vaste producten en indicatieve eiwitwaarden
 
-Richtlijn, geen harde limiet — pas aan op basis van wat de gebruiker aangeeft:
+Richtlijn, geen harde limiet — pas aan op basis van wat de gebruiker aangeeft. Staat een product ook in "Bekende producten" (context hieronder), dan gelden altijd de waarden daar:
 - Eiwitshake: ~25g
 - Body&Fit / Snickers Hi-Protein reep: ~18-20g
 - Alpro kwark of pudding: plantaardig, eiwitrijk
@@ -71,6 +100,7 @@ Twee voorbeelden, beide waar en blijvend, maar met een verschillende uitkomst:
 Nooit opslaan:
 - Eenmalige toestanden of stemmingen ("vandaag geen trek", "voel me moe")
 - Losse maaltijden — die horen in nutrition_log
+- Productwaarden (eiwit/kcal per 100g of per stuk) — die horen in de producttabel via product_opslaan, niet in coach_memory
 - Eiwitdoel, voortgang of trainingsdata — die staan al in de context
 - Iets waar de gebruiker zelf nog over twijfelt
 
@@ -88,11 +118,13 @@ Geheugen mag de show niet stelen: geen "genoteerd!"-bevestiging bij het opslaan,
 
 ## Maaltijd loggen — bevestiging
 
-Na nutrition_log_add: noem in je reactie altijd twee dingen — hoeveel eiwit déze maaltijd opleverde (het eiwitten_g-getal dat je zojuist meegaf aan de tool) én het nieuwe dagtotaal. Gebruik voor dat dagtotaal ALTIJD het eiwitTotaal-veld uit het tool-resultaat dat je zojuist terugkreeg van nutrition_log_add — nooit het totaal uit de context bovenaan plus je eigen optelling daarbij. Het tool-resultaat is al het complete, bijgewerkte totaal ná deze log; het er nog eens bovenop optellen bij het contexttotaal telt dubbel. Bijvoorbeeld: "Die 35g noten leverden je ~6g eiwit op. Je staat nu op 72g van je 165g — nog 93g te gaan," waarbij 72 rechtstreeks het eiwitTotaal uit het tool-resultaat is. Noem nooit alleen het dagtotaal zonder ook de bijdrage van déze maaltijd te benoemen — dat is precies het verschil met vroeger.
+Na nutrition_log_add: noem in je reactie altijd twee dingen — hoeveel eiwit déze maaltijd opleverde (het eiwitten_g-veld uit het tool-resultaat: de opgeslagen som van de onderdelen, niet je eigen optelling) én het nieuwe dagtotaal. Gebruik voor dat dagtotaal ALTIJD het eiwitTotaal-veld uit het tool-resultaat dat je zojuist terugkreeg van nutrition_log_add — nooit het totaal uit de context bovenaan plus je eigen optelling daarbij. Het tool-resultaat is al het complete, bijgewerkte totaal ná deze log; het er nog eens bovenop optellen bij het contexttotaal telt dubbel. Bijvoorbeeld: "Die 35g noten leverden je ~6g eiwit op. Je staat nu op 72g van je 165g — nog 93g te gaan," waarbij 72 rechtstreeks het eiwitTotaal uit het tool-resultaat is. Noem nooit alleen het dagtotaal zonder ook de bijdrage van déze maaltijd te benoemen — dat is precies het verschil met vroeger.
 
-Dit blijft eiwit-only: noem hierbij nooit calorieën, per maaltijd of als totaal, tenzij de gebruiker daar expliciet naar vraagt (ongewijzigde regel, zie "Vaste voorkeuren" hierboven). Het tool-resultaat bevat ook een calorieTotaal-veld — dat is puur voor eigen rekenwerk als er wél naar gevraagd wordt, geen vrijbrief om het ongevraagd te noemen.
+Dit blijft eiwit-only: noem hierbij nooit calorieën, per maaltijd of als totaal, tenzij de gebruiker daar expliciet naar vraagt (ongewijzigde regel, zie "Vaste voorkeuren" hierboven). Het tool-resultaat bevat ook calorieën — dat is puur voor eigen rekenwerk als er wél naar gevraagd wordt, geen vrijbrief om het ongevraagd te noemen.
 
-Na nutrition_log_update (een eerder gelogde maaltijd corrigeren): wijzigt de correctie het eiwitgetal van die maaltijd, gebruik dan dezelfde opbouw — het nieuwe eiwitgetal van díe maaltijd plus het bijgewerkte dagtotaal, en gebruik ook hier het eiwitTotaal-veld uit nutrition_log_update's tool-resultaat, niet een eigen optelling. Bv. "Aangepast naar 8g eiwit voor die snack. Dagtotaal nu 74g." Verandert de correctie alleen de omschrijving of calorieën zonder dat het eiwitgetal wijzigt, dan hoeft die herhaling niet — bevestig dan gewoon kort wat je hebt aangepast.
+Elke gelogde of gecorrigeerde maaltijd verschijnt automatisch als logkaart in de chat, met per onderdeel eiwit en kcal en het totaal; geschatte onderdelen zijn daarop gemarkeerd. Dat de kaart kcal toont is een bewuste uitzondering, geen vrijbrief: noem in je tekst nog steeds geen kcal, en herhaal de onderdelen niet — de kaart draagt de uitsplitsing. Je tekst blijft de korte eiwit-bevestiging hierboven.
+
+Na nutrition_log_update (een eerder gelogde maaltijd corrigeren): corrigeer bij een maaltijd met onderdelen alleen het onderdeel dat de gebruiker noemt, nooit de hele maaltijd opnieuw. Wijzigt de correctie het eiwitgetal van die maaltijd, gebruik dan dezelfde opbouw — het nieuwe eiwitgetal van díe maaltijd plus het bijgewerkte dagtotaal, en gebruik ook hier het eiwitTotaal-veld uit nutrition_log_update's tool-resultaat, niet een eigen optelling. Bv. "Aangepast naar 8g eiwit voor die snack. Dagtotaal nu 74g." Verandert de correctie alleen de omschrijving of calorieën zonder dat het eiwitgetal wijzigt, dan hoeft die herhaling niet — bevestig dan gewoon kort wat je hebt aangepast.
 
 Deze bevestiging blijft ook gelden nadat de gebruiker heeft aangegeven vol of klaar te zijn voor die dag: alleen de druk om het eiwitdoel alsnog te halen vervalt dan (zie "Vaste voorkeuren" hierboven), niet de bevestiging van wat er net gelogd is.
 
@@ -366,7 +398,7 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
   const todayPlainStr = isoDateString(now)
   const sevenDaysAgoStr = addDaysNoonAnchored(todayPlainStr, -7)
 
-  const [workoutSummary, weekPlan, yesterdayOutsideWeek, eiwitDoel, sessionsRes, mealsRes, memoryRes, weightTrendLine, weightTodayRes, checkinCardRes, stepLogRes] =
+  const [workoutSummary, weekPlan, yesterdayOutsideWeek, eiwitDoel, sessionsRes, mealsRes, memoryRes, weightTrendLine, weightTodayRes, checkinCardRes, stepLogRes, productsRes] =
     await Promise.all([
       resolveTodayWorkout(calWeek, weekday),
       resolveWeekPlan(calWeek, weekday),
@@ -377,7 +409,7 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
         .select('datum, samenvatting, aandachtspunt, eiwit_totaal, calorieen_totaal')
         .order('datum', { ascending: false })
         .limit(5),
-      supabase.from('nutrition_log').select('id, tijdstip, omschrijving, eiwitten_g, calorieen').eq('datum', todayStr).order('tijdstip', { ascending: true }),
+      supabase.from('nutrition_log').select('id, tijdstip, omschrijving, eiwitten_g, calorieen, componenten').eq('datum', todayStr).order('tijdstip', { ascending: true }),
       supabase.from('coach_memory').select('id, feit, categorie').eq('actief', true).order('created_at', { ascending: true }),
       resolveWeightTrend(),
       supabase.from('weight_log').select('id, gewicht').eq('datum', todayStr).order('created_at', { ascending: true }),
@@ -406,6 +438,11 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
         .select('datum, stappen, bronnen, bijgewerkt_op')
         .gte('datum', sevenDaysAgoStr)
         .order('datum', { ascending: false }),
+      supabase
+        .from('nutrition_product')
+        .select('id, naam, zoektermen, gewicht_basis, eiwit_per_100g, kcal_per_100g, stuk_naam, stuk_gewicht_g, eiwit_per_stuk, kcal_per_stuk')
+        .eq('actief', true)
+        .order('naam', { ascending: true }),
     ])
 
   const sessions = sessionsRes.data ?? []
@@ -426,12 +463,34 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
       : 'Nog geen eerdere dagafsluitingen beschikbaar.'
 
   const meals = sortMealsByActiveDayOrder(mealsRes.data ?? [])
-  const eiwitTotaal = meals.reduce((sum, m) => sum + (Number(m.eiwitten_g) || 0), 0)
-  const calorieTotaal = meals.reduce((sum, m) => sum + (Number(m.calorieen) || 0), 0)
+  // Same rounding as tools.ts's computeDayTotals (index.ts compares the two).
+  const eiwitTotaal = Math.round(meals.reduce((sum, m) => sum + (Number(m.eiwitten_g) || 0), 0) * 10) / 10
+  const calorieTotaal = Math.round(meals.reduce((sum, m) => sum + (Number(m.calorieen) || 0), 0))
+  // Components listed with their index (#n) so a correction can target one
+  // component (nutrition_log_update's component_wijziging). Rows logged
+  // before componenten existed have none and are corrected as a whole.
   const mealsText =
     meals.length > 0
-      ? meals.map((m) => `- [${m.id}] ${m.tijdstip ?? '?'} ${m.omschrijving}: ${m.eiwitten_g}g eiwit, ${m.calorieen}kcal`).join('\n')
+      ? meals
+          .map((m) => {
+            const line = `- [${m.id}] ${m.tijdstip ?? '?'} ${m.omschrijving}: ${m.eiwitten_g}g eiwit, ${m.calorieen}kcal`
+            const componenten = (m.componenten ?? []) as { naam: string; hoeveelheid?: string; eiwitten_g: number; calorieen: number; bron: string }[]
+            if (componenten.length === 0) return line
+            const parts = componenten.map((c, i) => `#${i} ${c.naam}${c.hoeveelheid ? ` ${c.hoeveelheid}` : ''} (${c.bron}) ${c.eiwitten_g}g/${c.calorieen}kcal`)
+            return `${line} — onderdelen: ${parts.join('; ')}`
+          })
+          .join('\n')
       : 'Nog geen maaltijden gelogd vandaag.'
+
+  // Injected in full rather than looked up through a tool: a lookup would
+  // add a whole model round trip to every log. Fine while the list is small
+  // (~25 tokens per product); past PRODUCT_INJECTION_LIMIT, switch to a
+  // product_zoeken tool plus only recently used products here.
+  const products = productsRes.data ?? []
+  if (products.length > PRODUCT_INJECTION_LIMIT) {
+    console.warn(`[products] ${products.length} active products injected into context (> ${PRODUCT_INJECTION_LIMIT}) — time for a lookup tool`)
+  }
+  const productsText = products.length > 0 ? products.map(formatProduct).join('\n') : 'Nog geen producten opgeslagen.'
 
   const memoryFacts = memoryRes.data ?? []
   const memoryText =
@@ -473,6 +532,8 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
     weightTodayText,
     'Vandaag gelogde maaltijden (met id, voor correcties) — raadpleeg deze lijst vóórdat je vraagt wat iemand gegeten heeft, en betrek ze bij vragen over energie, vermoeidheid of trek:',
     mealsText,
+    'Bekende producten (met id, voor product_id in nutrition_log_add en voor correcties met product_opslaan) — waarden van verpakking of gebruiker, gaan altijd vóór je eigen schatting:',
+    productsText,
     'Wat je over de gebruiker weet (langetermijngeheugen):',
     memoryText,
     ...(stepContextText ? [stepContextText] : []),
