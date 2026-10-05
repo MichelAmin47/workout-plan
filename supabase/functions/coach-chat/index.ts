@@ -73,6 +73,39 @@ function withoutClientKeys(result: unknown): unknown {
 interface TurnResult {
   finalReplyText: string | null
   lastAssistantContent: unknown
+  // Why the loop stopped, for the !finalReplyText diagnostics below. Only a
+  // 'tool_use' stop continues the loop, so an empty reply is either a call
+  // that ended without any text block ('no_text', with lastStopReason) or
+  // genuinely running out of iterations ('exhausted') — two different
+  // failures that used to share one misleading log line.
+  exitReason: 'final' | 'no_text' | 'exhausted'
+  lastStopReason: string | null
+  iterations: number
+}
+
+// One compact line per model call, for diagnosing turns that end without a
+// reply (05-10: six 502s logged as "exhausted MAX_TOOL_ITERATIONS ... tools
+// called in order: []", each ~12-14s — consistent with a single call
+// running into max_tokens, which only this line can confirm). On a
+// max_tokens stop it also shows the start of every non-text block, so the
+// log says WHAT was being written when the cap was hit. usage isn't in
+// _shared/anthropic.ts's result type (changing that file would pull every
+// function into the deploy), hence the local cast.
+function logIteration(i: number, data: { content?: Array<{ type: string; name?: string; input?: unknown }>; stop_reason?: string }) {
+  const blocks = data.content ?? []
+  const usage = (data as { usage?: { input_tokens?: number; output_tokens?: number } }).usage
+  const line: Record<string, unknown> = {
+    i,
+    stop: data.stop_reason ?? null,
+    blocks: blocks.map((b) => b.type),
+    in: usage?.input_tokens ?? null,
+    out: usage?.output_tokens ?? null,
+    tools: blocks.filter((b) => b.type === 'tool_use').map((b) => ({ name: b.name ?? null, len: JSON.stringify(b.input ?? null).length })),
+  }
+  if (data.stop_reason === 'max_tokens') {
+    line.head = blocks.filter((b) => b.type !== 'text').map((b) => JSON.stringify(b.input ?? b).slice(0, 200))
+  }
+  console.log('[coach-chat iter]', JSON.stringify(line))
 }
 
 // Shared by the main turn and sub-mechanism A's retry — both are "run the
@@ -106,6 +139,7 @@ async function runToolLoop(
     }
 
     const data = result.data!
+    logIteration(i, data)
 
     if (data.stop_reason === 'tool_use') {
       workingMessages.push({ role: 'assistant', content: data.content })
@@ -123,10 +157,17 @@ async function runToolLoop(
       continue
     }
 
-    return { finalReplyText: extractText(data.content), lastAssistantContent: data.content }
+    const text = extractText(data.content)
+    return {
+      finalReplyText: text,
+      lastAssistantContent: data.content,
+      exitReason: text ? 'final' : 'no_text',
+      lastStopReason: data.stop_reason ?? null,
+      iterations: i + 1,
+    }
   }
 
-  return { finalReplyText: null, lastAssistantContent: null }
+  return { finalReplyText: null, lastAssistantContent: null, exitReason: 'exhausted', lastStopReason: 'tool_use', iterations: maxIterations }
 }
 
 Deno.serve(async (req: Request) => {
@@ -231,7 +272,14 @@ Deno.serve(async (req: Request) => {
     let finalReplyText = turnResult.finalReplyText
 
     if (!finalReplyText) {
-      console.error('coach-chat: exhausted MAX_TOOL_ITERATIONS without final text, tools called in order:', calledToolNames)
+      if (turnResult.exitReason === 'exhausted') {
+        console.error(`coach-chat: loop exhausted after ${turnResult.iterations} iterations without final text, tools called in order:`, calledToolNames)
+      } else {
+        console.error(
+          `coach-chat: call ended without text (stop_reason=${turnResult.lastStopReason}) at iteration ${turnResult.iterations}, tools called in order:`,
+          calledToolNames,
+        )
+      }
       return jsonResponse({ error: 'Coach kon geen antwoord afronden.' }, 502)
     }
 
@@ -261,7 +309,7 @@ Deno.serve(async (req: Request) => {
       try {
         retryResult = await runToolLoop(apiKey, systemPrompt, workingMessages, todayStr, MAX_RETRY_ITERATIONS, retryCalledTools, onToolResult)
       } catch {
-        retryResult = { finalReplyText: null, lastAssistantContent: null }
+        retryResult = { finalReplyText: null, lastAssistantContent: null, exitReason: 'no_text', lastStopReason: null, iterations: 0 }
       }
       calledToolNames.push(...retryCalledTools)
 
@@ -285,7 +333,7 @@ Deno.serve(async (req: Request) => {
     const nutritionToolCalledThisRequest = calledToolNames.includes('nutrition_log_add') || calledToolNames.includes('nutrition_log_update')
     if (!nutritionToolCalledThisRequest && EIWIT_CLAIM_PATTERN.test(finalReplyText)) {
       console.error('coach-chat: reply states a protein figure but no nutrition_log_add/_update ran this turn', { todayStr })
-      finalReplyText = `${finalReplyText}\n\n(Even checken: ik heb hier niets gelogd. Als je dit wél wilde loggen, laat het weten.)`
+      finalReplyText = `${finalReplyText}\n\n(Let op: in dit bericht heb ik niets nieuws gelogd — eerder gelogde maaltijden blijven gewoon staan. Wilde je dit als nieuwe maaltijd loggen? Zeg het even.)`
     }
 
     // Included always, not just on a close — the client's own cutoff
