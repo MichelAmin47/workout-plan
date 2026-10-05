@@ -163,9 +163,13 @@ export async function closeDayWithSummary(
 
   // Plain SUM over the actual rows — never estimated by Opus, same
   // reasoning as block 3b's fix for today's own total: a re-estimate drifts
-  // between asks, a stored sum doesn't.
-  const eiwitTotaal = meals.reduce((sum, m) => sum + (Number(m.eiwitten_g) || 0), 0)
-  const calorieTotaal = meals.reduce((sum, m) => sum + (Number(m.calorieen) || 0), 0)
+  // between asks, a stored sum doesn't. Rounded to 0.1g / whole kcal (the
+  // precision nutrition_log's component trigger stores): meal components
+  // carry decimals, and a raw float sum (3.1 + 5.6 + 2.1 =
+  // 10.799999999999999) would otherwise land in coach_sessions and no
+  // longer equal SUM(nutrition_log).
+  const eiwitTotaal = Math.round(meals.reduce((sum, m) => sum + (Number(m.eiwitten_g) || 0), 0) * 10) / 10
+  const calorieTotaal = Math.round(meals.reduce((sum, m) => sum + (Number(m.calorieen) || 0), 0))
 
   const systemPrompt = conversationTranscript
     ? buildRichSystemPrompt(datum, workoutSummary, mealsText)
