@@ -1113,7 +1113,6 @@ export default function FitnessSchema() {
                         const currentRepsNum = currentReps === "" || currentReps == null ? null : Number(currentReps);
                         return (
                         <div key={person} style={{ display: person === "Z" ? "none" : "flex", alignItems: "center", gap: 6 }}>
-                          <label style={{ fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#888" }}>{person}:</label>
                           <input
                             type="number"
                             step="any"
@@ -1146,7 +1145,7 @@ export default function FitnessSchema() {
                     </div>
                     {(hasPrev || personalRecords[day.barbell.name]) && (
                       <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
-                        {hasPrev && <>{prevResult?.label}  <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevW.M !== "" && prevW.M != null ? `${prevW.M}kg${prevW.repsM !== "" && prevW.repsM != null ? ` × ${prevW.repsM}` : ''}` : "—"}</span><span style={{ display: "none" }}> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevW.Z !== "" && prevW.Z != null ? `${prevW.Z}kg${prevW.repsZ !== "" && prevW.repsZ != null ? ` × ${prevW.repsZ}` : ''}` : "—"}</span></span></>}<PrText pr={personalRecords[day.barbell.name]} currentWeight={w.M} standalone={!hasPrev} />
+                        {hasPrev && <>{prevResult?.label} · <span style={{ color: "#1a1a1a" }}>{prevW.M !== "" && prevW.M != null ? `${prevW.M}kg${prevW.repsM !== "" && prevW.repsM != null ? ` × ${prevW.repsM}` : ''}` : "—"}</span><span style={{ display: "none" }}> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevW.Z !== "" && prevW.Z != null ? `${prevW.Z}kg${prevW.repsZ !== "" && prevW.repsZ != null ? ` × ${prevW.repsZ}` : ''}` : "—"}</span></span></>}<PrText pr={personalRecords[day.barbell.name]} currentWeight={w.M} standalone={!hasPrev} />
                       </div>
                     )}
                   </div>
@@ -1617,7 +1616,6 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
               const currentRepsNum = currentReps === "" || currentReps == null ? null : Number(currentReps);
               return (
               <div key={person} style={{ display: person === "Z" ? "none" : "flex", alignItems: "center", gap: 6 }}>
-                <label style={{ fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#888" }}>{person}:</label>
                 <input
                   type="number"
                   step="any"
@@ -1650,7 +1648,7 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
           </div>
           {(hasPrev || pr) && (
             <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
-              {hasPrev && <>{prevWeekLabel || "Vorige week"}  <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevWeightM !== "" && prevWeightM != null ? `${prevWeightM}kg${prevRepsM !== "" && prevRepsM != null ? ` × ${prevRepsM}` : ''}` : "—"}</span><span style={{ display: "none" }}> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevWeightZ !== "" && prevWeightZ != null ? `${prevWeightZ}kg${prevRepsZ !== "" && prevRepsZ != null ? ` × ${prevRepsZ}` : ''}` : "—"}</span></span></>}<PrText pr={pr} currentWeight={weightM} standalone={!hasPrev} />
+              {hasPrev && <>{prevWeekLabel || "Vorige week"} · <span style={{ color: "#1a1a1a" }}>{prevWeightM !== "" && prevWeightM != null ? `${prevWeightM}kg${prevRepsM !== "" && prevRepsM != null ? ` × ${prevRepsM}` : ''}` : "—"}</span><span style={{ display: "none" }}> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevWeightZ !== "" && prevWeightZ != null ? `${prevWeightZ}kg${prevRepsZ !== "" && prevRepsZ != null ? ` × ${prevRepsZ}` : ''}` : "—"}</span></span></>}<PrText pr={pr} currentWeight={weightM} standalone={!hasPrev} />
             </div>
           )}
         </div>
@@ -1749,7 +1747,6 @@ function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExer
                 return (
                 <div style={{ background: "#fff8f5", borderTop: "1px solid #f0d0b8", padding: "10px 12px 10px 52px", display: "flex", flexDirection: "column", gap: 8 }} onClick={e => e.stopPropagation()}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <label style={{ fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#888" }}>M:</label>
                     <input type="number" step="any" min={0} value={w.M} onChange={e => onWeightChange(ex.name, weekNum, "M", e.target.value)} placeholder="kg" style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }} />
                     <span style={{ display: "inline-flex", width: 14, justifyContent: "center", color: "#16a34a", fontSize: 14, fontWeight: 700, visibility: savedIndicators[`${ex.name}__${weekNum}__M`] ? "visible" : "hidden" }}>✓</span>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
@@ -1771,7 +1768,7 @@ function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExer
                   </div>
                   {(hasPrev || personalRecords[ex.name]) && (
                     <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
-                      {hasPrev && <>{prevResult?.label} <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevW.M !== "" && prevW.M != null ? `${prevW.M}kg${prevW.repsM !== "" && prevW.repsM != null ? ` × ${prevW.repsM}` : ''}` : "—"}</span></>}<PrText pr={personalRecords[ex.name]} currentWeight={w.M} standalone={!hasPrev} />
+                      {hasPrev && <>{prevResult?.label} · <span style={{ color: "#1a1a1a" }}>{prevW.M !== "" && prevW.M != null ? `${prevW.M}kg${prevW.repsM !== "" && prevW.repsM != null ? ` × ${prevW.repsM}` : ''}` : "—"}</span></>}<PrText pr={personalRecords[ex.name]} currentWeight={w.M} standalone={!hasPrev} />
                     </div>
                   )}
                 </div>
