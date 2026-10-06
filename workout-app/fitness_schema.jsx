@@ -1062,7 +1062,7 @@ export default function FitnessSchema() {
                     <span style={{ visibility: barbellCompleted ? "visible" : "hidden", width: 24, height: 24, borderRadius: "50%", background: "#16a34a", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#fff", fontWeight: 700, flexShrink: 0 }}>✓</span>
                     <div>
                       <div style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>{day.barbell.name}</div>
-                      {day.barbell.note && <div style={{ color: "#ffcfa0", fontSize: 12, fontFamily: "sans-serif", marginTop: 2 }}>{day.barbell.note}</div>}
+                      {day.barbell.note && <HintBadges text={day.barbell.note} onDark textColor="#ffcfa0" />}
                     </div>
                   </div>
                   <div style={{ background: "#fff", color: "#f37121", padding: "5px 12px", borderRadius: 20, fontSize: 13, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap" }}>
@@ -1547,13 +1547,13 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
         onClick={onToggle}
       >
         <ExCircle num={num} completed={completed} accent={accent} optional={optional} onLongPress={onLongPress} />
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: "#1a1a1a" }}>{name}</span>
             {optional && <span style={{ fontSize: 10, background: "#fff0e6", color: "#f37121", padding: "2px 7px", borderRadius: 10, fontFamily: "sans-serif", fontWeight: 700, letterSpacing: 0.5, border: "1px solid #f37121" }}>OPTIONEEL</span>}
             {swapped && <span style={{ fontSize: 10, background: "#fff0e6", color: "#f37121", padding: "2px 7px", borderRadius: 10, fontFamily: "sans-serif", fontWeight: 700, letterSpacing: 0.5, border: "1px solid #f37121" }}>GEWIJZIGD</span>}
           </div>
-          {note && <div style={{ fontSize: 11, color: optional ? "#f37121" : accent, fontFamily: "sans-serif", marginTop: 1 }}>{note}</div>}
+          {note && <HintBadges text={note} textColor={optional ? "#f37121" : accent} />}
           {originalName && <div style={{ fontSize: 11, color: "#bbb", fontFamily: "sans-serif", marginTop: 1 }}>↩ {originalName}</div>}
         </div>
         {hiitInterval ? (
@@ -1566,7 +1566,7 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
             </div>
           </div>
         ) : (
-          <div style={{ background: optional ? "#fff0e6" : accent, color: optional ? "#f37121" : "#fff", padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap", border: optional ? "1px solid #f37121" : "none" }}>
+          <div style={{ background: optional ? "#fff0e6" : accent, color: optional ? "#f37121" : "#fff", padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap", flexShrink: 0, border: optional ? "1px solid #f37121" : "none" }}>
             {sets}
           </div>
         )}
@@ -1634,10 +1634,40 @@ function TypeBadge({ type }) {
   };
   const c = cfg[type];
   if (!c) return null;
+  return <Badge bg={c.bg} color="#fff">{c.label}</Badge>;
+}
+
+// Shared pill used by TypeBadge (equipment) and HintBadges (weight hints).
+function Badge({ bg, color, children }) {
   return (
-    <span style={{ fontSize: 9, background: c.bg, color: "#fff", padding: "2px 6px", borderRadius: 10, fontFamily: "sans-serif", fontWeight: 700, flexShrink: 0 }}>
-      {c.label}
+    <span style={{ fontSize: 9, background: bg, color, padding: "2px 6px", borderRadius: 10, fontFamily: "sans-serif", fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap" }}>
+      {children}
     </span>
+  );
+}
+
+// Weight hints ("+gewicht", "+5kg piek", "Focusgewicht") get a solid red pill;
+// everything else ("dropset", "deload", "60-70%") a soft slate one.
+function hintColors(segment) {
+  if (/gewicht|^\+\d/i.test(segment)) return { bg: "#dc2626", color: "#fff" };
+  return { bg: "#e2e8f0", color: "#334155" };
+}
+
+// Renders a weight_hint / note string as a row of badges, split on "·" at
+// render time (the DB stores e.g. "+gewicht · dropset" as one string).
+// Segments longer than 20 chars stay plain text so free-text KB/core notes
+// are never squeezed into a pill. onDark: the orange schema-1 barbell card.
+function HintBadges({ text, onDark, textColor }) {
+  const segments = text.split("·").map(s => s.trim()).filter(Boolean);
+  if (segments.length === 0) return null;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 4, marginTop: 1 }}>
+      {segments.map((s, i) => {
+        if (s.length > 20) return <span key={i} style={{ fontSize: 11, color: textColor, fontFamily: "sans-serif" }}>{s}</span>;
+        const c = onDark ? { bg: "rgba(255,255,255,0.22)", color: "#fff" } : hintColors(s);
+        return <Badge key={i} bg={c.bg} color={c.color}>{s}</Badge>;
+      })}
+    </div>
   );
 }
 
@@ -1667,12 +1697,12 @@ function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExer
                 onClick={() => onToggle(ex.name)}
               >
                 <ExCircle num={i + 1} completed={isCompleted} accent={accentColor} onLongPress={() => toggleCompletion(ex.name, weekNum, dayId)} />
-                <div style={{ flex: 1 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", fontFamily: "sans-serif" }}>{ex.name}</span>
                     <TypeBadge type={type} />
                   </div>
-                  {ex.weight_hint && <div style={{ fontSize: 11, color: accentColor, fontFamily: "sans-serif", marginTop: 1 }}>{ex.weight_hint}</div>}
+                  {ex.weight_hint && <HintBadges text={ex.weight_hint} textColor={accentColor} />}
                 </div>
                 <div style={{ background: accentColor, color: "#fff", padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap", flexShrink: 0 }}>
                   {ex.sets}
