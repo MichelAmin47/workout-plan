@@ -115,6 +115,36 @@ function findPrevWeight(exerciseName, currentWeek, weights) {
   return null;
 }
 
+// All-time highest logged M weight per exact exercise string, over every
+// week in `weights` (including the current and later weeks). Reps are
+// ignored. `value` is the raw stored value so it formats exactly like the
+// "Laatste keer" line. Only M: Z is hidden everywhere in the UI.
+function buildPersonalRecords(weights) {
+  const prs = {};
+  for (const [k, entry] of Object.entries(weights)) {
+    const n = Number(entry?.M);
+    if (entry?.M === "" || entry?.M == null || !Number.isFinite(n) || n <= 0) continue;
+    const exercise = k.slice(0, k.lastIndexOf("__"));
+    if (!prs[exercise] || n > prs[exercise].num) prs[exercise] = { num: n, value: entry.M };
+  }
+  return prs;
+}
+
+// "· PR 32kg" suffix for the "Laatste keer" line. Green when the weight
+// logged for the viewed week equals the PR (hit or set it this week).
+function PrText({ pr, currentWeight, standalone }) {
+  if (!pr) return null;
+  const isCurrent = currentWeight !== "" && currentWeight != null && Number(currentWeight) === pr.num;
+  return (
+    <>
+      {!standalone && " · "}
+      <span style={{ whiteSpace: "nowrap" }}>
+        PR <span style={{ color: isCurrent ? "#16a34a" : "#1a1a1a", fontWeight: isCurrent ? 700 : 400 }}>{pr.value}kg</span>
+      </span>
+    </>
+  );
+}
+
 function inferExerciseType(name, categorie) {
   if (categorie === "barbell" || /^(Barbell |T-Bar )/.test(name) || name.includes("(barbell)")) return "barbell";
   if (/^(DB |Incline DB )/.test(name) || name.includes("Dumbbell") || name === "Hammer Curl") return "dumbbell";
@@ -570,6 +600,7 @@ export default function FitnessSchema() {
   // memoized — recomputed every render same as CORE_EXERCISES above; this
   // is after the schemaLoading early return, so a hook here would run
   // conditionally.
+  const personalRecords = buildPersonalRecords(weights);
   const prescribedReps = {};
   for (const w of schema.weeks) {
     for (const d of w.days) {
@@ -983,6 +1014,7 @@ export default function FitnessSchema() {
             onWeightChange: (name, wk, person, val) => handleWeightChange(name, wk, person, val),
             onRepsChange: (name, wk, person, val) => handleRepsChange(name, wk, person, val),
             getEffectiveReps: effectiveReps,
+            personalRecords,
             toggleCompletion: toggleExerciseCompletion,
             lightColor: colors.light,
           };
@@ -1022,6 +1054,7 @@ export default function FitnessSchema() {
                       prevRepsM={prevW.repsM}
                       prevRepsZ={prevW.repsZ}
                       prevWeekLabel={prevResult?.label}
+                      pr={personalRecords[ex.name]}
                       savedM={!!savedIndicators[`${ex.name}__${week.week}__M`]}
                       savedZ={!!savedIndicators[`${ex.name}__${week.week}__Z`]}
                       completed={completedExercises.has(eKey(ex.name, week.week, day.dag_nummer))}
@@ -1111,9 +1144,9 @@ export default function FitnessSchema() {
                         );
                       })}
                     </div>
-                    {hasPrev && (
+                    {(hasPrev || personalRecords[day.barbell.name]) && (
                       <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
-                        {prevResult?.label}  <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevW.M !== "" && prevW.M != null ? `${prevW.M}kg${prevW.repsM !== "" && prevW.repsM != null ? ` × ${prevW.repsM}` : ''}` : "—"}</span><span style={{ display: "none" }}> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevW.Z !== "" && prevW.Z != null ? `${prevW.Z}kg${prevW.repsZ !== "" && prevW.repsZ != null ? ` × ${prevW.repsZ}` : ''}` : "—"}</span></span>
+                        {hasPrev && <>{prevResult?.label}  <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevW.M !== "" && prevW.M != null ? `${prevW.M}kg${prevW.repsM !== "" && prevW.repsM != null ? ` × ${prevW.repsM}` : ''}` : "—"}</span><span style={{ display: "none" }}> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevW.Z !== "" && prevW.Z != null ? `${prevW.Z}kg${prevW.repsZ !== "" && prevW.repsZ != null ? ` × ${prevW.repsZ}` : ''}` : "—"}</span></span></>}<PrText pr={personalRecords[day.barbell.name]} currentWeight={w.M} standalone={!hasPrev} />
                       </div>
                     )}
                   </div>
@@ -1160,6 +1193,7 @@ export default function FitnessSchema() {
                 prevRepsM={prevW.repsM}
                 prevRepsZ={prevW.repsZ}
                 prevWeekLabel={prevResult?.label}
+                pr={personalRecords[ex.name]}
                 savedM={!!savedIndicators[`${ex.name}__${week.week}__M`]}
                 savedZ={!!savedIndicators[`${ex.name}__${week.week}__Z`]}
                 completed={completedExercises.has(eKey(ex.name, week.week, day.dag_nummer))}
@@ -1251,6 +1285,7 @@ export default function FitnessSchema() {
                         prevRepsM={prevW.repsM}
                         prevRepsZ={prevW.repsZ}
                         prevWeekLabel={prevResult?.label}
+                        pr={personalRecords[displayName]}
                         savedM={!!savedIndicators[`${displayName}__${week.week}__M`]}
                         savedZ={!!savedIndicators[`${displayName}__${week.week}__Z`]}
                         completed={completedExercises.has(eKey(displayName, week.week, day.dag_nummer))}
@@ -1537,7 +1572,7 @@ function Section({ title, icon, accent, timerSeconds, timerActive, onTimerClick,
   );
 }
 
-function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange, repsM, repsZ, onRepsChange, prevWeightM, prevWeightZ, prevRepsM, prevRepsZ, prevWeekLabel, savedM, savedZ, completed, onLongPress, swapped, originalName, hiitInterval }) {
+function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange, repsM, repsZ, onRepsChange, prevWeightM, prevWeightZ, prevRepsM, prevRepsZ, prevWeekLabel, pr, savedM, savedZ, completed, onLongPress, swapped, originalName, hiitInterval }) {
   const isClickable = !!onToggle;
   const hasPrev = (prevWeightM !== "" && prevWeightM != null) || (prevWeightZ !== "" && prevWeightZ != null);
   return (
@@ -1613,9 +1648,9 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
               );
             })}
           </div>
-          {hasPrev && (
+          {(hasPrev || pr) && (
             <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
-              {prevWeekLabel || "Vorige week"}  <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevWeightM !== "" && prevWeightM != null ? `${prevWeightM}kg${prevRepsM !== "" && prevRepsM != null ? ` × ${prevRepsM}` : ''}` : "—"}</span><span style={{ display: "none" }}> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevWeightZ !== "" && prevWeightZ != null ? `${prevWeightZ}kg${prevRepsZ !== "" && prevRepsZ != null ? ` × ${prevRepsZ}` : ''}` : "—"}</span></span>
+              {hasPrev && <>{prevWeekLabel || "Vorige week"}  <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevWeightM !== "" && prevWeightM != null ? `${prevWeightM}kg${prevRepsM !== "" && prevRepsM != null ? ` × ${prevRepsM}` : ''}` : "—"}</span><span style={{ display: "none" }}> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevWeightZ !== "" && prevWeightZ != null ? `${prevWeightZ}kg${prevRepsZ !== "" && prevRepsZ != null ? ` × ${prevRepsZ}` : ''}` : "—"}</span></span></>}<PrText pr={pr} currentWeight={weightM} standalone={!hasPrev} />
             </div>
           )}
         </div>
@@ -1671,7 +1706,7 @@ function HintBadges({ text, onDark, textColor }) {
   );
 }
 
-function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExercise, onToggle, weekNum, dayId, weights, savedIndicators, completedExercises, onWeightChange, onRepsChange, getEffectiveReps, toggleCompletion }) {
+function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExercise, onToggle, weekNum, dayId, weights, savedIndicators, completedExercises, onWeightChange, onRepsChange, getEffectiveReps, toggleCompletion, personalRecords }) {
   return (
     <div style={{ marginBottom: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, paddingLeft: 4 }}>
@@ -1734,9 +1769,9 @@ function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExer
                       >+</button>
                     </div>
                   </div>
-                  {hasPrev && (
+                  {(hasPrev || personalRecords[ex.name]) && (
                     <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
-                      {prevResult?.label} <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevW.M !== "" && prevW.M != null ? `${prevW.M}kg${prevW.repsM !== "" && prevW.repsM != null ? ` × ${prevW.repsM}` : ''}` : "—"}</span>
+                      {hasPrev && <>{prevResult?.label} <span style={{ color: "#1a1a1a" }}>M:</span> <span style={{ color: "#1a1a1a" }}>{prevW.M !== "" && prevW.M != null ? `${prevW.M}kg${prevW.repsM !== "" && prevW.repsM != null ? ` × ${prevW.repsM}` : ''}` : "—"}</span></>}<PrText pr={personalRecords[ex.name]} currentWeight={w.M} standalone={!hasPrev} />
                     </div>
                   )}
                 </div>
