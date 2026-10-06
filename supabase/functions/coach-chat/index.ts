@@ -130,7 +130,11 @@ async function runToolLoop(
       system: systemPrompt,
       messages: workingMessages,
       tools: TOOLS,
-      maxTokens: 1024,
+      // Thinking and tool_use share this budget. At 1024 the model
+      // sometimes spent it all thinking (stop_reason=max_tokens, out=1024)
+      // before finishing a nutrition_log_add call, so the tool never ran
+      // and the client showed its fallback error. Normal turns use ~500-600.
+      maxTokens: 4096,
     })
 
     if (!result.ok) {
