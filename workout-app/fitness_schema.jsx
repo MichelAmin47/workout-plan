@@ -152,12 +152,27 @@ function measuredWeeksM(exercise, weights) {
   return out.sort((a, b) => a.week - b.week);
 }
 
+// Whether `name` took part in an exercise swap in `weekNum` (as original or
+// replacement). Swapped weeks have no reliable prescription for the name.
+function swappedInWeek(name, weekNum, swaps) {
+  return Object.entries(swaps).some(([k, v]) => {
+    const [original, w] = k.split("__");
+    return Number(w) === weekNum && (original === name || v === name);
+  });
+}
+
 // Day summary row for one exercise in one week (person M). "Vorige keer"
 // is findPrevWeight, the same lookup as the "Laatste keer" line. PRs are
 // strictly greater than every earlier (lower) week; ties and "no earlier
 // week" are not a PR. PR 1RM needs usable reps today and only compares
 // against earlier weeks that have usable reps.
-function summarizeExercise(name, weekNum, weights) {
+//
+// A different prescribed upper bound (prescribedReps, already
+// parsePrescribedReps' upper bound) between today and the "vorige keer" week
+// means a planned rep-range switch: a kg change then reads "nieuw
+// repbereik" instead of a misleading kg delta. Unknown prescription in
+// either week, or a swap, falls back to the normal delta.
+function summarizeExercise(name, weekNum, weights, prescribedReps = {}, swaps = {}) {
   const entry = weights[wKey(name, weekNum)];
   const kg = Number(entry?.M);
   const reps = usableReps(entry?.repsM);
@@ -167,24 +182,41 @@ function summarizeExercise(name, weekNum, weights) {
   const prevKg = prevResult && prevResult.M !== "" && prevResult.M != null ? Number(prevResult.M) : null;
   const prevReps = prevResult ? usableReps(prevResult.repsM) : null;
 
+  const presToday = prescribedReps[wKey(name, weekNum)];
+  const presPrev = prevResult ? prescribedReps[wKey(name, prevResult.weekNum)] : undefined;
+  const newRepRange = presToday != null && presPrev != null && presToday !== presPrev
+    && !swappedInWeek(name, weekNum, swaps) && !swappedInWeek(name, prevResult.weekNum, swaps);
+
   let delta;
   if (prevKg == null) delta = { label: "eerste meting", up: false };
   else if (kg !== prevKg) {
     const d = Math.round((kg - prevKg) * 100) / 100;
-    delta = { label: `${d > 0 ? "+" : "−"}${formatNl(Math.abs(d))} kg`, up: d > 0 };
+    delta = newRepRange
+      ? { label: "nieuw repbereik", up: false }
+      : { label: `${d > 0 ? "+" : "−"}${formatNl(Math.abs(d))} kg`, up: d > 0 };
   } else if (reps != null && prevReps != null && reps !== prevReps) {
     const d = reps - prevReps;
     delta = { label: `${d > 0 ? "+" : "−"}${Math.abs(d)} ${Math.abs(d) === 1 ? "rep" : "reps"}`, up: d > 0 };
-  } else delta = { label: "gelijk", up: false };
+  } else delta = { label: newRepRange ? "nieuw repbereik" : "gelijk", up: false };
+
+  // e1RM delta from the two displayed (one-decimal) values, in tenths, so
+  // the shown numbers always add up.
+  const prevE1rm = prevKg != null && prevReps != null ? estimatedOneRepMax(prevKg, prevReps) : null;
+  let e1rmDelta = null;
+  if (e1rm != null && prevE1rm != null) {
+    const t = Math.round(e1rm * 10) - Math.round(prevE1rm * 10);
+    e1rmDelta = t === 0 ? "gelijk" : `${t > 0 ? "+" : "−"}${formatNl(Math.abs(t) / 10, 1)}`;
+  }
 
   const measured = measuredWeeksM(name, weights);
   const earlier = measured.filter(m => m.week < weekNum);
   const prKg = earlier.length > 0 && kg > Math.max(...earlier.map(m => m.kg));
   const earlier1rm = earlier.filter(m => m.reps != null).map(m => estimatedOneRepMax(m.kg, m.reps));
   const pr1rm = e1rm != null && earlier1rm.length > 0 && e1rm > Math.max(...earlier1rm);
-  const spark = measured.filter(m => m.week <= weekNum).slice(-6).map(m => m.kg);
+  const spark = measured.filter(m => m.week <= weekNum).slice(-6)
+    .map(m => ({ kg: m.kg, e1rm: m.reps != null ? estimatedOneRepMax(m.kg, m.reps) : null }));
 
-  return { name, kg, reps, e1rm, prevKg, prevReps, delta, prKg, pr1rm, spark };
+  return { name, kg, reps, e1rm, e1rmDelta, prevKg, prevReps, delta, prKg, pr1rm, spark };
 }
 
 // Whether the selected day has anything to summarize: a score row, a
@@ -1649,7 +1681,7 @@ export default function FitnessSchema() {
                 .filter(ex => ex?.name)
                 .map(displayName)
                 .filter(name => { const m = weights[wKey(name, week.week)]?.M; return m !== "" && m != null; })
-                .map(name => summarizeExercise(name, week.week, weights)),
+                .map(name => summarizeExercise(name, week.week, weights, prescribedReps, swaps)),
             }))
             .filter(g => g.rows.length > 0);
           notCompleted = [...day.kettlebell, ...day.core]
@@ -2474,24 +2506,57 @@ function BottomSheet({ currentExercise, exercises, onSelect, onClose }) {
   );
 }
 
-// 64x24 kg sparkline for the day summary: the measured points in order
-// (no gap handling), today's point — always the last one — as a dot.
-function Sparkline({ values }) {
-  const W = 64, H = 24, PAD = 3;
-  if (!values.length) return null;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const pts = values.map((v, i) => [
-    values.length === 1 ? W / 2 : PAD + (i * (W - 2 * PAD)) / (values.length - 1),
-    max === min ? H / 2 : H - PAD - ((v - min) * (H - 2 * PAD)) / (max - min),
-  ]);
-  const [lx, ly] = pts[pts.length - 1];
+// 80x28 sparkline for the day summary over the last <=6 measured weeks:
+// orange = kg, blue = estimated 1RM (weeks with usable reps only, never
+// bridged over a week without). Both are % change vs. their own first
+// point in the window, on one shared y-scale with a minimum 10-point span
+// so a small change doesn't look steep. Today is always the last point.
+function Sparkline({ points }) {
+  const W = 80, H = 28, PAD = 3;
+  if (!points.length) return null;
+  const pct = (v, base) => (v / base - 1) * 100;
+  const kgPct = points.map(p => pct(p.kg, points[0].kg));
+  const firstE = points.find(p => p.e1rm != null)?.e1rm;
+  const ePct = points.map(p => (p.e1rm != null ? pct(p.e1rm, firstE) : null));
+  const all = [0, ...kgPct, ...ePct.filter(v => v != null)];
+  let lo = Math.min(...all), hi = Math.max(...all);
+  if (hi - lo < 10) { const mid = (hi + lo) / 2; lo = mid - 5; hi = mid + 5; }
+  const x = (i) => (points.length === 1 ? W / 2 : PAD + (i * (W - 2 * PAD)) / (points.length - 1));
+  const y = (v) => H - PAD - ((v - lo) * (H - 2 * PAD)) / (hi - lo);
+  // Runs of consecutive points that have an e1RM.
+  const runs = [];
+  ePct.forEach((v, i) => {
+    if (v == null) return;
+    if (i > 0 && ePct[i - 1] != null) runs[runs.length - 1].push(i);
+    else runs.push([i]);
+  });
+  const last = points.length - 1;
+  const signed = (v) => `${v >= 0 ? "+" : "−"}${formatNl(Math.abs(v), 1)}%`;
+  const lastE = ePct[last] ?? [...ePct].reverse().find(v => v != null);
+  const label = `Gewicht ${signed(kgPct[last])}${firstE != null ? ` en geschat 1RM ${signed(lastE)}` : ""} ten opzichte van het eerste punt in het grafiekje`;
   return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true" style={{ flexShrink: 0, display: "block" }}>
-      {pts.length > 1 && (
-        <polyline points={pts.map(p => p.join(",")).join(" ")} fill="none" stroke="#fdba8c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label} style={{ flexShrink: 0, display: "block" }}>
+      {points.length > 1 && (
+        <polyline points={kgPct.map((v, i) => `${x(i)},${y(v)}`).join(" ")} fill="none" stroke="#fdba8c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       )}
-      <circle cx={lx} cy={ly} r="2.75" fill="#f37121" />
+      {runs.map((run, j) => run.length > 1
+        ? <polyline key={j} data-line="e1rm" points={run.map(i => `${x(i)},${y(ePct[i])}`).join(" ")} fill="none" stroke="#0ea5e9" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.8" />
+        : run[0] !== last && <circle key={j} data-line="e1rm" cx={x(run[0])} cy={y(ePct[run[0]])} r="1.5" fill="#0ea5e9" />
+      )}
+      {/* Today's dots. When both land on the same spot (same % change),
+          the blue one becomes a ring around the orange one so both stay
+          visible. */}
+      {ePct[last] != null && Math.abs(y(ePct[last]) - y(kgPct[last])) < 3 ? (
+        <>
+          <circle data-dot="e1rm" cx={x(last)} cy={y(ePct[last])} r="3.5" fill="#0ea5e9" />
+          <circle data-dot="kg" cx={x(last)} cy={y(kgPct[last])} r="2" fill="#f37121" />
+        </>
+      ) : (
+        <>
+          <circle data-dot="kg" cx={x(last)} cy={y(kgPct[last])} r="2.75" fill="#f37121" />
+          {ePct[last] != null && <circle data-dot="e1rm" cx={x(last)} cy={y(ePct[last])} r="2.75" fill="#0ea5e9" />}
+        </>
+      )}
     </svg>
   );
 }
@@ -2611,12 +2676,14 @@ function DaySummarySheet({ day, weekNum, phase, datum, score, groups, notComplet
                           <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#888", marginTop: 3 }}>
                             {[
                               r.prevKg != null ? `Vorige keer ${formatNl(r.prevKg)} kg${r.prevReps != null ? ` × ${r.prevReps}` : ""}` : null,
-                              r.e1rm != null ? `1RM ≈ ${formatNl(r.e1rm, 1)} kg` : null,
-                            ].filter(Boolean).join(" · ")}
+                              r.e1rm != null ? `1RM ≈ ${formatNl(r.e1rm, 1)} kg${r.e1rmDelta ? ` (${r.e1rmDelta})` : ""}` : null,
+                            ].filter(Boolean).map((part, k) => (
+                              <span key={k}>{k > 0 && " · "}<span style={{ whiteSpace: "nowrap" }}>{part}</span></span>
+                            ))}
                           </div>
                         )}
                       </div>
-                      <Sparkline values={r.spark} />
+                      <Sparkline points={r.spark} />
                     </div>
                   ))}
                 </div>
@@ -2631,7 +2698,7 @@ function DaySummarySheet({ day, weekNum, phase, datum, score, groups, notComplet
             )}
 
             <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb", lineHeight: 1.5 }}>
-              1RM is een schatting (Epley). Rond 15 reps en hoger is hij indicatief. Grafiekje: kilo's van de laatste metingen, de stip is vandaag.
+              1RM is een schatting (Epley). Rond 15 reps en hoger is hij indicatief. Grafiekje: oranje is gewicht, blauw is geschat 1RM, beide als verandering t.o.v. hun eerste punt. De stip is vandaag.
             </div>
           </>
         )}
