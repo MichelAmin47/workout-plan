@@ -130,6 +130,89 @@ function buildPersonalRecords(weights) {
   return prs;
 }
 
+// Dutch decimal comma. Without `decimals`: 45 -> "45", 13.5 -> "13,5";
+// with: formatNl(57, 1) -> "57,0".
+function formatNl(n, decimals) {
+  const s = decimals != null ? n.toFixed(decimals) : String(Math.round(n * 100) / 100);
+  return s.replace(".", ",");
+}
+
+// Every week with a numeric M weight for this exact exercise string,
+// ascending. Same key parsing as buildPersonalRecords. Only M.
+function measuredWeeksM(exercise, weights) {
+  const out = [];
+  for (const [k, entry] of Object.entries(weights)) {
+    const i = k.lastIndexOf("__");
+    if (k.slice(0, i) !== exercise) continue;
+    if (entry?.M === "" || entry?.M == null) continue;
+    const kg = Number(entry.M);
+    if (!Number.isFinite(kg)) continue;
+    out.push({ week: Number(k.slice(i + 2)), kg, reps: usableReps(entry.repsM) });
+  }
+  return out.sort((a, b) => a.week - b.week);
+}
+
+// Day summary row for one exercise in one week (person M). "Vorige keer"
+// is findPrevWeight, the same lookup as the "Laatste keer" line. PRs are
+// strictly greater than every earlier (lower) week; ties and "no earlier
+// week" are not a PR. PR 1RM needs usable reps today and only compares
+// against earlier weeks that have usable reps.
+function summarizeExercise(name, weekNum, weights) {
+  const entry = weights[wKey(name, weekNum)];
+  const kg = Number(entry?.M);
+  const reps = usableReps(entry?.repsM);
+  const e1rm = reps != null ? estimatedOneRepMax(kg, reps) : null;
+
+  const prevResult = findPrevWeight(name, weekNum, weights);
+  const prevKg = prevResult && prevResult.M !== "" && prevResult.M != null ? Number(prevResult.M) : null;
+  const prevReps = prevResult ? usableReps(prevResult.repsM) : null;
+
+  let delta;
+  if (prevKg == null) delta = { label: "eerste meting", up: false };
+  else if (kg !== prevKg) {
+    const d = Math.round((kg - prevKg) * 100) / 100;
+    delta = { label: `${d > 0 ? "+" : "−"}${formatNl(Math.abs(d))} kg`, up: d > 0 };
+  } else if (reps != null && prevReps != null && reps !== prevReps) {
+    const d = reps - prevReps;
+    delta = { label: `${d > 0 ? "+" : "−"}${Math.abs(d)} ${Math.abs(d) === 1 ? "rep" : "reps"}`, up: d > 0 };
+  } else delta = { label: "gelijk", up: false };
+
+  const measured = measuredWeeksM(name, weights);
+  const earlier = measured.filter(m => m.week < weekNum);
+  const prKg = earlier.length > 0 && kg > Math.max(...earlier.map(m => m.kg));
+  const earlier1rm = earlier.filter(m => m.reps != null).map(m => estimatedOneRepMax(m.kg, m.reps));
+  const pr1rm = e1rm != null && earlier1rm.length > 0 && e1rm > Math.max(...earlier1rm);
+  const spark = measured.filter(m => m.week <= weekNum).slice(-6).map(m => m.kg);
+
+  return { name, kg, reps, e1rm, prevKg, prevReps, delta, prKg, pr1rm, spark };
+}
+
+// Whether the selected day has anything to summarize: a score row, a
+// completed_days row, or an M weights row for one of the day's exercises
+// (by displayed name) in that week. Z never counts.
+function dayHasSummary(day, weekNum, { dayScores, completedDays, weights, swaps }) {
+  if (day.type === "power_hour" || day.type === "boksen") {
+    return Boolean(dayScores[dateForDay(weekNum, day.dag_volgorde)]);
+  }
+  if (day.type !== "training") return false;
+  if (dayScores[dateForDay(weekNum, day.dag_volgorde)]) return true;
+  if (day.dag_nummer != null && completedDays.has(dKey(weekNum, day.dag_nummer))) return true;
+  return [day.barbell, ...day.spiergroep, ...day.kettlebell, ...day.core].some((ex) => {
+    if (!ex?.name) return false;
+    const name = swaps[sKey(ex.name, weekNum, day.dag_nummer)] ?? ex.name;
+    const m = weights[wKey(name, weekNum)]?.M;
+    return m !== "" && m != null;
+  });
+}
+
+const NL_MONTHS = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
+
+// "2026-10-13", "Di" -> "Di 13 okt"
+function formatSummaryDate(datum, dagLabel) {
+  const [, m, d] = datum.split("-").map(Number);
+  return `${dagLabel} ${d} ${NL_MONTHS[m - 1]}`;
+}
+
 // "· PR 32kg" suffix for the "Laatste keer" line. Green when the weight
 // logged for the viewed week equals the PR (hit or set it this week).
 function PrText({ pr, currentWeight, standalone }) {
@@ -398,6 +481,7 @@ export default function FitnessSchema() {
   const [swapModal, setSwapModal] = useState(null);
   const [dayScores, setDayScores] = useState({});
   const [scorePrompt, setScorePrompt] = useState(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [progressieOpen, setProgressieOpen] = useState(false);
   const [progressieExercise, setProgressieExercise] = useState(null);
   const [schema, setSchema] = useState(null);
@@ -921,7 +1005,7 @@ export default function FitnessSchema() {
             <button
               key={i}
               ref={el => weekButtonRefs.current[i] = el}
-              onClick={() => { closeAndSave(); setSelectedWeek(i); }}
+              onClick={() => { closeAndSave(); setSummaryOpen(false); setSelectedWeek(i); }}
               style={{
                 padding: "8px 16px",
                 borderRadius: 8,
@@ -955,7 +1039,8 @@ export default function FitnessSchema() {
                 ? (d.dag_nummer != null && completedDays.has(dKey(week.week, d.dag_nummer)))
                 : (d.type === "power_hour" || d.type === "boksen") && Boolean(dayScores[dateForDay(week.week, d.dag_volgorde)])
             }
-            onSelect={() => { closeAndSave(); setSelectedDay(i); }}
+            onSelect={() => { closeAndSave(); setSummaryOpen(false); setSelectedDay(i); }}
+            onOpenSummary={selectedDay === i && d === day && dayHasSummary(d, week.week, { dayScores, completedDays, weights, swaps }) ? () => setSummaryOpen(true) : undefined}
             onLongPress={() => {
               const datum = dateForDay(week.week, d.dag_volgorde);
               if (d.type === "training" && d.dag_nummer != null) {
@@ -1539,6 +1624,52 @@ export default function FitnessSchema() {
         />
       )}
 
+      {summaryOpen && (() => {
+        const datum = dateForDay(week.week, day.dag_volgorde);
+        let groups = [];
+        let notCompleted = [];
+        if (day.type === "training") {
+          const displayName = (ex) => swaps[sKey(ex.name, week.week, day.dag_nummer)] ?? ex.name;
+          // Same grouping as the day screen above (schema 2: supersets +
+          // losse oefeningen; schema 1: barbell + spiergroep).
+          const raw = week.week >= 31
+            ? [
+                { title: "Superset 1", exercises: [day.barbell, ...day.spiergroep.filter(ex => ex.note === "Superset 1")] },
+                { title: "Superset 2", exercises: day.spiergroep.filter(ex => ex.note === "Superset 2") },
+                { title: "Losse oefeningen", exercises: day.spiergroep.filter(ex => !ex.note || (ex.note !== "Superset 1" && ex.note !== "Superset 2")) },
+              ]
+            : [
+                { title: "Barbell hoofdoefening", exercises: [day.barbell] },
+                { title: "Spiergroep oefeningen", exercises: day.spiergroep },
+              ];
+          groups = raw
+            .map(g => ({
+              title: g.title,
+              rows: g.exercises
+                .filter(ex => ex?.name)
+                .map(displayName)
+                .filter(name => { const m = weights[wKey(name, week.week)]?.M; return m !== "" && m != null; })
+                .map(name => summarizeExercise(name, week.week, weights)),
+            }))
+            .filter(g => g.rows.length > 0);
+          notCompleted = [...day.kettlebell, ...day.core]
+            .map(displayName)
+            .filter(name => !completedExercises.has(eKey(name, week.week, day.dag_nummer)));
+        }
+        return (
+          <DaySummarySheet
+            day={day}
+            weekNum={week.week}
+            phase={week.phase}
+            datum={datum}
+            score={dayScores[datum]}
+            groups={groups}
+            notCompleted={notCompleted}
+            onClose={() => setSummaryOpen(false)}
+          />
+        );
+      })()}
+
       {scorePrompt && (
         <ScorePromptModal
           dayLabel={scorePrompt.dayLabel}
@@ -1969,7 +2100,7 @@ function BoksenCard({ day, score, onOpenPrompt }) {
   );
 }
 
-function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPress }) {
+function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPress, onOpenSummary }) {
   const timer = useRef(null);
   const longPressed = useRef(false);
   const startPos = useRef({ x: 0, y: 0 });
@@ -2008,6 +2139,7 @@ function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPr
         cursor: "pointer", background: isSelected ? (day.dag_nummer ? dayColors[day.dag_nummer].bg : hexA(tileColor, 0.15)) : "#fff",
         boxShadow: isSelected ? `0 2px 8px ${hexA(tileColor, 0.25)}` : "0 1px 3px rgba(0,0,0,0.06)",
         userSelect: "none", minWidth: 0,
+        ...(onOpenSummary ? { position: "relative" } : {}),
       }}
     >
       {/* Today dot zone — fixed 8px, always present */}
@@ -2037,6 +2169,33 @@ function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPr
       <div style={{ height: 30, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", overflow: "hidden", fontSize: 10, fontWeight: 700, lineHeight: "10px", fontFamily: "sans-serif", color: isSpecialActivity ? "#f97316" : isRust ? "#94a3b8" : tileColor }}>
         {(() => { const words = (day.naam || "").split(" "); while (words.length < 3) words.push(" "); return words.map((w, i) => <div key={i}>{w}</div>); })()}
       </div>
+
+      {/* Day summary tab — hangs from the selected tile's bottom border
+          into the 16px gap above the first card. The outer element is a
+          44px-wide invisible hit area; every pointer event stops here so
+          a tap never starts the tile's long-press timer, re-selects the
+          tile, or starts a pull-to-refresh. */}
+      {onOpenSummary && (
+        <a
+          role="button"
+          tabIndex={0}
+          aria-label="Samenvatting van de training"
+          onMouseDown={(e) => e.stopPropagation()}
+          onMouseUp={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          onTouchMove={(e) => e.stopPropagation()}
+          onTouchEnd={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); onOpenSummary(); }}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onOpenSummary(); } }}
+          style={{ position: "absolute", left: "50%", bottom: -18, width: 44, height: 32, marginLeft: -22, display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1, cursor: "pointer" }}
+        >
+          <div style={{ width: 30, height: 18, borderRadius: "0 0 9px 9px", background: tileColor, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </div>
+        </a>
+      )}
     </button>
   );
 }
@@ -2310,6 +2469,172 @@ function BottomSheet({ currentExercise, exercises, onSelect, onClose }) {
             <span style={{ color: "#f37121", fontSize: 16, fontWeight: 700 }}>→</span>
           </div>
         ))}
+      </div>
+    </>
+  );
+}
+
+// 64x24 kg sparkline for the day summary: the measured points in order
+// (no gap handling), today's point — always the last one — as a dot.
+function Sparkline({ values }) {
+  const W = 64, H = 24, PAD = 3;
+  if (!values.length) return null;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const pts = values.map((v, i) => [
+    values.length === 1 ? W / 2 : PAD + (i * (W - 2 * PAD)) / (values.length - 1),
+    max === min ? H / 2 : H - PAD - ((v - min) * (H - 2 * PAD)) / (max - min),
+  ]);
+  const [lx, ly] = pts[pts.length - 1];
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true" style={{ flexShrink: 0, display: "block" }}>
+      {pts.length > 1 && (
+        <polyline points={pts.map(p => p.join(",")).join(" ")} fill="none" stroke="#fdba8c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      )}
+      <circle cx={lx} cy={ly} r="2.75" fill="#f37121" />
+    </svg>
+  );
+}
+
+function SummaryScoreCard({ label, value, descriptions }) {
+  return (
+    <div style={{ flex: 1, minWidth: 0, background: "#fff8f3", border: "1px solid #f3712133", borderRadius: 10, padding: "10px 12px" }}>
+      <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#888", marginBottom: 4 }}>{label}</div>
+      <StarRow value={value} />
+      <div style={{ fontFamily: "sans-serif", fontSize: 12, color: value ? "#1a1a1a" : "#bbb", lineHeight: 1.4, marginTop: 6 }}>
+        {value ? descriptions[value] : "Nog geen score"}
+      </div>
+    </div>
+  );
+}
+
+function SummaryPill({ bg, color, children }) {
+  return (
+    <span style={{ background: bg, color, fontFamily: "sans-serif", fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 20, whiteSpace: "nowrap" }}>
+      {children}
+    </span>
+  );
+}
+
+// Read-only summary of one day (selected day in the selected week), opened
+// from the tab under the selected day tile. Built entirely from state the
+// app already loaded — no fetches, no writes. Visual shell mirrors
+// BottomSheet; the open/close effect is ScorePromptModal's verbatim
+// (scroll-lock, Escape, history entry for the back gesture) so a future
+// native back-button fix covers this overlay the same way.
+function DaySummarySheet({ day, weekNum, phase, datum, score, groups, notCompleted, onClose }) {
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    window.history.pushState({ daySummary: true }, "");
+    const closedViaPopstate = { current: false };
+    const handlePopState = () => { closedViaPopstate.current = true; onClose(); };
+    const handleKeyDown = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("popstate", handlePopState);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("keydown", handleKeyDown);
+      if (!closedViaPopstate.current) window.history.back();
+    };
+    // Mount/unmount only — same reasoning as ScorePromptModal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const isTraining = day.type === "training";
+  const rows = groups.flatMap(g => g.rows);
+  const prCount = rows.filter(r => r.prKg || r.pr1rm).length;
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "#0005", zIndex: 100 }} />
+      <div
+        role="dialog"
+        aria-label={`Samenvatting ${day.naam}`}
+        style={{ position: "fixed", bottom: 0, left: 0, right: 0, maxWidth: 600, margin: "0 auto", background: "#fff", borderRadius: "16px 16px 0 0", padding: "16px 16px calc(32px + env(safe-area-inset-bottom))", zIndex: 101, maxHeight: "85vh", overflowY: "auto", boxSizing: "border-box" }}
+      >
+        <div style={{ width: 40, height: 4, borderRadius: 2, background: "#ddd", margin: "0 auto 8px" }} />
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Sluiten"
+          style={{ position: "absolute", top: 8, right: 8, width: 44, height: 44, border: "none", background: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", WebkitAppearance: "none", appearance: "none" }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+
+        {/* Header */}
+        <div style={{ paddingRight: 40, marginBottom: 16 }}>
+          <div style={{ fontFamily: "sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#f37121", marginBottom: 4 }}>Samenvatting</div>
+          <div style={{ fontFamily: "'Georgia', serif", fontSize: 22, fontWeight: 700, color: "#1a1a1a", lineHeight: 1.2 }}>{day.naam}</div>
+          <div style={{ fontFamily: "sans-serif", fontSize: 13, color: "#888", marginTop: 4 }}>
+            {formatSummaryDate(datum, day.dag_label)} · Week {weekNum}{phase ? ` · ${phase}` : ""}
+          </div>
+        </div>
+
+        {/* Scores (score_motivatie holds the energy score) */}
+        <div style={{ display: "flex", gap: 8, marginBottom: isTraining ? 16 : 0 }}>
+          <SummaryScoreCard label="Training" value={score?.training} descriptions={TRAINING_SCORE_DESCRIPTIONS} />
+          <SummaryScoreCard label="Energie" value={score?.motivatie} descriptions={ENERGY_SCORE_DESCRIPTIONS} />
+        </div>
+
+        {isTraining && (
+          <>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+              <SummaryPill bg="#f0f0f2" color="#3f3f46">{rows.length} oefeningen</SummaryPill>
+              {prCount > 0 && <SummaryPill bg="#fff0e6" color="#f37121">{prCount} met een PR</SummaryPill>}
+            </div>
+
+            {groups.map((g) => (
+              <div key={g.title} style={{ marginBottom: 16 }}>
+                <div style={{ fontFamily: "sans-serif", fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", color: "#888", marginBottom: 6 }}>{g.title}</div>
+                <div style={{ border: "1px solid #f0f0f0", borderRadius: 12, overflow: "hidden" }}>
+                  {g.rows.map((r, i) => (
+                    <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderTop: i > 0 ? "1px solid #f0f0f0" : "none" }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontFamily: "sans-serif", fontSize: 14, fontWeight: 700, color: "#1a1a1a", overflowWrap: "anywhere" }}>{r.name}</span>
+                          {r.prKg && <Badge bg="#f37121" color="#fff">PR kg</Badge>}
+                          {r.pr1rm && <Badge bg="#f37121" color="#fff">PR 1RM</Badge>}
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 4 }}>
+                          <span style={{ fontFamily: "sans-serif", fontSize: 14, color: "#1a1a1a" }}>
+                            {formatNl(r.kg)} kg{r.reps != null ? ` × ${r.reps}` : ""}
+                          </span>
+                          <span style={{ fontFamily: "sans-serif", fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 10, whiteSpace: "nowrap", background: r.delta.up ? "#e7f5ec" : "#f0f0f2", color: r.delta.up ? "#166534" : "#3f3f46" }}>
+                            {r.delta.label}
+                          </span>
+                        </div>
+                        {(r.prevKg != null || r.e1rm != null) && (
+                          <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#888", marginTop: 3 }}>
+                            {[
+                              r.prevKg != null ? `Vorige keer ${formatNl(r.prevKg)} kg${r.prevReps != null ? ` × ${r.prevReps}` : ""}` : null,
+                              r.e1rm != null ? `1RM ≈ ${formatNl(r.e1rm, 1)} kg` : null,
+                            ].filter(Boolean).join(" · ")}
+                          </div>
+                        )}
+                      </div>
+                      <Sparkline values={r.spark} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            {notCompleted.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontFamily: "sans-serif", fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", color: "#888", marginBottom: 6 }}>Niet afgevinkt</div>
+                <div style={{ fontFamily: "sans-serif", fontSize: 13, color: "#888", lineHeight: 1.4 }}>{notCompleted.join(" · ")}</div>
+              </div>
+            )}
+
+            <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb", lineHeight: 1.5 }}>
+              1RM is een schatting (Epley). Rond 15 reps en hoger is hij indicatief. Grafiekje: kilo's van de laatste metingen, de stip is vandaag.
+            </div>
+          </>
+        )}
       </div>
     </>
   );
