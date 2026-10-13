@@ -130,6 +130,121 @@ function buildPersonalRecords(weights) {
   return prs;
 }
 
+// Dutch decimal comma. Without `decimals`: 45 -> "45", 13.5 -> "13,5";
+// with: formatNl(57, 1) -> "57,0".
+function formatNl(n, decimals) {
+  const s = decimals != null ? n.toFixed(decimals) : String(Math.round(n * 100) / 100);
+  return s.replace(".", ",");
+}
+
+// Every week with a numeric M weight for this exact exercise string,
+// ascending. Same key parsing as buildPersonalRecords. Only M.
+function measuredWeeksM(exercise, weights) {
+  const out = [];
+  for (const [k, entry] of Object.entries(weights)) {
+    const i = k.lastIndexOf("__");
+    if (k.slice(0, i) !== exercise) continue;
+    if (entry?.M === "" || entry?.M == null) continue;
+    const kg = Number(entry.M);
+    if (!Number.isFinite(kg)) continue;
+    out.push({ week: Number(k.slice(i + 2)), kg, reps: usableReps(entry.repsM) });
+  }
+  return out.sort((a, b) => a.week - b.week);
+}
+
+// Whether `name` took part in an exercise swap in `weekNum` (as original or
+// replacement). Swapped weeks have no reliable prescription for the name.
+function swappedInWeek(name, weekNum, swaps) {
+  return Object.entries(swaps).some(([k, v]) => {
+    const [original, w] = k.split("__");
+    return Number(w) === weekNum && (original === name || v === name);
+  });
+}
+
+// Day summary row for one exercise in one week (person M). "Vorige keer"
+// is findPrevWeight, the same lookup as the "Laatste keer" line. PRs are
+// strictly greater than every earlier (lower) week; ties and "no earlier
+// week" are not a PR. PR 1RM needs usable reps today and only compares
+// against earlier weeks that have usable reps.
+//
+// A different prescribed upper bound (prescribedReps, already
+// parsePrescribedReps' upper bound) between today and the "vorige keer" week
+// means a planned rep-range switch: a kg change then reads "nieuw
+// repbereik" instead of a misleading kg delta. Unknown prescription in
+// either week, or a swap, falls back to the normal delta.
+function summarizeExercise(name, weekNum, weights, prescribedReps = {}, swaps = {}) {
+  const entry = weights[wKey(name, weekNum)];
+  const kg = Number(entry?.M);
+  const reps = usableReps(entry?.repsM);
+  const e1rm = reps != null ? estimatedOneRepMax(kg, reps) : null;
+
+  const prevResult = findPrevWeight(name, weekNum, weights);
+  const prevKg = prevResult && prevResult.M !== "" && prevResult.M != null ? Number(prevResult.M) : null;
+  const prevReps = prevResult ? usableReps(prevResult.repsM) : null;
+
+  const presToday = prescribedReps[wKey(name, weekNum)];
+  const presPrev = prevResult ? prescribedReps[wKey(name, prevResult.weekNum)] : undefined;
+  const newRepRange = presToday != null && presPrev != null && presToday !== presPrev
+    && !swappedInWeek(name, weekNum, swaps) && !swappedInWeek(name, prevResult.weekNum, swaps);
+
+  let delta;
+  if (prevKg == null) delta = { label: "eerste meting", up: false };
+  else if (kg !== prevKg) {
+    const d = Math.round((kg - prevKg) * 100) / 100;
+    delta = newRepRange
+      ? { label: "nieuw repbereik", up: false }
+      : { label: `${d > 0 ? "+" : "−"}${formatNl(Math.abs(d))} kg`, up: d > 0 };
+  } else if (reps != null && prevReps != null && reps !== prevReps) {
+    const d = reps - prevReps;
+    delta = { label: `${d > 0 ? "+" : "−"}${Math.abs(d)} ${Math.abs(d) === 1 ? "rep" : "reps"}`, up: d > 0 };
+  } else delta = { label: newRepRange ? "nieuw repbereik" : "gelijk", up: false };
+
+  // e1RM delta from the two displayed (one-decimal) values, in tenths, so
+  // the shown numbers always add up.
+  const prevE1rm = prevKg != null && prevReps != null ? estimatedOneRepMax(prevKg, prevReps) : null;
+  let e1rmDelta = null;
+  if (e1rm != null && prevE1rm != null) {
+    const t = Math.round(e1rm * 10) - Math.round(prevE1rm * 10);
+    e1rmDelta = t === 0 ? "gelijk" : `${t > 0 ? "+" : "−"}${formatNl(Math.abs(t) / 10, 1)}`;
+  }
+
+  const measured = measuredWeeksM(name, weights);
+  const earlier = measured.filter(m => m.week < weekNum);
+  const prKg = earlier.length > 0 && kg > Math.max(...earlier.map(m => m.kg));
+  const earlier1rm = earlier.filter(m => m.reps != null).map(m => estimatedOneRepMax(m.kg, m.reps));
+  const pr1rm = e1rm != null && earlier1rm.length > 0 && e1rm > Math.max(...earlier1rm);
+  const spark = measured.filter(m => m.week <= weekNum).slice(-6)
+    .map(m => ({ kg: m.kg, e1rm: m.reps != null ? estimatedOneRepMax(m.kg, m.reps) : null }));
+
+  return { name, kg, reps, e1rm, e1rmDelta, prevKg, prevReps, delta, prKg, pr1rm, spark };
+}
+
+// Whether the selected day has anything to summarize: a score row, a
+// completed_days row, or an M weights row for one of the day's exercises
+// (by displayed name) in that week. Z never counts.
+function dayHasSummary(day, weekNum, { dayScores, completedDays, weights, swaps }) {
+  if (day.type === "power_hour" || day.type === "boksen") {
+    return Boolean(dayScores[dateForDay(weekNum, day.dag_volgorde)]);
+  }
+  if (day.type !== "training") return false;
+  if (dayScores[dateForDay(weekNum, day.dag_volgorde)]) return true;
+  if (day.dag_nummer != null && completedDays.has(dKey(weekNum, day.dag_nummer))) return true;
+  return [day.barbell, ...day.spiergroep, ...day.kettlebell, ...day.core].some((ex) => {
+    if (!ex?.name) return false;
+    const name = swaps[sKey(ex.name, weekNum, day.dag_nummer)] ?? ex.name;
+    const m = weights[wKey(name, weekNum)]?.M;
+    return m !== "" && m != null;
+  });
+}
+
+const NL_MONTHS = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
+
+// "2026-10-13", "Di" -> "Di 13 okt"
+function formatSummaryDate(datum, dagLabel) {
+  const [, m, d] = datum.split("-").map(Number);
+  return `${dagLabel} ${d} ${NL_MONTHS[m - 1]}`;
+}
+
 // "· PR 32kg" suffix for the "Laatste keer" line. Green when the weight
 // logged for the viewed week equals the PR (hit or set it this week).
 function PrText({ pr, currentWeight, standalone }) {
@@ -398,6 +513,7 @@ export default function FitnessSchema() {
   const [swapModal, setSwapModal] = useState(null);
   const [dayScores, setDayScores] = useState({});
   const [scorePrompt, setScorePrompt] = useState(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [progressieOpen, setProgressieOpen] = useState(false);
   const [progressieExercise, setProgressieExercise] = useState(null);
   const [schema, setSchema] = useState(null);
@@ -921,7 +1037,7 @@ export default function FitnessSchema() {
             <button
               key={i}
               ref={el => weekButtonRefs.current[i] = el}
-              onClick={() => { closeAndSave(); setSelectedWeek(i); }}
+              onClick={() => { closeAndSave(); setSummaryOpen(false); setSelectedWeek(i); }}
               style={{
                 padding: "8px 16px",
                 borderRadius: 8,
@@ -955,7 +1071,8 @@ export default function FitnessSchema() {
                 ? (d.dag_nummer != null && completedDays.has(dKey(week.week, d.dag_nummer)))
                 : (d.type === "power_hour" || d.type === "boksen") && Boolean(dayScores[dateForDay(week.week, d.dag_volgorde)])
             }
-            onSelect={() => { closeAndSave(); setSelectedDay(i); }}
+            onSelect={() => { closeAndSave(); setSummaryOpen(false); setSelectedDay(i); }}
+            onOpenSummary={selectedDay === i && d === day && dayHasSummary(d, week.week, { dayScores, completedDays, weights, swaps }) ? () => setSummaryOpen(true) : undefined}
             onLongPress={() => {
               const datum = dateForDay(week.week, d.dag_volgorde);
               if (d.type === "training" && d.dag_nummer != null) {
@@ -1539,6 +1656,52 @@ export default function FitnessSchema() {
         />
       )}
 
+      {summaryOpen && (() => {
+        const datum = dateForDay(week.week, day.dag_volgorde);
+        let groups = [];
+        let notCompleted = [];
+        if (day.type === "training") {
+          const displayName = (ex) => swaps[sKey(ex.name, week.week, day.dag_nummer)] ?? ex.name;
+          // Same grouping as the day screen above (schema 2: supersets +
+          // losse oefeningen; schema 1: barbell + spiergroep).
+          const raw = week.week >= 31
+            ? [
+                { title: "Superset 1", exercises: [day.barbell, ...day.spiergroep.filter(ex => ex.note === "Superset 1")] },
+                { title: "Superset 2", exercises: day.spiergroep.filter(ex => ex.note === "Superset 2") },
+                { title: "Losse oefeningen", exercises: day.spiergroep.filter(ex => !ex.note || (ex.note !== "Superset 1" && ex.note !== "Superset 2")) },
+              ]
+            : [
+                { title: "Barbell hoofdoefening", exercises: [day.barbell] },
+                { title: "Spiergroep oefeningen", exercises: day.spiergroep },
+              ];
+          groups = raw
+            .map(g => ({
+              title: g.title,
+              rows: g.exercises
+                .filter(ex => ex?.name)
+                .map(displayName)
+                .filter(name => { const m = weights[wKey(name, week.week)]?.M; return m !== "" && m != null; })
+                .map(name => summarizeExercise(name, week.week, weights, prescribedReps, swaps)),
+            }))
+            .filter(g => g.rows.length > 0);
+          notCompleted = [...day.kettlebell, ...day.core]
+            .map(displayName)
+            .filter(name => !completedExercises.has(eKey(name, week.week, day.dag_nummer)));
+        }
+        return (
+          <DaySummarySheet
+            day={day}
+            weekNum={week.week}
+            phase={week.phase}
+            datum={datum}
+            score={dayScores[datum]}
+            groups={groups}
+            notCompleted={notCompleted}
+            onClose={() => setSummaryOpen(false)}
+          />
+        );
+      })()}
+
       {scorePrompt && (
         <ScorePromptModal
           dayLabel={scorePrompt.dayLabel}
@@ -1969,7 +2132,7 @@ function BoksenCard({ day, score, onOpenPrompt }) {
   );
 }
 
-function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPress }) {
+function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPress, onOpenSummary }) {
   const timer = useRef(null);
   const longPressed = useRef(false);
   const startPos = useRef({ x: 0, y: 0 });
@@ -2008,6 +2171,7 @@ function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPr
         cursor: "pointer", background: isSelected ? (day.dag_nummer ? dayColors[day.dag_nummer].bg : hexA(tileColor, 0.15)) : "#fff",
         boxShadow: isSelected ? `0 2px 8px ${hexA(tileColor, 0.25)}` : "0 1px 3px rgba(0,0,0,0.06)",
         userSelect: "none", minWidth: 0,
+        ...(onOpenSummary ? { position: "relative" } : {}),
       }}
     >
       {/* Today dot zone — fixed 8px, always present */}
@@ -2037,6 +2201,33 @@ function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPr
       <div style={{ height: 30, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", overflow: "hidden", fontSize: 10, fontWeight: 700, lineHeight: "10px", fontFamily: "sans-serif", color: isSpecialActivity ? "#f97316" : isRust ? "#94a3b8" : tileColor }}>
         {(() => { const words = (day.naam || "").split(" "); while (words.length < 3) words.push(" "); return words.map((w, i) => <div key={i}>{w}</div>); })()}
       </div>
+
+      {/* Day summary tab — hangs from the selected tile's bottom border
+          into the 16px gap above the first card. The outer element is a
+          44px-wide invisible hit area; every pointer event stops here so
+          a tap never starts the tile's long-press timer, re-selects the
+          tile, or starts a pull-to-refresh. */}
+      {onOpenSummary && (
+        <a
+          role="button"
+          tabIndex={0}
+          aria-label="Samenvatting van de training"
+          onMouseDown={(e) => e.stopPropagation()}
+          onMouseUp={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          onTouchMove={(e) => e.stopPropagation()}
+          onTouchEnd={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); onOpenSummary(); }}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onOpenSummary(); } }}
+          style={{ position: "absolute", left: "50%", bottom: -18, width: 44, height: 32, marginLeft: -22, display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1, cursor: "pointer" }}
+        >
+          <div style={{ width: 30, height: 18, borderRadius: "0 0 9px 9px", background: tileColor, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </div>
+        </a>
+      )}
     </button>
   );
 }
@@ -2310,6 +2501,207 @@ function BottomSheet({ currentExercise, exercises, onSelect, onClose }) {
             <span style={{ color: "#f37121", fontSize: 16, fontWeight: 700 }}>→</span>
           </div>
         ))}
+      </div>
+    </>
+  );
+}
+
+// 80x28 sparkline for the day summary over the last <=6 measured weeks:
+// orange = kg, blue = estimated 1RM (weeks with usable reps only, never
+// bridged over a week without). Both are % change vs. their own first
+// point in the window, on one shared y-scale with a minimum 10-point span
+// so a small change doesn't look steep. Today is always the last point.
+function Sparkline({ points }) {
+  const W = 80, H = 28, PAD = 3;
+  if (!points.length) return null;
+  const pct = (v, base) => (v / base - 1) * 100;
+  const kgPct = points.map(p => pct(p.kg, points[0].kg));
+  const firstE = points.find(p => p.e1rm != null)?.e1rm;
+  const ePct = points.map(p => (p.e1rm != null ? pct(p.e1rm, firstE) : null));
+  const all = [0, ...kgPct, ...ePct.filter(v => v != null)];
+  let lo = Math.min(...all), hi = Math.max(...all);
+  if (hi - lo < 10) { const mid = (hi + lo) / 2; lo = mid - 5; hi = mid + 5; }
+  const x = (i) => (points.length === 1 ? W / 2 : PAD + (i * (W - 2 * PAD)) / (points.length - 1));
+  const y = (v) => H - PAD - ((v - lo) * (H - 2 * PAD)) / (hi - lo);
+  // Runs of consecutive points that have an e1RM.
+  const runs = [];
+  ePct.forEach((v, i) => {
+    if (v == null) return;
+    if (i > 0 && ePct[i - 1] != null) runs[runs.length - 1].push(i);
+    else runs.push([i]);
+  });
+  const last = points.length - 1;
+  const signed = (v) => `${v >= 0 ? "+" : "−"}${formatNl(Math.abs(v), 1)}%`;
+  const lastE = ePct[last] ?? [...ePct].reverse().find(v => v != null);
+  const label = `Gewicht ${signed(kgPct[last])}${firstE != null ? ` en geschat 1RM ${signed(lastE)}` : ""} ten opzichte van het eerste punt in het grafiekje`;
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label} style={{ flexShrink: 0, display: "block" }}>
+      {points.length > 1 && (
+        <polyline points={kgPct.map((v, i) => `${x(i)},${y(v)}`).join(" ")} fill="none" stroke="#fdba8c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      )}
+      {runs.map((run, j) => run.length > 1
+        ? <polyline key={j} data-line="e1rm" points={run.map(i => `${x(i)},${y(ePct[i])}`).join(" ")} fill="none" stroke="#0ea5e9" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.8" />
+        : run[0] !== last && <circle key={j} data-line="e1rm" cx={x(run[0])} cy={y(ePct[run[0]])} r="1.5" fill="#0ea5e9" />
+      )}
+      {/* Today's dots. When both land on the same spot (same % change),
+          the blue one becomes a ring around the orange one so both stay
+          visible. */}
+      {ePct[last] != null && Math.abs(y(ePct[last]) - y(kgPct[last])) < 3 ? (
+        <>
+          <circle data-dot="e1rm" cx={x(last)} cy={y(ePct[last])} r="3.5" fill="#0ea5e9" />
+          <circle data-dot="kg" cx={x(last)} cy={y(kgPct[last])} r="2" fill="#f37121" />
+        </>
+      ) : (
+        <>
+          <circle data-dot="kg" cx={x(last)} cy={y(kgPct[last])} r="2.75" fill="#f37121" />
+          {ePct[last] != null && <circle data-dot="e1rm" cx={x(last)} cy={y(ePct[last])} r="2.75" fill="#0ea5e9" />}
+        </>
+      )}
+    </svg>
+  );
+}
+
+function SummaryScoreCard({ label, value, descriptions }) {
+  return (
+    <div style={{ flex: 1, minWidth: 0, background: "#fff8f3", border: "1px solid #f3712133", borderRadius: 10, padding: "10px 12px" }}>
+      <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#888", marginBottom: 4 }}>{label}</div>
+      <StarRow value={value} />
+      <div style={{ fontFamily: "sans-serif", fontSize: 12, color: value ? "#1a1a1a" : "#bbb", lineHeight: 1.4, marginTop: 6 }}>
+        {value ? descriptions[value] : "Nog geen score"}
+      </div>
+    </div>
+  );
+}
+
+function SummaryPill({ bg, color, children }) {
+  return (
+    <span style={{ background: bg, color, fontFamily: "sans-serif", fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 20, whiteSpace: "nowrap" }}>
+      {children}
+    </span>
+  );
+}
+
+// Read-only summary of one day (selected day in the selected week), opened
+// from the tab under the selected day tile. Built entirely from state the
+// app already loaded — no fetches, no writes. Visual shell mirrors
+// BottomSheet; the open/close effect is ScorePromptModal's verbatim
+// (scroll-lock, Escape, history entry for the back gesture) so a future
+// native back-button fix covers this overlay the same way.
+function DaySummarySheet({ day, weekNum, phase, datum, score, groups, notCompleted, onClose }) {
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    window.history.pushState({ daySummary: true }, "");
+    const closedViaPopstate = { current: false };
+    const handlePopState = () => { closedViaPopstate.current = true; onClose(); };
+    const handleKeyDown = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("popstate", handlePopState);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("keydown", handleKeyDown);
+      if (!closedViaPopstate.current) window.history.back();
+    };
+    // Mount/unmount only — same reasoning as ScorePromptModal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const isTraining = day.type === "training";
+  const rows = groups.flatMap(g => g.rows);
+  const prCount = rows.filter(r => r.prKg || r.pr1rm).length;
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "#0005", zIndex: 100 }} />
+      <div
+        role="dialog"
+        aria-label={`Samenvatting ${day.naam}`}
+        style={{ position: "fixed", bottom: 0, left: 0, right: 0, maxWidth: 600, margin: "0 auto", background: "#fff", borderRadius: "16px 16px 0 0", padding: "16px 16px calc(32px + env(safe-area-inset-bottom))", zIndex: 101, maxHeight: "85vh", overflowY: "auto", boxSizing: "border-box" }}
+      >
+        <div style={{ width: 40, height: 4, borderRadius: 2, background: "#ddd", margin: "0 auto 8px" }} />
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Sluiten"
+          style={{ position: "absolute", top: 8, right: 8, width: 44, height: 44, border: "none", background: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", WebkitAppearance: "none", appearance: "none" }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+
+        {/* Header */}
+        <div style={{ paddingRight: 40, marginBottom: 16 }}>
+          <div style={{ fontFamily: "sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#f37121", marginBottom: 4 }}>Samenvatting</div>
+          <div style={{ fontFamily: "'Georgia', serif", fontSize: 22, fontWeight: 700, color: "#1a1a1a", lineHeight: 1.2 }}>{day.naam}</div>
+          <div style={{ fontFamily: "sans-serif", fontSize: 13, color: "#888", marginTop: 4 }}>
+            {formatSummaryDate(datum, day.dag_label)} · Week {weekNum}{phase ? ` · ${phase}` : ""}
+          </div>
+        </div>
+
+        {/* Scores (score_motivatie holds the energy score) */}
+        <div style={{ display: "flex", gap: 8, marginBottom: isTraining ? 16 : 0 }}>
+          <SummaryScoreCard label="Training" value={score?.training} descriptions={TRAINING_SCORE_DESCRIPTIONS} />
+          <SummaryScoreCard label="Energie" value={score?.motivatie} descriptions={ENERGY_SCORE_DESCRIPTIONS} />
+        </div>
+
+        {isTraining && (
+          <>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+              <SummaryPill bg="#f0f0f2" color="#3f3f46">{rows.length} oefeningen</SummaryPill>
+              {prCount > 0 && <SummaryPill bg="#fff0e6" color="#f37121">{prCount} met een PR</SummaryPill>}
+            </div>
+
+            {groups.map((g) => (
+              <div key={g.title} style={{ marginBottom: 16 }}>
+                <div style={{ fontFamily: "sans-serif", fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", color: "#888", marginBottom: 6 }}>{g.title}</div>
+                <div style={{ border: "1px solid #f0f0f0", borderRadius: 12, overflow: "hidden" }}>
+                  {g.rows.map((r, i) => (
+                    <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderTop: i > 0 ? "1px solid #f0f0f0" : "none" }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontFamily: "sans-serif", fontSize: 14, fontWeight: 700, color: "#1a1a1a", overflowWrap: "anywhere" }}>{r.name}</span>
+                          {r.prKg && <Badge bg="#f37121" color="#fff">PR kg</Badge>}
+                          {r.pr1rm && <Badge bg="#f37121" color="#fff">PR 1RM</Badge>}
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 4 }}>
+                          <span style={{ fontFamily: "sans-serif", fontSize: 14, color: "#1a1a1a" }}>
+                            {formatNl(r.kg)} kg{r.reps != null ? ` × ${r.reps}` : ""}
+                          </span>
+                          <span style={{ fontFamily: "sans-serif", fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 10, whiteSpace: "nowrap", background: r.delta.up ? "#e7f5ec" : "#f0f0f2", color: r.delta.up ? "#166534" : "#3f3f46" }}>
+                            {r.delta.label}
+                          </span>
+                        </div>
+                        {(r.prevKg != null || r.e1rm != null) && (
+                          <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#888", marginTop: 3 }}>
+                            {[
+                              r.prevKg != null ? `Vorige keer ${formatNl(r.prevKg)} kg${r.prevReps != null ? ` × ${r.prevReps}` : ""}` : null,
+                              r.e1rm != null ? `1RM ≈ ${formatNl(r.e1rm, 1)} kg${r.e1rmDelta ? ` (${r.e1rmDelta})` : ""}` : null,
+                            ].filter(Boolean).map((part, k) => (
+                              <span key={k}>{k > 0 && " · "}<span style={{ whiteSpace: "nowrap" }}>{part}</span></span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <Sparkline points={r.spark} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            {notCompleted.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontFamily: "sans-serif", fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", color: "#888", marginBottom: 6 }}>Niet afgevinkt</div>
+                <div style={{ fontFamily: "sans-serif", fontSize: 13, color: "#888", lineHeight: 1.4 }}>{notCompleted.join(" · ")}</div>
+              </div>
+            )}
+
+            <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb", lineHeight: 1.5 }}>
+              1RM is een schatting (Epley). Rond 15 reps en hoger is hij indicatief. Grafiekje: oranje is gewicht, blauw is geschat 1RM, beide als verandering t.o.v. hun eerste punt. De stip is vandaag.
+            </div>
+          </>
+        )}
       </div>
     </>
   );
