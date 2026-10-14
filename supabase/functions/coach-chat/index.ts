@@ -126,7 +126,7 @@ async function runToolLoop(
 ): Promise<TurnResult> {
   for (let i = 0; i < maxIterations; i++) {
     const result = await callClaude(apiKey, {
-      model: 'claude-sonnet-5',
+      model: 'claude-sonnet-5-5',
       system: systemPrompt,
       messages: workingMessages,
       tools: TOOLS,
