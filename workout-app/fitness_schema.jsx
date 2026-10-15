@@ -229,7 +229,7 @@ function dayHasSummary(day, weekNum, { dayScores, completedDays, weights, swaps 
   if (day.type !== "training") return false;
   if (dayScores[dateForDay(weekNum, day.dag_volgorde)]) return true;
   if (day.dag_nummer != null && completedDays.has(dKey(weekNum, day.dag_nummer))) return true;
-  return [day.barbell, ...day.spiergroep, ...day.kettlebell, ...day.core].some((ex) => {
+  return [day.barbell, ...day.spiergroep, ...day.kettlebell, ...day.core, ...day.mobility].some((ex) => {
     if (!ex?.name) return false;
     const name = swaps[sKey(ex.name, weekNum, day.dag_nummer)] ?? ex.name;
     const m = weights[wKey(name, weekNum)]?.M;
@@ -381,12 +381,14 @@ const KB_EXERCISES = [
   "KB Thruster", "KB Turkish Get-Up", "KB Windmill", "KB Wood Chop",
 ];
 
-// Bumped from v4: v4's cached JSON carries `phase` values from the old
-// hardcoded `relWeek <= 3` rule (e.g. the deload week 37 baked in as
-// "Opbouw"), which would keep painting for returning/offline users until a
-// fresh fetch lands. `phase` now comes from the schema_weeks table. See the
-// mount effect below for the matching v4 cleanup (mirrors the v2/v3 ones).
-const SCHEMA_CACHE_KEY = "cached_schema_v5";
+// Bumped from v5: v5's cached JSON has no `mobility` field on training-day
+// objects at all (the field didn't exist yet), so a stale v5 cache would
+// paint days with `day.mobility` undefined until the fresh fetch lands —
+// every `day.mobility.map(...)`/`...day.mobility` call site assumes an
+// array, not undefined, same as the existing barbell/spiergroep/kettlebell/
+// core fields. See the mount effect below for the matching v5 cleanup
+// (mirrors the v2/v3/v4 ones).
+const SCHEMA_CACHE_KEY = "cached_schema_v6";
 
 // Fallback naam/emoji for a "special activity" day (Power Hour, Boksen) when
 // an override doesn't supply its own — mirrors the isTraining/isRust
@@ -464,6 +466,7 @@ function buildWeeks(schemas, schemaDays, exercises, weekOverrides = [], schemaWe
           spiergroep: dayExs.filter(e => e.categorie === "spiergroep").map(toEx),
           kettlebell: dayExs.filter(e => e.categorie === "kettlebell").map(toEx),
           core: dayExs.filter(e => e.categorie === "core").map(toEx),
+          mobility: dayExs.filter(e => e.categorie === "mobility").map(toEx),
         };
       });
       allWeeks.push({ week: calWeek, label: `Week ${calWeek}`, phase, schemaId: s.id, startWeek: s.start_week, eindWeek: s.eind_week, days });
@@ -603,6 +606,9 @@ export default function FitnessSchema() {
     // relWeek rule (deload week baked in as "Opbouw"); phase now comes from
     // the schema_weeks table — same stale-cache reasoning.
     try { localStorage.removeItem("cached_schema_v4"); } catch {}
+    // v5 -> v6: v5's cached JSON has no `mobility` field on training-day
+    // objects — same stale-cache reasoning as every bump above.
+    try { localStorage.removeItem("cached_schema_v5"); } catch { /* localStorage unavailable */ }
 
     let hasCache = false;
     try {
@@ -1111,6 +1117,38 @@ export default function FitnessSchema() {
         })()}
 
         {day.type === "training" && (<>
+
+        {/* Mobility — warm-up done right after the bike, before the first
+            real exercise. Rendered before the schema-branch ternary below so
+            it sits above BOTH schema 2's Supersets and schema 1's Barbell
+            Hoofdoefening, without touching either branch. Bare ExRow, no
+            SwipeableRow (no swap for mobility) and no onToggle/weight props
+            (no weight panel, no reps stepper, no "Laatste keer" line) —
+            same minimal shape as a core row, just without the swap wrapper. */}
+        {day.mobility.length > 0 && (
+          <Section
+            title="Mobility"
+            icon="🤸"
+            accent="#0d9488"
+            timerSeconds={60}
+            timerActive={activeTimer === "mobility"}
+            onTimerClick={() => handleTimerClick("mobility", "Mobility", "🤸", 60, "#0d9488")}
+          >
+            {day.mobility.map((ex, i) => (
+              <ExRow
+                key={i}
+                num={i + 1}
+                name={ex.name}
+                sets={ex.sets}
+                note={ex.note}
+                accent="#0d9488"
+                light="#ccfbf1"
+                completed={completedExercises.has(eKey(ex.name, week.week, day.dag_nummer))}
+                onLongPress={() => toggleExerciseCompletion(ex.name, week.week, day.dag_nummer)}
+              />
+            ))}
+          </Section>
+        )}
 
         {/* Barbell */}
         {week.week >= 31 ? (() => {
@@ -1684,7 +1722,7 @@ export default function FitnessSchema() {
                 .map(name => summarizeExercise(name, week.week, weights, prescribedReps, swaps)),
             }))
             .filter(g => g.rows.length > 0);
-          notCompleted = [...day.kettlebell, ...day.core]
+          notCompleted = [...day.kettlebell, ...day.core, ...day.mobility]
             .map(displayName)
             .filter(name => !completedExercises.has(eKey(name, week.week, day.dag_nummer)));
         }
