@@ -398,6 +398,49 @@ function specialActivityDefaults(type) {
   return { naam: "Power Hour", emoji: "🕐" };
 }
 
+const EXERCISES_PAGE_SIZE = 1000;
+
+// PostgREST caps a single response at 1000 rows by default. The exercises
+// table crossed that threshold today (two inserts: a 9-row mobility batch
+// plus a full new 10-week/500-row block) — a single
+// .select("*").order("volgorde") call started silently truncating at a
+// global volgorde cutoff, dropping whichever categories a day's authoring
+// convention puts at a higher volgorde (kettlebell/core, on every day)
+// regardless of which day was being viewed. Paginate explicitly so this
+// can't silently recur as more blocks get added.
+//
+// .order("volgorde") alone is NOT a stable sort for paging: volgorde is
+// per-day, not globally unique (every day has its own 1, 2, 3...), and
+// Postgres gives no guaranteed tie-break order between separate requests —
+// without a unique tiebreaker, rows with equal volgorde could silently
+// overlap across pages (duplicated) or fall in the gap between pages
+// (skipped), depending on how Postgres happens to order ties each time.
+// `.order("id")` as a second sort key makes the ordering total and
+// deterministic across all page requests.
+//
+// weights and completed_exercises use this exact same unpaginated
+// .select("*") pattern (fetchUserData, below) and will hit the same cap
+// later as they grow — currently 364 and 414 rows, not urgent yet, but the
+// same fix applies there when they get close to 1000.
+async function fetchAllExercises() {
+  const rows = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("exercises")
+      .select("*")
+      .order("volgorde")
+      .order("id")
+      .range(from, from + EXERCISES_PAGE_SIZE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < EXERCISES_PAGE_SIZE) break;
+    from += EXERCISES_PAGE_SIZE;
+  }
+  return rows;
+}
+
 function buildWeeks(schemas, schemaDays, exercises, weekOverrides = [], schemaWeeks = []) {
   const allWeeks = [];
   for (const s of schemas) {
@@ -528,10 +571,10 @@ export default function FitnessSchema() {
   const rawPullDist = useRef(0);
 
   const fetchSchemaData = async () => {
-    const [{ data: schemas }, { data: schemaDays }, { data: exercises }, { data: weekOverrides }, { data: restDayGoals }, { data: schemaWeeks }] = await Promise.all([
+    const [{ data: schemas }, { data: schemaDays }, exercises, { data: weekOverrides }, { data: restDayGoals }, { data: schemaWeeks }] = await Promise.all([
       supabase.from("schemas").select("*").order("start_week"),
       supabase.from("schema_days").select("*"),
-      supabase.from("exercises").select("*").order("volgorde"),
+      fetchAllExercises(),
       supabase.from("week_overrides").select("*"),
       supabase.from("rest_day_goals").select("*"),
       supabase.from("schema_weeks").select("*"),
