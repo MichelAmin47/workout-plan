@@ -1740,7 +1740,7 @@ export default function FitnessSchema() {
       {summaryOpen && (() => {
         const datum = dateForDay(week.week, day.dag_volgorde);
         let groups = [];
-        let notCompleted = [];
+        let finisherBlocks = [];
         if (day.type === "training") {
           const displayName = (ex) => swaps[sKey(ex.name, week.week, day.dag_nummer)] ?? ex.name;
           // Same grouping as the day screen above (schema 2: supersets +
@@ -1765,9 +1765,21 @@ export default function FitnessSchema() {
                 .map(name => summarizeExercise(name, week.week, weights, prescribedReps, swaps)),
             }))
             .filter(g => g.rows.length > 0);
-          notCompleted = [...day.kettlebell, ...day.core, ...day.mobility]
-            .map(displayName)
-            .filter(name => !completedExercises.has(eKey(name, week.week, day.dag_nummer)));
+          // Same order, names and colours as the day screen's sections;
+          // same completion key as the ExCircle tick (name + week + dag_nummer).
+          finisherBlocks = [
+            { title: "Mobility", icon: "🤸", accent: "#0d9488", light: "#ccfbf1", list: day.mobility },
+            { title: "Kettlebell (Full Body)", icon: "🔔", accent: "#c05621", light: "#fed7aa", list: day.kettlebell },
+            { title: "Core Finisher", icon: "🔥", accent: "#7c3aed", light: "#ede9fe", list: day.core },
+          ]
+            .map(({ list, ...b }) => ({
+              ...b,
+              items: list.filter(ex => ex?.name).map(ex => {
+                const name = displayName(ex);
+                return { name, optional: !!ex.optional, done: completedExercises.has(eKey(name, week.week, day.dag_nummer)) };
+              }),
+            }))
+            .filter(b => b.items.length > 0);
         }
         return (
           <DaySummarySheet
@@ -1777,7 +1789,7 @@ export default function FitnessSchema() {
             datum={datum}
             score={dayScores[datum]}
             groups={groups}
-            notCompleted={notCompleted}
+            finisherBlocks={finisherBlocks}
             onClose={() => setSummaryOpen(false)}
           />
         );
@@ -2668,7 +2680,7 @@ function SummaryPill({ bg, color, children }) {
 // BottomSheet; the open/close effect is ScorePromptModal's verbatim
 // (scroll-lock, Escape, history entry for the back gesture) so a future
 // native back-button fix covers this overlay the same way.
-function DaySummarySheet({ day, weekNum, phase, datum, score, groups, notCompleted, onClose }) {
+function DaySummarySheet({ day, weekNum, phase, datum, score, groups, finisherBlocks, onClose }) {
   useEffect(() => {
     document.body.style.overflow = "hidden";
     window.history.pushState({ daySummary: true }, "");
@@ -2771,10 +2783,37 @@ function DaySummarySheet({ day, weekNum, phase, datum, score, groups, notComplet
               </div>
             ))}
 
-            {notCompleted.length > 0 && (
+            {/* Every mobility/KB/core exercise with its tick. Not done is
+                muted grey, never red — skipping a finisher isn't a failure. */}
+            {finisherBlocks.length > 0 && (
               <div style={{ marginBottom: 16 }}>
-                <div style={{ fontFamily: "sans-serif", fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", color: "#888", marginBottom: 6 }}>Niet afgevinkt</div>
-                <div style={{ fontFamily: "sans-serif", fontSize: 13, color: "#888", lineHeight: 1.4 }}>{notCompleted.join(" · ")}</div>
+                <div style={{ fontFamily: "sans-serif", fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", color: "#888", marginBottom: 6 }}>Mobility, KB &amp; Core</div>
+                <div style={{ border: "1px solid #f0f0f0", borderRadius: 12, padding: "2px 12px" }}>
+                  {finisherBlocks.map((b, i) => (
+                    <div key={b.title} data-block={b.title} style={{ padding: "8px 0", borderTop: i > 0 ? "1px solid #f0f0f0" : "none" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                        <span style={{ fontSize: 14 }} aria-hidden="true">{b.icon}</span>
+                        <span style={{ fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#1a1a1a" }}>{b.title}</span>
+                        {b.items.some(it => it.optional) && <span style={{ fontSize: 10, background: "#fff0e6", color: "#f37121", padding: "2px 7px", borderRadius: 10, fontFamily: "sans-serif", fontWeight: 700, letterSpacing: 0.5, border: "1px solid #f37121" }}>OPTIONEEL</span>}
+                        <span style={{ marginLeft: "auto", fontFamily: "sans-serif", fontSize: 12, color: "#888" }}>
+                          {b.items.filter(it => it.done).length}/{b.items.length}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {b.items.map(it => (
+                          <span
+                            key={it.name}
+                            data-done={it.done}
+                            style={{ fontFamily: "sans-serif", fontSize: 12, fontWeight: it.done ? 700 : 500, padding: "4px 10px", borderRadius: 20, background: it.done ? b.light : "#f4f4f5", color: it.done ? b.accent : "#a1a1aa", border: it.optional ? "1.5px dashed #f37121" : "1.5px solid transparent", overflowWrap: "anywhere" }}
+                          >
+                            {it.done && <span aria-hidden="true">✓ </span>}{it.name}
+                            <span style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>{it.done ? ", gedaan" : ", niet gedaan"}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
