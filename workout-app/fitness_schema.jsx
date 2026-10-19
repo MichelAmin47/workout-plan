@@ -906,9 +906,11 @@ export default function FitnessSchema() {
     // falling back to the prescribed number — there is no row left for
     // that number to describe.
     const reps = isClearing ? "" : effectiveReps(exercise, weekNum, person);
+    // Mirrors the deload flag saveMeasurement sends, so findPrevWeight
+    // (which reads this state) skips a deload row without a restart.
     setWeights((prev) => ({
       ...prev,
-      [k]: { ...(prev[k] || { M: "", Z: "" }), [person]: value, [`reps${person}`]: reps },
+      [k]: { ...(prev[k] || { M: "", Z: "" }), [person]: value, [`reps${person}`]: reps, deload: isDeloadWeek(weekNum, schema.weeks) },
     }));
     const timerKey = `${exercise}__${weekNum}__${person}`;
     clearTimeout(saveTimers.current[timerKey]);
@@ -1598,7 +1600,9 @@ export default function FitnessSchema() {
           const allCore = uniq(schema.weeks.flatMap(w => w.days.filter(d => d.type === "training").flatMap(d => d.core.map(e => e.name))));
           const allExercises = [...dayExercises, ...allBarbell, ...allSpiergroep, ...allKettlebell, ...allCore];
           const selEx = progressieExercise ?? allExercises[0];
-          const chartData = schema.weeks.map(w => {
+          // A week whose entry is a deload row is dropped entirely (no
+          // x-tick, no null point), so neither line breaks at a deload week.
+          const chartData = schema.weeks.filter(w => isReferenceWeight(weights[wKey(selEx, w.week)])).map(w => {
             const entry = weights[wKey(selEx, w.week)];
             const mVal = entry?.M;
             const mWeight = mVal !== "" && mVal != null ? Number(mVal) : null;
@@ -2629,7 +2633,8 @@ function BottomSheet({ currentExercise, exercises, onSelect, onClose }) {
 // orange = kg, blue = estimated 1RM (weeks with usable reps only, never
 // bridged over a week without). Both are % change vs. their own first
 // point in the window, on one shared y-scale with a minimum 10-point span
-// so a small change doesn't look steep. Today is always the last point.
+// so a small change doesn't look steep. Today is the last point, except on
+// a deload day (deload rows are never drawn).
 function Sparkline({ points }) {
   const W = 80, H = 28, PAD = 3;
   if (!points.length) return null;
