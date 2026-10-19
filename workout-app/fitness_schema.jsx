@@ -105,9 +105,23 @@ function sKey(original, weekNum, dayId) {
   return `${original}__${weekNum}__${dayId}`;
 }
 
+// The one "is this week a deload" check, used by the write path to set
+// weights.deload. Exact match on schema_weeks.phase, never on weight_hint.
+function isDeloadWeek(weekNum, weeks) {
+  return weeks.find(w => w.week === weekNum)?.phase === "Deload";
+}
+
+// The one "may this weights entry serve as a reference" check: a deload
+// row is never "Laatste keer", a PR, a chart point or a summary baseline.
+// A missing field counts as usable.
+function isReferenceWeight(entry) {
+  return entry?.deload !== true;
+}
+
 function findPrevWeight(exerciseName, currentWeek, weights) {
   for (let w = currentWeek - 1; w >= 1; w--) {
     const entry = weights[wKey(exerciseName, w)];
+    if (!isReferenceWeight(entry)) continue;
     if (entry && (entry.M !== "" && entry.M != null || entry.Z !== "" && entry.Z != null)) {
       return { M: entry.M, Z: entry.Z, repsM: entry.repsM, repsZ: entry.repsZ, weekNum: w, label: `Laatste keer — Week ${w}` };
     }
@@ -118,10 +132,12 @@ function findPrevWeight(exerciseName, currentWeek, weights) {
 // All-time highest logged M weight per exact exercise string, over every
 // week in `weights` (including the current and later weeks). Reps are
 // ignored. `value` is the raw stored value so it formats exactly like the
-// "Laatste keer" line. Only M: Z is hidden everywhere in the UI.
+// "Laatste keer" line. Only M: Z is hidden everywhere in the UI. Deload
+// rows never count.
 function buildPersonalRecords(weights) {
   const prs = {};
   for (const [k, entry] of Object.entries(weights)) {
+    if (!isReferenceWeight(entry)) continue;
     const n = Number(entry?.M);
     if (entry?.M === "" || entry?.M == null || !Number.isFinite(n) || n <= 0) continue;
     const exercise = k.slice(0, k.lastIndexOf("__"));
@@ -138,12 +154,14 @@ function formatNl(n, decimals) {
 }
 
 // Every week with a numeric M weight for this exact exercise string,
-// ascending. Same key parsing as buildPersonalRecords. Only M.
+// ascending. Same key parsing as buildPersonalRecords. Only M. Deload
+// rows are left out.
 function measuredWeeksM(exercise, weights) {
   const out = [];
   for (const [k, entry] of Object.entries(weights)) {
     const i = k.lastIndexOf("__");
     if (k.slice(0, i) !== exercise) continue;
+    if (!isReferenceWeight(entry)) continue;
     if (entry?.M === "" || entry?.M == null) continue;
     const kg = Number(entry.M);
     if (!Number.isFinite(kg)) continue;
@@ -172,8 +190,13 @@ function swappedInWeek(name, weekNum, swaps) {
 // means a planned rep-range switch: a kg change then reads "nieuw
 // repbereik" instead of a misleading kg delta. Unknown prescription in
 // either week, or a swap, falls back to the normal delta.
+//
+// A deload row today gets the "deload" chip, no PRs and no e1RM delta.
+// "Vorige keer", PRs and the sparkline never include deload rows (see
+// findPrevWeight / measuredWeeksM).
 function summarizeExercise(name, weekNum, weights, prescribedReps = {}, swaps = {}) {
   const entry = weights[wKey(name, weekNum)];
+  const deload = !isReferenceWeight(entry);
   const kg = Number(entry?.M);
   const reps = usableReps(entry?.repsM);
   const e1rm = reps != null ? estimatedOneRepMax(kg, reps) : null;
@@ -188,7 +211,8 @@ function summarizeExercise(name, weekNum, weights, prescribedReps = {}, swaps = 
     && !swappedInWeek(name, weekNum, swaps) && !swappedInWeek(name, prevResult.weekNum, swaps);
 
   let delta;
-  if (prevKg == null) delta = { label: "eerste meting", up: false };
+  if (deload) delta = { label: "deload", up: false };
+  else if (prevKg == null) delta = { label: "eerste meting", up: false };
   else if (kg !== prevKg) {
     const d = Math.round((kg - prevKg) * 100) / 100;
     delta = newRepRange
@@ -203,16 +227,16 @@ function summarizeExercise(name, weekNum, weights, prescribedReps = {}, swaps = 
   // the shown numbers always add up.
   const prevE1rm = prevKg != null && prevReps != null ? estimatedOneRepMax(prevKg, prevReps) : null;
   let e1rmDelta = null;
-  if (e1rm != null && prevE1rm != null) {
+  if (!deload && e1rm != null && prevE1rm != null) {
     const t = Math.round(e1rm * 10) - Math.round(prevE1rm * 10);
     e1rmDelta = t === 0 ? "gelijk" : `${t > 0 ? "+" : "−"}${formatNl(Math.abs(t) / 10, 1)}`;
   }
 
   const measured = measuredWeeksM(name, weights);
   const earlier = measured.filter(m => m.week < weekNum);
-  const prKg = earlier.length > 0 && kg > Math.max(...earlier.map(m => m.kg));
+  const prKg = !deload && earlier.length > 0 && kg > Math.max(...earlier.map(m => m.kg));
   const earlier1rm = earlier.filter(m => m.reps != null).map(m => estimatedOneRepMax(m.kg, m.reps));
-  const pr1rm = e1rm != null && earlier1rm.length > 0 && e1rm > Math.max(...earlier1rm);
+  const pr1rm = !deload && e1rm != null && earlier1rm.length > 0 && e1rm > Math.max(...earlier1rm);
   const spark = measured.filter(m => m.week <= weekNum).slice(-6)
     .map(m => ({ kg: m.kg, e1rm: m.reps != null ? estimatedOneRepMax(m.kg, m.reps) : null }));
 
@@ -604,6 +628,8 @@ export default function FitnessSchema() {
         if (!map[k]) map[k] = { M: "", Z: "" };
         map[k][row.person] = row.weight ?? "";
         map[k][`reps${row.person}`] = row.reps ?? "";
+        // A week property, so M and Z rows agree. No field = not deload.
+        map[k].deload ||= row.deload === true;
       }
       setWeights(map);
     }
@@ -809,7 +835,7 @@ export default function FitnessSchema() {
     }
     const reps = (repsValue === "" || repsValue === null || repsValue === undefined) ? null : Number(repsValue);
     supabase.from("weights").upsert(
-      { exercise, week: weekNum, person, weight: Number(weightValue), reps },
+      { exercise, week: weekNum, person, weight: Number(weightValue), reps, deload: isDeloadWeek(weekNum, schema.weeks) },
       { onConflict: "exercise,week,person" }
     ).then(({ error }) => {
       if (error) { console.error("[saveMeasurement error]", error); return; }
