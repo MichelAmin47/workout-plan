@@ -3,7 +3,7 @@
 // - close-day-cron (thin: logged data only, no conversation access)
 
 import { supabase } from './supabaseClient.ts'
-import { currentCalWeek, resolveTodayWorkout, sortMealsByActiveDayOrder } from './today.ts'
+import { isoWeekOf, resolveTodayWorkout, sortMealsByActiveDayOrder } from './today.ts'
 import { callClaude } from './anthropic.ts'
 
 const RECORD_SUMMARY_TOOL = {
@@ -49,9 +49,8 @@ function weekdagNaam(d: Date): string {
 
 async function resolveWorkoutForDate(datum: string): Promise<string> {
   const d = dateFromIsoString(datum)
-  const calWeek = currentCalWeek(d)
   const weekday = d.getDay() || 7
-  return resolveTodayWorkout(calWeek, weekday)
+  return resolveTodayWorkout(isoWeekOf(d), weekday)
 }
 
 // Real bug (2026-08-22): an aandachtspunt referencing a training session

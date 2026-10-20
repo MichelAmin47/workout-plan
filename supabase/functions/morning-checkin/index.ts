@@ -26,8 +26,8 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import {
   amsterdamNow,
-  currentCalWeek,
   isoDateString,
+  isoWeekOf,
   resolveActiveDate,
   resolveWeekPlan,
   resolveYesterdayIfOutsideWeek,
@@ -914,7 +914,7 @@ Deno.serve(async (req: Request) => {
     // exception nobody decided on.
     const activeDate = resolveActiveDate(now)
     const todayWeekday = activeDate.getDay() || 7
-    const todayCalWeek = currentCalWeek(activeDate)
+    const todayCalWeek = isoWeekOf(activeDate)
     const todayDateStr = isoDateString(activeDate)
 
     // Plain date arithmetic, not the calendar-week machinery below (that's

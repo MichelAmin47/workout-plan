@@ -1,9 +1,10 @@
 import { supabase } from '../_shared/supabaseClient.ts'
+import { isoWeekSerial } from '../_shared/isoWeek.ts'
 import {
   amsterdamNow,
-  currentCalWeek,
   isoDateString,
   isoTimeString,
+  isoWeekOf,
   resolveActiveDate,
   resolveTodayWorkout,
   resolveWeekPlan,
@@ -186,6 +187,8 @@ function dateFromIsoString(iso: string): Date {
 }
 
 interface WeekBucket {
+  // isoWeekSerial: consecutive ISO weeks differ by exactly 1, also across
+  // New Year, so it is both the bucket key and the elapsed-weeks axis.
   weekNum: number
   earliestDate: Date
   latestDate: Date
@@ -208,16 +211,13 @@ const KCAL_PER_KG = 7500
 // one derived sentence, so there's nothing for the model to leak even if
 // it wanted to.
 //
-// Calendar weeks (via currentCalWeek, same as the rest of the app), not a
+// ISO calendar weeks (via isoWeekOf, same as the rest of the app), not a
 // rolling window: the two measurement days (Wo/Zo) are fixed, and this
 // app's Mon-Sun week always contains exactly one of each, giving a
 // consistent 1-2 points per week. A rolling window would slide across that
 // fixed cadence and sometimes catch 1, sometimes 2 measurements depending
-// on where it lands — adding noise instead of removing it.
-//
-// Known accepted limitation: week-number arithmetic doesn't special-case a
-// year-boundary rollover (week 52 -> week 1) — acceptable for a
-// single-macrocycle personal app.
+// on where it lands — adding noise instead of removing it. Weeks are
+// counted with isoWeekSerial, so 2026-W53 -> 2027-W1 is one week, not -52.
 async function resolveWeightTrend(): Promise<string> {
   const { data: weightRows } = await supabase.from('weight_log').select('datum, gewicht').order('datum', { ascending: true })
   const rows = weightRows ?? []
@@ -225,7 +225,8 @@ async function resolveWeightTrend(): Promise<string> {
   const buckets = new Map<number, WeekBucket>()
   for (const row of rows) {
     const date = dateFromIsoString(row.datum)
-    const weekNum = currentCalWeek(date)
+    const { isoYear, isoWeek } = isoWeekOf(date)
+    const weekNum = isoWeekSerial(isoYear, isoWeek)
     const gewicht = Number(row.gewicht) || 0
     const existing = buckets.get(weekNum)
     if (existing) {
@@ -257,8 +258,8 @@ async function resolveWeightTrend(): Promise<string> {
   const weeksElapsed = recentAvgWeekNum - firstAvgWeekNum
 
   if (weeksElapsed <= 0) {
-    // Degenerate — most likely the year-boundary limitation above. Bail
-    // out rather than divide by zero or silently invert the sign.
+    // Degenerate (first and last pair cover the same weeks). Bail out
+    // rather than divide by zero or silently invert the sign.
     return 'Gewichtstrend (alleen op verzoek noemen): nog niet genoeg spreiding in de data om te berekenen.'
   }
 
@@ -389,7 +390,7 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
   // clock time (timeStr) is unaffected either way, since shifting the date
   // doesn't touch the hour/minute.
   const activeDate = resolveActiveDate(now)
-  const calWeek = currentCalWeek(activeDate)
+  const isoWeek = isoWeekOf(activeDate)
   const weekday = activeDate.getDay() || 7
   const todayStr = isoDateString(activeDate)
   const timeStr = isoTimeString(now)
@@ -400,8 +401,8 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
 
   const [workoutSummary, weekPlan, yesterdayOutsideWeek, eiwitDoel, sessionsRes, mealsRes, memoryRes, weightTrendLine, weightTodayRes, checkinCardRes, stepLogRes, productsRes] =
     await Promise.all([
-      resolveTodayWorkout(calWeek, weekday),
-      resolveWeekPlan(calWeek, weekday),
+      resolveTodayWorkout(isoWeek, weekday),
+      resolveWeekPlan(isoWeek, weekday),
       resolveYesterdayIfOutsideWeek(activeDate, weekday),
       getOrCreateTodayTarget(todayStr),
       supabase
@@ -516,7 +517,7 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
     `Het is nu ${timeStr} op ${todayStr} (Europe/Amsterdam-tijd).`,
     workoutSummary,
     ...(yesterdayOutsideWeek ? [formatWeekPlan([yesterdayOutsideWeek])] : []),
-    `Deze week (kalenderweek ${calWeek}):`,
+    `Deze week (kalenderweek ${isoWeek.isoWeek}):`,
     formatWeekPlan(weekPlan),
     'Recente dagafsluitingen (nieuwste eerst):',
     recentSessionsText,

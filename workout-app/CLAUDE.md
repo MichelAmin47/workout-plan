@@ -110,10 +110,10 @@ The `main` branch auto-deploys to production. The `server.url` in the root `capa
 
 Everything lives in `fitness_schema.jsx`:
 
-- **`schema`** — dynamic object built from Supabase (`schemas`, `schema_days`, `exercises`, `schema_weeks` tables). Cached in `localStorage["cached_schema_v6"]` for offline use. Phase label per week comes from `schema_weeks` (values in the database as of 2026-10-19: `"Deload"`, `"Opbouw"`, `"Nieuwe Prikkel"`, `"Gewicht verhogen"`, `"Piek gewicht"`); a week with no `schema_weeks` row falls back to the old rule `relWeek <= 3 ? "Opbouw" : "Nieuwe Prikkel"`. Built by `buildWeeks()` at module scope.
-- **`buildWeeks(schemas, schemaDays, exercises, weekOverrides = [], schemaWeeks = [])`** — module-scope pure function. Transforms raw Supabase rows into week/day structures. Iterates all schemas in one pass, producing a flat array of all calendar weeks across both schemas. Each week object includes `{ week, label, phase, schemaId, days }`. `phase` is looked up in `schemaWeeks` by `(schema_id, week_nummer)` with the hardcoded rule as per-week fallback. Each week has 7 days sorted by `dag_volgorde`. Training days have `barbell/spiergroep/kettlebell/core/mobility`; non-training days have only metadata (`type`, `dag_label`, `emoji`, `naam`). `schemaId` is used downstream to filter `restDayGoals` per schema. An exercise whose `categorie` matches none of these five buckets (four `===` checks plus `mobility`, no switch/default) is fetched but silently dropped — not rendered anywhere, not a crash.
-- **`FitnessSchema`** (default export) — top-level component. Manages state: `selectedWeek`, `selectedDay` (index 0–6 into `week.days`, persisted to `localStorage["selectedDay"]`), `schema` (object `{ weeks, restDayGoals }` — the full built schema plus rest-day goal rows from Supabase, cached in `localStorage["cached_schema_v6"]`), `schemaGen` (integer counter incremented on every successful schema refresh — used as part of `WeekDayTile` keys to force remount after pull-to-refresh), `weights`, `expandedExercise`, `completedDays`, `completedExercises`, `swaps`, `swapModal`, `activeTimer`, `activeSection`, `timerLocked`, `schemaOffline` (bool — true when Supabase unreachable and serving from cache), `refreshing` (bool — pull-to-refresh in progress), `pullY` (raw px pulled). Also: `progressieOpen`, `progressieExercise`. Calls `useTimer`. The app header (top padding `14px`, tightened after the eyebrow line was briefly removed and left the header oversized) shows, top to bottom: an eyebrow reading the displayed schema's week range ("WEEK 37 – 43", from `week.startWeek`/`week.eindWeek`, set in `buildWeeks` from `schemas.start_week`/`eind_week`, white at 75% opacity — not the old eyebrow's `#888`, which was too low-contrast against orange to read mid-workout), the position within that block as the large title ("Week 2 van 7" — `week.week - week.startWeek + 1` of `week.eindWeek - week.startWeek + 1`, normal casing, no `textTransform`), and the phase badge. Title and eyebrow swapped which value each carries once (the range was briefly the title and the position the eyebrow — reversed back, since the range is fixed for the whole block while the position changes every week and is what's actually read at a glance). Both replaced a hardcoded "Basic Fit · Gevorderd" / "7-Weken Trainingsschema" pair, wrong (the count, not the eyebrow) for two of the three schemas once the app became a continuous multi-block schedule. A stale `cached_schema_v6` blob predating `startWeek`/`eindWeek` renders no eyebrow at all and falls back to a plain "Trainingsschema" title (no count) until the next background refetch fills it in — never the old hardcoded count. Offline shows a gray banner below the header.
-- **`SupersetBlock`** — renders one superset group (e.g. "SUPERSET 1") inside the Supersets section (schema 2 only, `week.week >= 31`). Shows a colored pill header, a rounded card with exercises separated by "GEEN RUST →" connectors, and an expanded weight panel when an exercise is tapped. Each exercise row includes `TypeBadge`. Props: `title`, `exercises`, `accentColor`, `lightColor`, plus shared weight/completion props.
+- **`schema`** — dynamic object built from Supabase (`schemas`, `schema_days`, `exercises`, `schema_weeks` tables). Cached in `localStorage["cached_schema_v7"]` for offline use. Phase label per week comes from `schema_weeks` (values in the database as of 2026-10-19: `"Deload"`, `"Opbouw"`, `"Nieuwe Prikkel"`, `"Gewicht verhogen"`, `"Piek gewicht"`); a week with no `schema_weeks` row falls back to the old rule `relWeek <= 3 ? "Opbouw" : "Nieuwe Prikkel"`. Built by `buildWeeks()` at module scope.
+- **`buildWeeks(schemas, schemaDays, exercises, weekOverrides = [], schemaWeeks = [])`** — module-scope pure function. Transforms raw Supabase rows into week/day structures. Iterates all schemas in one pass, producing a flat array of all ISO weeks across all schemas and years, sorted by `yw`. Each week object includes `{ week, jaar, yw, label, phase, schemaId, startWeek, eindWeek, days }`. `phase` is looked up in `schemaWeeks` by `(schema_id, week_nummer)` with the hardcoded rule as per-week fallback. Each week has 7 days sorted by `dag_volgorde`. Training days have `barbell/spiergroep/kettlebell/core/mobility`; non-training days have only metadata (`type`, `dag_label`, `emoji`, `naam`). `schemaId` is used downstream to filter `restDayGoals` per schema. An exercise whose `categorie` matches none of these five buckets (four `===` checks plus `mobility`, no switch/default) is fetched but silently dropped — not rendered anywhere, not a crash.
+- **`FitnessSchema`** (default export) — top-level component. Manages state: `selectedWeek`, `selectedDay` (index 0–6 into `week.days`, persisted to `localStorage["selectedDay"]`), `schema` (object `{ weeks, restDayGoals }` — the full built schema plus rest-day goal rows from Supabase, cached in `localStorage["cached_schema_v7"]`), `schemaGen` (integer counter incremented on every successful schema refresh — used as part of `WeekDayTile` keys to force remount after pull-to-refresh), `weights`, `expandedExercise`, `completedDays`, `completedExercises`, `swaps`, `swapModal`, `activeTimer`, `activeSection`, `timerLocked`, `schemaOffline` (bool — true when Supabase unreachable and serving from cache), `refreshing` (bool — pull-to-refresh in progress), `pullY` (raw px pulled). Also: `progressieOpen`, `progressieExercise`. Calls `useTimer`. The app header (top padding `14px`, tightened after the eyebrow line was briefly removed and left the header oversized) shows, top to bottom: an eyebrow reading the displayed schema's week range ("WEEK 37 – 43", from `week.startWeek`/`week.eindWeek`, set in `buildWeeks` from `schemas.start_week`/`eind_week`, white at 75% opacity — not the old eyebrow's `#888`, which was too low-contrast against orange to read mid-workout), the position within that block as the large title ("Week 2 van 7" — `week.week - week.startWeek + 1` of `week.eindWeek - week.startWeek + 1`, normal casing, no `textTransform`), and the phase badge. Title and eyebrow swapped which value each carries once (the range was briefly the title and the position the eyebrow — reversed back, since the range is fixed for the whole block while the position changes every week and is what's actually read at a glance). Both replaced a hardcoded "Basic Fit · Gevorderd" / "7-Weken Trainingsschema" pair, wrong (the count, not the eyebrow) for two of the three schemas once the app became a continuous multi-block schedule. A stale `cached_schema_v7` blob predating `startWeek`/`eindWeek` renders no eyebrow at all and falls back to a plain "Trainingsschema" title (no count) until the next background refetch fills it in — never the old hardcoded count. Offline shows a gray banner below the header. Since 2026-10-20 the eyebrow also carries the ISO year and is a button ("2027 · WEEK 37 – 43 ⌄") opening `YearSheet`; state adds `viewYear` (never persisted) and `yearSheetOpen`, and the header turns grey for the read-only archive (see "ISO week + year").
+- **`SupersetBlock`** — renders one superset group (e.g. "SUPERSET 1") inside the Supersets section (every block except schema 1, `usesSupersetLayout(week)`). Shows a colored pill header, a rounded card with exercises separated by "GEEN RUST →" connectors, and an expanded weight panel when an exercise is tapped. Each exercise row includes `TypeBadge`. Props: `title`, `exercises`, `accentColor`, `lightColor`, plus shared weight/completion props.
 - **`TypeBadge`** — small inline pill rendered next to an exercise name in `SupersetBlock`. Calls `inferExerciseType(name, categorie)` to return one of `"barbell"` / `"dumbbell"` / `"cable"` / `"machine"` / `null`. Returns `null` (renders nothing) for KB, core, and bodyweight exercises.
 - **`Badge`** — shared small pill (9px bold, `2px 6px`, radius 10) used by `TypeBadge` and `HintBadges`. `OPTIONEEL`/`GEWIJZIGD` deliberately keep their own slightly larger outlined style.
 - **`HintBadges({ text, onDark, textColor })`** — renders a hint string (`weight_hint`, or `note` for schema-1 spiergroep/KB/core/barbell) as a wrapping row of `Badge`s, split on `·` at render time (DB values are untouched, e.g. `"+gewicht · dropset"`). `hintColors()`: segments matching `gewicht` or `^+<digit>` ("+gewicht", "+gewicht piek", "+5kg", "Focusgewicht") → solid red `#dc2626`/white; everything else ("dropset", "deload", "60-70%", "per kant") → soft slate `#e2e8f0`/`#334155`. Segments over 20 chars stay plain text in `textColor` (free-text KB/core notes). `onDark` (schema-1 orange barbell card) → translucent white pill.
@@ -134,11 +134,12 @@ Everything lives in `fitness_schema.jsx`:
 - **`BottomSheet`** — modal slide-up panel rendered when `swapModal` is set. Fixed overlay (zIndex 100) + fixed sheet (zIndex 101). Lists all KB exercises except the currently displayed one. Selecting an exercise calls `saveSwap()`, updates the `swaps` map, and closes the sheet.
 - **`KB_EXERCISES`** — constant array of 30 KB exercise names defined outside the component, used to populate the bottom sheet list.
 - **`dayColors` / `phaseColors`** — lookup maps from day ID / phase name to color tokens. These drive all theming; there is no CSS file. `phaseColors` has `Deload` / `Opbouw` / `Nieuwe Prikkel`; `phaseColorFallback` (neutral gray) is used for any other phase value so the header badge never crashes on an unknown label.
-- **`currentWeekIndex(allWeeks)`** — calculates the current ISO week number (shifts to Thursday of the current week, then counts weeks from Jan 1), then returns `allWeeks.findIndex(w => w.label === \`Week ${isoWeek}\`)`. Returns -1 if today is outside the program range; the caller falls back to `selectedWeek = 0`. Used as the initial value of `selectedWeek` on mount.
-- **`wKey(exercise, week)`** — builds the in-memory map key `"exercise__week"` used to look up weights from the `weights` state object.
-- **`dKey(weekNum, dayId)`** — builds the key `"week__dayId"` used in the `completedDays` Set.
-- **`eKey(exercise, weekNum, dayId)`** — builds the key `"exercise__week__dayId"` used in the `completedExercises` Set.
-- **`sKey(original, weekNum, dayId)`** — builds the key `"original__week__dayId"` used in the `swaps` map.
+- **`initialView(allWeeks, today = currentIsoWeek())`** — where the app opens: `{ index, viewYear }` for today's ISO week of today's ISO year (see "ISO week + year"). A gap week opens the nearest earlier week of that year (else its first week); a year with no schema at all opens the latest year that has one, on its last week, as read-only archive. Replaced `currentWeekIndex`, which was: calculates the current ISO week number (shifts to Thursday of the current week, then counts weeks from Jan 1), then returns `allWeeks.findIndex(w => w.label === \`Week ${isoWeek}\`)`. Returned -1 outside the program range (fallback `selectedWeek = 0`). Its formula was wrong in years where Jan 1 is a Friday (see "ISO week + year").
+- **`wKey(exercise, yw)`** — builds the in-memory map key `"exercise__yw"` used to look up weights from the `weights` state object. `yw` = `jaar * 100 + week` (e.g. `202653`, `202701`; `ywOf(jaar, week)` / `splitYw(yw)`), see "ISO week + year".
+- **`dKey(yw, dayId)`** — builds the key `"yw__dayId"` used in the `completedDays` Set.
+- **`eKey(exercise, yw, dayId)`** — builds the key `"exercise__yw__dayId"` used in the `completedExercises` Set.
+- **`sKey(original, yw, dayId)`** — builds the key `"original__yw__dayId"` used in the `swaps` map.
+- **`YearSheet`** — year picker opened from the header eyebrow ("2027 · WEEK 1 – 7 ⌄"): every `schemas.jaar`, newest first, current ISO year marked. Same open/close mechanics as `ScorePromptModal` (scroll lock, Escape, back gesture via `pushState`/`popstate`).
 
 ## Data shape
 
@@ -166,6 +167,7 @@ Exercise object fields:
 
 Each week object also carries:
 - `schemaId` — UUID of the parent schema; used to filter `restDayGoals` so schema 1 and schema 2 rest-day content don't bleed into each other.
+- `jaar` — ISO year (`schemas.jaar`); `week` — ISO week of that year; `yw` — `jaar * 100 + week`, the key every in-memory map uses (see "ISO week + year").
 - `phase` — `"Deload"` | `"Opbouw"` | `"Nieuwe Prikkel"` (or a future block's own label). Read from the `schema_weeks` table by `(schema_id, week_nummer)`; when a week has no row, `buildWeeks` falls back to `relWeek <= 3 ? "Opbouw" : "Nieuwe Prikkel"`.
 
 **Supabase `schema_weeks` columns**: `schema_id` UUID (FK → `schemas.id`, ON DELETE CASCADE), `week_nummer` INT (relative week 1..N, same meaning as `exercises.week_nummer` — **not** a calendar week), `phase` TEXT NOT NULL. PK `(schema_id, week_nummer)`. No CHECK on `phase` (a new block can introduce a new label with a plain INSERT). One row per relative week per schema; populated as a step in the schema-entry process. Fetched in `fetchSchemaData()` alongside the rest and passed to `buildWeeks()`; deliberately kept out of the `!schemas` throw guard so a missing/empty table falls back rather than bricking the app.
@@ -188,9 +190,9 @@ Optional exercise accent color is always orange `#f37121` (same as the app heade
 
 **Mobility** (added for the warm-up-before-training block, 🤸, `#0d9488`) renders first on every training day, *before* the schema-1/schema-2 branch below — `{day.mobility.length > 0 && <Section title="Mobility" ...>}`, right after `{day.type === "training" && (<>`. This placement is what makes it sit above BOTH schema 1's Barbell Hoofdoefening and schema 2's Supersets without touching either branch. Rows are bare `ExRow`s (no `SwipeableRow` — no swap for mobility; no `onToggle`/weight props — no weight panel/reps stepper/"Laatste keer" line), same minimal shape as a core row minus the swap wrapper. Timer key `"mobility"`, 60sec, same `handleTimerClick` mutual-exclusion mechanics as every other section. Deliberately invisible to the Progressie dropdown, `CORE_EXERCISES`, and `KB_EXERCISES` (all three only ever read their own specific category) and to `DaySummarySheet`'s "N oefeningen"/PR pills (only ever barbell/spiergroep) — included only in `dayHasSummary` and the sheet's "Mobility, KB & Core" section (see `DaySummarySheet` above).
 
-**Schema 1 (`week.week <= 30`):** Barbell → Spiergroep → Kettlebell → Core → Progressie. The Barbell section uses a solid orange card (not `ExRow`) but is also clickable and shows an inline weight panel when expanded.
+**Schema 1 (2026 weeks 23–30; `!usesSupersetLayout(week)`):** Barbell → Spiergroep → Kettlebell → Core → Progressie. The Barbell section uses a solid orange card (not `ExRow`) but is also clickable and shows an inline weight panel when expanded.
 
-**Schema 2 (`week.week >= 31`):** The Barbell and Spiergroep sections are replaced by a single **Supersets** section rendered via `SupersetBlock`. The Barbell exercise (note = `"Superset 1"`) and matching spiergroep exercises are grouped into SUPERSET 1; the remaining paired spiergroep exercises into SUPERSET 2; any remaining spiergroep exercises (empty `note`) into a "LOSSE OEFENINGEN" block. Order: Supersets → Kettlebell → Core → Progressie.
+**Every later block (`usesSupersetLayout(week)` — was `week.week >= 31`, which would have put 2027 weeks 1–30 back on schema 1's layout; data-driven detection doesn't work because schema 1 has two "Superset 1" notes of its own):** The Barbell and Spiergroep sections are replaced by a single **Supersets** section rendered via `SupersetBlock`. The Barbell exercise (note = `"Superset 1"`) and matching spiergroep exercises are grouped into SUPERSET 1; the remaining paired spiergroep exercises into SUPERSET 2; any remaining spiergroep exercises (empty `note`) into a "LOSSE OEFENINGEN" block. Order: Supersets → Kettlebell → Core → Progressie.
 
 The progress note below the sections is driven by `week.phase`: "Opbouw" weeks show a progressive overload tip; "Nieuwe Prikkel" weeks show either an intro tip ("begin with a workable weight, build next week") or a peak tip ("go for max weight"), determined by checking whether `schema.weeks[selectedWeek + 1]?.phase === "Nieuwe Prikkel"` — if true it's the intro week, otherwise it's the peak week. These are two independent `{cond && ...}` blocks with no `else`, so a `"Deload"` week (or any other phase value) shows **no** note — deliberate: the deload facts are already on screen per exercise (`weight_hint` "deload · 60-70%", reduced set counts).
 
@@ -207,7 +209,7 @@ When open it shows:
 
 A week whose entry for the selected exercise is a deload row is dropped from `chartData` entirely — no x-tick, no null point — so neither line breaks at a deload week and the stat tiles never see it (see "Deload weeks").
 
-The chart reads from the existing `weights` state — no additional Supabase fetch needed. `reps` was already selected (`select("*")`) and mapped before this feature; no query change, no cache-key bump (`weights` is never part of `cached_schema_v6` — it's fetched fresh every mount, never persisted to `localStorage` at all).
+The chart reads from the existing `weights` state — no additional Supabase fetch needed. `reps` was already selected (`select("*")`) and mapped before this feature; no query change, no cache-key bump (`weights` is never part of `cached_schema_v7` — it's fetched fresh every mount, never persisted to `localStorage` at all).
 
 ## Completion tracking
 
@@ -224,15 +226,17 @@ Both sets are fetched on mount from Supabase. The `completedDays` key uses `dayI
 The Supabase table schemas:
 ```
 completed_days:
+  jaar  int        (ISO year, NOT NULL; see "ISO week + year")
   week  int
   day   int        (day id, 1–4)
-  unique constraint on (week, day)
+  unique constraint on (jaar, week, day)   (no id column)
 
 completed_exercises:
   exercise  text
+  jaar      int    (ISO year, NOT NULL)
   week      int
   day       int    (day id, 1–4)
-  unique constraint on (exercise, week, day)
+  unique constraint on (exercise, jaar, week, day)   (no id column)
 
 day_scores:
   datum            date PRIMARY KEY
@@ -246,7 +250,7 @@ A subjective 1–5 score for "hoe ging de training?" and "hoe was je energie voo
 
 **Each star row shows a fixed description for whichever value is currently selected** (`TRAINING_SCORE_DESCRIPTIONS`/`ENERGY_SCORE_DESCRIPTIONS`, module scope next to `StarPicker`, keyed 1–5) — added so the scale means the same thing every time it's used, not just whatever a given mood reads into a bare star count. `StarPicker` renders `descriptions[value]` under the row (blank when `value` is 0, i.e. nothing chosen yet), replacing on every tap and pre-filled correctly on reopen since both cases already flow through the same `value` state `ScorePromptModal` already had. A `minHeight` on that line reserves space for the longest entries' two-line wrap so the star row itself never shifts. `ScoreSummary`'s read-only tag next to `StarRow` was renamed from "Motivatie" to "Energie" to match; `score?.motivatie` is still the field read, only the on-screen tag changed.
 
-**Keyed on the actual calendar date, not `week`/`dag_nummer`.** `dateForDay(calWeek, dagVolgorde)` (module scope, next to `dKey`/`eKey`) reverses `currentWeekIndex`'s ISO-week math — given a calendar week number and an ISO weekday (1=Mon..7=Sun, same numbering as `schema_days.dag_volgorde`), it returns that day's real calendar date. This is override-agnostic: a `week_overrides` row changes what's scheduled on a date, never which date a weekday position maps to, so a score row never goes stale when an override is added later. Same year-boundary assumption as `currentWeekIndex` itself (no year column anywhere in this schema) — not a new gap.
+**Keyed on the actual calendar date, not `week`/`dag_nummer`.** `dateForDay(week, dagVolgorde)` (module scope, next to `dKey`/`eKey`) — given a week object (`jaar` + `week`) and an ISO weekday (1=Mon..7=Sun, same numbering as `schema_days.dag_volgorde`), it returns that day's real calendar date via the helper's `isoWeekDate`. The year comes from the week, never from today's date (it used the current calendar year, so on 1–3 Jan 2027 week 53 would have landed in Jan 2028). This is override-agnostic: a `week_overrides` row changes what's scheduled on a date, never which date a weekday position maps to, so a score row never goes stale when an override is added later. 2026-W53 runs 2026-12-28 .. 2027-01-03.
 
 **Trigger and gating differ by day type:**
 - Training: the tile long press toggles `completedDays` exactly as before; the score prompt (`ScorePromptModal`) opens *only* when that toggle results in completed = true, never when it un-completes. Correcting a bad score therefore takes two long presses — un-complete, then complete again, which re-opens the prompt pre-filled with the previous answer.
@@ -256,7 +260,7 @@ A subjective 1–5 score for "hoe ging de training?" and "hoe was je energie voo
 
 **Dismissing the prompt without answering writes nothing** — `score_training`/`score_motivatie` are `NOT NULL`, so a partial answer can't be persisted even by accident; the submit button stays disabled until both stars are chosen. `ScorePromptModal` is a new centred-overlay component (not a `BottomSheet` adaptation — that slides up from the bottom, the wrong pattern for a form). It adds three things `BottomSheet` has none of: scroll-lock (`document.body.style.overflow`), Escape-to-close, and Android back-gesture handling via a `history.pushState`/`popstate` pair (no `@capacitor/app` dependency needed — pushing a dummy entry makes the WebView's own `canGoBack()` true, so a back press fires `popstate` instead of falling through to the app's default exit/minimize, which is what happens today if the back button is pressed while `BottomSheet` is open — a separate, pre-existing gap, not fixed here). No focus trap — this app is touch-primary and no component anywhere manages focus.
 
-`dayScores` (state, `{ [datum]: { training, motivatie } }`) is fetched in `fetchUserData()` alongside `weights`/`completedDays`/`completedExercises`/`swaps` — user-entered interaction data, never part of the schema cache (`cached_schema_v6`), no cache-key bump needed.
+`dayScores` (state, `{ [datum]: { training, motivatie } }`) is fetched in `fetchUserData()` alongside `weights`/`completedDays`/`completedExercises`/`swaps` — user-entered interaction data, never part of the schema cache (`cached_schema_v7`), no cache-key bump needed.
 
 ## KB HIIT intervals
 
@@ -293,35 +297,38 @@ The Supabase table schema:
 exercise_swaps:
   original_exercise  text
   new_exercise       text
+  jaar               int    (ISO year, NOT NULL)
   week               int
   day                int    (day id, 1–4)
-  unique constraint on (original_exercise, week, day)
+  unique constraint on (original_exercise, jaar, week, day)   (no id column)
+  saveSwap upserts with onConflict "original_exercise,jaar,week,day"
 ```
 
 All swaps are fetched on mount alongside the other Supabase data.
 
 ## Supabase weight tracking
 
-On load, all rows are fetched from the `weights` table and stored in a `weights` map keyed by `"exerciseName__weekNumber"`. Clicking any exercise row expands a small panel with two number inputs for **M** and **Z** (one per person; no visible label, Z hidden). On input change, a debounced write fires: non-empty upserts the row, empty **deletes** it (see "Reps logging" below — clearing was a silent client-side-only no-op until 2026-09-16). When the user opens a different exercise, the current exercise's pending change — if any — is flushed to Supabase before switching (`flushSave`). The same flush runs when switching week or day tabs. `flushSave` only acts on a field whose debounce timer is still pending (i.e. actually edited since the last save); merely viewing an already-saved or never-logged exercise and closing it does nothing.
+On load, all rows are fetched from the `weights` table (paginated, see "ISO week + year") and stored in a `weights` map keyed by `"exerciseName__yw"`. Clicking any exercise row expands a small panel with two number inputs for **M** and **Z** (one per person; no visible label, Z hidden). On input change, a debounced write fires: non-empty upserts the row, empty **deletes** it (see "Reps logging" below — clearing was a silent client-side-only no-op until 2026-09-16). When the user opens a different exercise, the current exercise's pending change — if any — is flushed to Supabase before switching (`flushSave`). The same flush runs when switching week or day tabs. `flushSave` only acts on a field whose debounce timer is still pending (i.e. actually edited since the last save); merely viewing an already-saved or never-logged exercise and closing it does nothing.
 
 **Z field visibility** — The Z input field and the Z portion of the "Vorige week" reference line are hidden with `display: none` (not deleted). The data is still saved/loaded from Supabase. Hidden via: `display: person === "Z" ? "none" : "flex"` on input containers, and `<span style={{ display: "none" }}>` wrapping the `/ Z: ...` text in both the barbell section and `ExRow`.
 
 The `weights` Supabase table schema:
 ```
 exercise  text
-week      int        (absolute calendar week, e.g. 23–36)
+jaar      smallint   (ISO year, NOT NULL; see "ISO week + year")
+week      int        (ISO calendar week of jaar, e.g. 23–53)
 person    text       ('M' or 'Z')
 weight    numeric
 reps      integer    (nullable — logged rep count, see "Reps logging" below)
 deload    boolean    NOT NULL DEFAULT false — set on save, see "Deload weeks" below
-unique constraint on (exercise, week, person)
+unique constraint on (exercise, jaar, week, person) — saveMeasurement upserts with onConflict "exercise,jaar,week,person"
 ```
 
 ### Deload weeks
 
 A deload week (`schema_weeks.phase === "Deload"`, e.g. block 44–53 weeks 44 and 53) is logged like any other week, but its rows are **never** used as a reference afterwards. Otherwise the light deload weight would become next week's "Laatste keer" target exactly when building back up. Added 2026-10-19 (backlog item 3; migration `supabase/migrations/20261019_weights_deload.sql`). Week 37, the only earlier deload week, has no weight rows, so nothing was backfilled.
 
-- **Stored, set automatically.** `saveMeasurement` sends `deload: isDeloadWeek(weekNum, schema.weeks)` with every upsert; there is no manual toggle. `isDeloadWeek` is the one place that decides, and it uses an exact phase match. It never matches on `weight_hint` text ("deload · 80%" is display-only). The delete path (empty weight → DELETE) is unchanged.
+- **Stored, set automatically.** `saveMeasurement` sends `deload: isDeloadWeek(yw, schema.weeks)` with every upsert; there is no manual toggle. `isDeloadWeek` is the one place that decides, and it uses an exact phase match. It never matches on `weight_hint` text ("deload · 80%" is display-only). The delete path (empty weight → DELETE) is unchanged.
 - **One reader-side check.** `isReferenceWeight(entry)` (`entry?.deload !== true`, so a missing field counts as usable) is used by every reference reader: `findPrevWeight` (walks past deload weeks to the last real one, both in the week after and during the deload week itself), `buildPersonalRecords`, `measuredWeeksM` (summary PR kg / PR 1RM / sparkline), and the Progressie `chartData` filter.
 - **Day summary on a deload day:** `summarizeExercise` gives the delta chip "deload", no PR badges and no e1RM delta. The row's own kg × reps, its 1RM ≈ value and "Vorige keer" (the last real row) still show. On a deload day the sparkline therefore ends at the last real week, not today.
 - **Deliberately not filtered:** `dayHasSummary` and the summary's "logged this week" filter (a deload day must still open its summary, with the chip), plus the current-week reads (inputs, `effectiveReps`, `flushSave`, `handleRepsChange`, `PrText`'s current-weight highlight).
@@ -340,7 +347,7 @@ Alongside weight, one rep count per exercise per week per person is logged on `w
 
 **The stepper is display-only, never an input** — a `<span>`, not a focusable/tappable element, flanked by ± buttons (floor 1, soft cap 50, empty state renders `–`) — so a mistap can never summon a keyboard. `handleRepsChange(exercise, weekNum, person, value)` updates local state immediately and — only if a weight already exists for that row — schedules the same 500ms-debounced save as `handleWeightChange`, sharing its timer key so whichever of the two fires last wins (always the freshest values of both).
 
-Not in the schema cache (`cached_schema_v6`) and no cache-key bump for either half: logged reps is fetched in `fetchUserData()` alongside `weights` itself (same precedent as `completed_days`/`day_scores`); prescribed reps flows through the schema payload, but a stale cache simply lacking the new `ex.reps` field degrades to "no prefill" — already the correct fallback for HIIT/time/distance rows — not wrong data, so not worth forcing a full cache invalidation over.
+Not in the schema cache (`cached_schema_v7`) and no cache-key bump for either half: logged reps is fetched in `fetchUserData()` alongside `weights` itself (same precedent as `completed_days`/`day_scores`); prescribed reps flows through the schema payload, but a stale cache simply lacking the new `ex.reps` field degrades to "no prefill" — already the correct fallback for HIIT/time/distance rows — not wrong data, so not worth forcing a full cache invalidation over.
 
 Known gap, not fixed: since saving is gated on weight, core and other bodyweight exercises (which have no weight field to begin with — see `ExRow`'s core call site, which passes no weight/expand props at all) have no way to log reps either. For those, rep count is the only progression signal there is; this is unaddressed for now.
 
@@ -349,7 +356,7 @@ The `rest_day_goals` table schema:
 rest_day_goals:
   id            uuid (PK)
   schema_id     uuid (FK → schemas.id)
-  week_nummer   int        (0 = catch-all for every week; specific calWeek = override for that week only)
+  week_nummer   int        (0 = catch-all for every week; specific calWeek = override for that week only — a calendar week of the schema's jaar, verified 2026-10-20: values 0/30/31 only)
   dag_van_week  text       ('stretchen' | 'vrije_dag')
   type          text       (icon key: 'trap'|'sta_op'|'avond'|'vacuum' for stretchen; 'gezin'|'optioneel' for vrije_dag)
   beschrijving  text
@@ -360,25 +367,53 @@ The `week_overrides` table schema:
 ```
 id                  uuid (PK)
 schema_id           uuid (FK → schemas.id)
-week_nummer         int        (absolute calendar week, e.g. 30)
+week_nummer         int        (absolute calendar week of the schema's jaar, e.g. 30 — verified 2026-10-20: all 70 rows fall inside their schema's start_week..eind_week)
 dag_nummer          int        (dag_volgorde of the day to override: 1=Ma … 7=Zo)
 dag_van_week        text       ('rust' | 'training' | 'power_hour' | 'boksen') — no CHECK constraint on this column
 emoji               text       (nullable — tile emoji; defaults: 🏖️ for rust, 🕐 for power_hour, 🥊 for boksen)
 naam                text       (nullable — tile label; defaults: 'Vrije dag' for rust, 'Power Hour' for power_hour, 'Boksen' for boksen)
-unique constraint on (schema_id, week_nummer, dag_nummer)
+no unique constraint in the database (checked 2026-10-20: only the PK and a plain (schema_id, week_nummer) index) — "one row per (schema, week, weekday)" holds by convention
 ```
+
+Neither `week_overrides` nor `rest_day_goals` has a `jaar` column: both are scoped by `schema_id`, and a schema lies within one ISO year (`schemas.jaar`).
 
 An override can replace any day — a rest day, Power Hour, or a strength training day — with no restriction in code on which base type it targets; a historical row confirms this in practice (a week-31–36 Power Hour override actually replaces a training day, not a rest day). This is also how Boksen ever appears at all, since it has no `schema_days` row of its own.
 
-Overrides are fetched in `fetchSchemaData()` alongside schemas/schema_days/exercises and passed to `buildWeeks()`. Inside `buildWeeks`, an `overrideMap` keyed by `"calWeek__dagVolgorde"` is built per schema. When a day matches an override: `type` becomes `dag_van_week`; `emoji`/`naam` use the override values (or type-based fallbacks — see `specialActivityDefaults()` for `power_hour`/`boksen`, "Vrije dag"/🏖️ for anything else non-training); `dag_nummer` and `kleur` are set to `null`. `kleur` being null doesn't mean the tile renders gray, though: `WeekDayTile` falls back to a hardcoded `#f97316` for any `power_hour`/`boksen` day (via its own `isSpecialActivity` check) before falling back further to gray — so both render with the orange accent, not neutral gray. The override is baked into `localStorage["cached_schema_v6"]` so it works offline. Pull-to-refresh re-fetches and reapplies overrides.
+Overrides are fetched in `fetchSchemaData()` alongside schemas/schema_days/exercises and passed to `buildWeeks()`. Inside `buildWeeks`, an `overrideMap` keyed by `"calWeek__dagVolgorde"` is built per schema. When a day matches an override: `type` becomes `dag_van_week`; `emoji`/`naam` use the override values (or type-based fallbacks — see `specialActivityDefaults()` for `power_hour`/`boksen`, "Vrije dag"/🏖️ for anything else non-training); `dag_nummer` and `kleur` are set to `null`. `kleur` being null doesn't mean the tile renders gray, though: `WeekDayTile` falls back to a hardcoded `#f97316` for any `power_hour`/`boksen` day (via its own `isSpecialActivity` check) before falling back further to gray — so both render with the orange accent, not neutral gray. The override is baked into `localStorage["cached_schema_v7"]` so it works offline. Pull-to-refresh re-fetches and reapplies overrides.
 
 `power_hour` and `boksen` are grouped under `isSpecialActivity` — not a single shared constant, but the same boolean expression (`day.type === "power_hour" || day.type === "boksen"`) independently declared in two places (once inside `buildWeeks`, once inside `WeekDayTile`), kept in sync by convention rather than by importing a shared value. A third special-activity type would touch four sites, not one: both `isSpecialActivity` declarations, `specialActivityDefaults()` (naam/emoji fallback), and the info-card render gate (`day.type === "power_hour" && <PowerHourCard .../>` / `day.type === "boksen" && <BoksenCard .../>`, which would need a third sibling branch and card component).
 
 Important: Supabase `PostgrestBuilder` is a lazy promise — the HTTP request only fires when `.then()` is called or the result is awaited. Always chain `.then()` on upsert/insert calls, otherwise the request is silently dropped.
 
+## ISO week + year (`jaar`)
+
+Added 2026-10-20 (migrations `supabase/migrations/20261020_iso_jaar_a.sql` and `_b.sql`). Every week number in this app is an **ISO-8601 week of an ISO year**: "week 3" means week 3 of the current ISO year, and around New Year the two differ from the calendar year (1–3 Jan 2027 is **2026-W53**).
+
+- **The helper:** `src/isoWeek.js` (`isoWeekFromYmd`, `amsterdamYmd`, `currentIsoWeek`, `isoWeekDate`, `isoWeekSerial`). It has a twin in `supabase/functions/_shared/isoWeek.ts` (same functions plus `isoWeekOf(d)` for the Edge Functions' wall-clock Dates). There are two copies because the bundle-verify script rejects imports from outside `_shared/` and the Vercel project's root is this folder. `npm run test:isoweek` (`scripts/test-iso-week.mjs`) runs **both** copies against date-fns for every day 2020–2035 at 00:00/00:01/12:00/23:59 Amsterdam. Run it under `TZ=UTC`, `TZ=Europe/Amsterdam` and `TZ=America/Los_Angeles`; every run must report 0 mismatches. A change to one copy is a change to both.
+  - **Whole days in Europe/Amsterdam:** the date goes in as (y, m, d), never as a moment with a time of day.
+  - The old formula (`Math.ceil(days / 7)` on `new Date()`) existed three times (`currentWeekIndex` here, `currentCalWeek` in `_shared/today.ts`, a dead copy in voeding-app). It returned one week too many whenever the time of day was after 00:00:00 in years where Jan 1 is a Friday: 4 Jan 2027 → 2, and 1–2 Jan 2028 → 53. The test reproduces this as a negative control.
+- **Schema:** `jaar` (ISO year, NOT NULL, no DEFAULT in the end state) on `weights`, `completed_exercises`, `completed_days`, `exercise_swaps` and `schemas`. The four unique constraints include `jaar` (see the per-table schemas above), and every upsert's `onConflict` names those columns exactly; PostgREST rejects a target that doesn't match a unique constraint. `schemas` has `CHECK (start_week >= 1 AND start_week <= eind_week AND eind_week <= 53)`: a schema always lies within one ISO year. All rows from before the change are `jaar = 2026`. `exercises.week_nummer` / `schema_weeks.week_nummer` stay relative weeks; `week_overrides` / `rest_day_goals` get their year through `schema_id`. **A new schema must be inserted with its `jaar`.**
+- **In memory:** every week key is `yw = jaar * 100 + week`. Sorting `yw` numerically is sorting by (jaar, week). `buildWeeks` gives every week `jaar` and `yw` and returns all weeks of all years sorted by `yw`; `selectedWeek` is an index into that full list.
+- **Year-scoped (only the viewed year):** the week selector (only `w.jaar === viewYear`), schemas, and completion, swaps, overrides and rest-day goals — all naturally scoped by `yw` or `schemaId`.
+- **History crosses years**, always in (jaar, week) order, never by week alone: `findPrevWeight` ("Laatste keer" in 2027-W1 shows the last real week of 2026, labelled "Week 52 (2026)" when the year differs), `buildPersonalRecords`, `measuredWeeksM`, `summarizeExercise` (PR "earlier" = lower `yw`, sparkline), and the Progressie chart (all years; x labels `W52 '26` / `W1 '27` once the logged weeks span more than one year). `isReferenceWeight` (deload filter) is unchanged.
+- **Archive:** `viewYear` (state, **never persisted**) starts at today's ISO year via `initialView`. Any other year is the read-only archive (`readOnly`):
+  - The header turns grey (`#64748b`), the eyebrow reads "ARCHIEF 2026 · WEEK 44 – 53", and a "Naar 2027 →" pill returns in one tap. When the current year has no schema at all, the app opens the latest year as archive and shows "Nog geen schema voor 2027" instead of the pill.
+  - In archive: no weight/reps input (inputs disabled, steppers hidden), no ticking (exercise or day long-press), no swaps, no score modal. Every write function also returns early on `readOnly`.
+  - The day summary sheet and the chart work as normal.
+- **Pagination:** `fetchAllRows(table, orderColumns)` (1000 per page) for `exercises` (`volgorde, id`), `weights` (`jaar, week, id`) and `completed_exercises` (`jaar, week, day, exercise` — no id column, so the whole unique key is the tail). `completed_days`, `exercise_swaps` and `day_scores` are still single requests (far from 1000).
+- **Layout rule:** `usesSupersetLayout(w)` = everything except 2026 weeks < 31.
+- **Order of operations for the migration** (the live app keeps writing throughout):
+  1. Apply A: additive. `jaar` with a temporary `DEFAULT 2026`; the new unique constraints next to the old ones. The old app keeps working.
+  2. Deploy this app (merge → Vercel).
+  3. Deploy the Edge Functions (`_shared/today.ts` changed, so all three; see the edge-function-deploy skill).
+  4. Confirm in the Supabase API logs that the phone sends `on_conflict=exercise,jaar,week,person`.
+  5. Apply B: drop the old constraints and the DEFAULTs, **before Mon 4 Jan 2027**. After B, old code fails loudly (42P10 / NOT NULL) instead of mislabelling a row.
+
+  New code against the pre-A schema fails on its first read (`order=jaar`), which is why A comes first.
+
 ## Offline support & pull-to-refresh
 
-**Schema caching** — on successful Supabase fetch, the full schema is stored in `localStorage["cached_schema_v6"]` as JSON. On load, the app serves cached data immediately (cache-first), then fetches fresh data in the background and updates the cache. If Supabase is unreachable and a cache exists, a gray "offline" banner appears below the header (`schemaOffline` state). Cache key is `cached_schema_v6` (versioned to avoid stale structure issues).
+**Schema caching** — on successful Supabase fetch, the full schema is stored in `localStorage["cached_schema_v7"]` as JSON. On load, the app serves cached data immediately (cache-first), then fetches fresh data in the background and updates the cache. If Supabase is unreachable and a cache exists, a gray "offline" banner appears below the header (`schemaOffline` state). Cache key is `cached_schema_v7` (versioned to avoid stale structure issues).
 
 **Service worker** — `vite-plugin-pwa` generates a Workbox service worker that precaches all build assets (JS/CSS/HTML). This lets the Capacitor WebView load the app shell offline after the first online visit, before localStorage can even be read. Configured in `vite.config.js` with `registerType: 'autoUpdate'`.
 
@@ -408,7 +443,7 @@ Helper functions: `playBoxingBell()` (Web Audio API — defined but not called o
 
 ## Progressive overload pattern (schema 1, weeks 1–3)
 
-**Applies to schema 1 only (calWeeks 23–25).** Schema 2 uses supersets throughout; see `week.week >= 31` render branch.
+**Applies to schema 1 only (calWeeks 23–25).** Schema 2 uses supersets throughout; see the `usesSupersetLayout(week)` render branch.
 
 Within schema 1's first three relative weeks, the same exercises repeat with increasing volume (e.g. 3x → 4x → 5x sets) and the barbell notes say `"Focusgewicht"` → `"+5kg"` → `"+5kg piek"`. The `note` field on `spiergroep` exercises is `""` in week 1 and `"+gewicht"` in weeks 2–3.
 
