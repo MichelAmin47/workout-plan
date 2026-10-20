@@ -1,4 +1,7 @@
 import { supabase } from './supabaseClient.ts'
+import { isoWeekOf, type IsoWeek } from './isoWeek.ts'
+
+export { isoWeekOf, type IsoWeek }
 
 // ── "Today" resolution (Europe/Amsterdam wall-clock, not raw UTC) ──
 
@@ -15,16 +18,6 @@ export function amsterdamNow(): Date {
   }).formatToParts(new Date())
   const get = (type: string) => Number(parts.find((p) => p.type === type)?.value)
   return new Date(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'))
-}
-
-// Same algorithm as currentWeekIndex() in workout-app/fitness_schema.jsx,
-// so "today's" calendar week always matches what the app itself shows.
-export function currentCalWeek(d: Date): number {
-  const dow = d.getDay() || 7
-  const shifted = new Date(d)
-  shifted.setDate(shifted.getDate() + 4 - dow)
-  const jan1 = new Date(shifted.getFullYear(), 0, 1)
-  return Math.ceil(((shifted.getTime() - jan1.getTime()) / 86400000 + 1) / 7)
 }
 
 export function isoDateString(d: Date): string {
@@ -84,9 +77,13 @@ interface SchemaRef {
   id: string
 }
 
-async function resolveSchemaForWeek(calWeek: number): Promise<SchemaRef | null> {
-  const { data: schemas } = await supabase.from('schemas').select('id, start_week, eind_week')
-  return schemas?.find((s) => calWeek >= s.start_week && calWeek <= s.eind_week) ?? null
+// A schema lies within one ISO year (schemas.jaar); start_week/eind_week
+// are ISO weeks of that year. Same ISO week + year as the workout app
+// (isoWeek.ts has its twin in workout-app/src/isoWeek.js). week_overrides /
+// rest_day_goals carry no year of their own: their schema_id scopes them.
+async function resolveSchemaForWeek(week: IsoWeek): Promise<SchemaRef | null> {
+  const { data: schemas } = await supabase.from('schemas').select('id, jaar, start_week, eind_week').eq('jaar', week.isoYear)
+  return schemas?.find((s) => week.isoWeek >= s.start_week && week.isoWeek <= s.eind_week) ?? null
 }
 
 interface OverrideRow {
@@ -133,12 +130,12 @@ function pickDayPlan(weekday: number, overrides: OverrideRow[], schemaDays: Sche
   return { dayType: null, dagNummer: null, spiergroepNaam: null }
 }
 
-export async function resolveTodayWorkout(calWeek: number, weekday: number): Promise<string> {
-  const schema = await resolveSchemaForWeek(calWeek)
+export async function resolveTodayWorkout(week: IsoWeek, weekday: number): Promise<string> {
+  const schema = await resolveSchemaForWeek(week)
   if (!schema) return 'Er is geen actief trainingsschema gevonden voor deze week.'
 
   const [{ data: overrides }, { data: schemaDays }] = await Promise.all([
-    supabase.from('week_overrides').select('dag_nummer, dag_van_week, naam').eq('schema_id', schema.id).eq('week_nummer', calWeek),
+    supabase.from('week_overrides').select('dag_nummer, dag_van_week, naam').eq('schema_id', schema.id).eq('week_nummer', week.isoWeek),
     supabase.from('schema_days').select('dag_volgorde, type, dag_nummer, spiergroep_naam').eq('schema_id', schema.id),
   ])
   const { dayType, dagNummer, spiergroepNaam } = pickDayPlan(weekday, overrides ?? [], schemaDays ?? [])
@@ -152,8 +149,8 @@ export async function resolveTodayWorkout(calWeek: number, weekday: number): Pro
   }
 
   const [{ data: completedDay }, { data: completedExercises }] = await Promise.all([
-    supabase.from('completed_days').select('day').eq('week', calWeek).eq('day', dagNummer).limit(1),
-    supabase.from('completed_exercises').select('exercise').eq('week', calWeek).eq('day', dagNummer),
+    supabase.from('completed_days').select('day').eq('jaar', week.isoYear).eq('week', week.isoWeek).eq('day', dagNummer).limit(1),
+    supabase.from('completed_exercises').select('exercise').eq('jaar', week.isoYear).eq('week', week.isoWeek).eq('day', dagNummer),
   ])
 
   const label = spiergroepNaam ? `Vandaag is een trainingsdag: ${spiergroepNaam}.` : 'Vandaag is een trainingsdag.'
@@ -185,14 +182,14 @@ const WEEKDAY_LABELS = ['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo']
 // schema_days/week_overrides resolution as resolveTodayWorkout, reused via
 // pickDayPlan rather than re-implemented, batched into 3 queries total
 // instead of one round-trip per weekday.
-export async function resolveWeekPlan(calWeek: number, activeWeekday: number): Promise<WeekDayInfo[]> {
-  const schema = await resolveSchemaForWeek(calWeek)
+export async function resolveWeekPlan(week: IsoWeek, activeWeekday: number): Promise<WeekDayInfo[]> {
+  const schema = await resolveSchemaForWeek(week)
   if (!schema) return []
 
   const [{ data: overrides }, { data: schemaDays }, { data: completedDays }] = await Promise.all([
-    supabase.from('week_overrides').select('dag_nummer, dag_van_week, naam').eq('schema_id', schema.id).eq('week_nummer', calWeek),
+    supabase.from('week_overrides').select('dag_nummer, dag_van_week, naam').eq('schema_id', schema.id).eq('week_nummer', week.isoWeek),
     supabase.from('schema_days').select('dag_volgorde, type, dag_nummer, spiergroep_naam').eq('schema_id', schema.id),
-    supabase.from('completed_days').select('day').eq('week', calWeek),
+    supabase.from('completed_days').select('day').eq('jaar', week.isoYear).eq('week', week.isoWeek),
   ])
   const completedDagNummers = new Set((completedDays ?? []).map((d) => d.day))
 
@@ -218,21 +215,22 @@ export async function resolveYesterdayIfOutsideWeek(activeDate: Date, activeWeek
 
   const yesterday = new Date(activeDate)
   yesterday.setDate(yesterday.getDate() - 1)
-  const yesterdayCalWeek = currentCalWeek(yesterday)
+  // On Monday 2027-01-04 this is 2026-W53 (Sunday 2027-01-03).
+  const yesterdayWeek = isoWeekOf(yesterday)
   const yesterdayWeekday = yesterday.getDay() || 7
 
-  const schema = await resolveSchemaForWeek(yesterdayCalWeek)
+  const schema = await resolveSchemaForWeek(yesterdayWeek)
   if (!schema) return null
 
   const [{ data: overrides }, { data: schemaDays }] = await Promise.all([
-    supabase.from('week_overrides').select('dag_nummer, dag_van_week, naam').eq('schema_id', schema.id).eq('week_nummer', yesterdayCalWeek),
+    supabase.from('week_overrides').select('dag_nummer, dag_van_week, naam').eq('schema_id', schema.id).eq('week_nummer', yesterdayWeek.isoWeek),
     supabase.from('schema_days').select('dag_volgorde, type, dag_nummer, spiergroep_naam').eq('schema_id', schema.id),
   ])
   const { dayType, dagNummer, spiergroepNaam } = pickDayPlan(yesterdayWeekday, overrides ?? [], schemaDays ?? [])
 
   let completed: boolean | null = null
   if (dayType === 'training' && dagNummer != null) {
-    const { data: completedDay } = await supabase.from('completed_days').select('day').eq('week', yesterdayCalWeek).eq('day', dagNummer).limit(1)
+    const { data: completedDay } = await supabase.from('completed_days').select('day').eq('jaar', yesterdayWeek.isoYear).eq('week', yesterdayWeek.isoWeek).eq('day', dagNummer).limit(1)
     completed = Boolean(completedDay && completedDay.length > 0)
   }
 

@@ -31,7 +31,7 @@ those rules, the newer version wins.
 
 ### Which function bundles which shared file
 
-Derived from the import graph on 13 October 2026. **The script is the source
+Derived from the import graph on 13 October 2026; `isoWeek.ts` added 20 October 2026. **The script is the source
 of truth, not this table** — re-derive whenever imports change:
 
 ```bash
@@ -44,9 +44,12 @@ grep -rn "from '\.\./_shared\|from '\./" supabase/functions --include=*.ts | gre
 | `_shared/today.ts` | ✓ | ✓ | ✓ |
 | `_shared/anthropic.ts` | ✓ | ✓ (via summary.ts) | ✓ |
 | `_shared/summary.ts` | ✓ (via tools.ts) | ✓ | — |
+| `_shared/isoWeek.ts` | ✓ | ✓ (via today.ts) | ✓ (via today.ts) |
 
 So: a change to any `_shared/` file except `summary.ts` means **all three**
-functions are redeployed. A change to `summary.ts` means coach-chat and
+functions are redeployed. `supabase/scripts/print-deploy-payload.ts <slug>` prints a
+function's exact bundle from disk (names, sizes, SHA-256; `--json` for the
+`files` array). A change to `summary.ts` means coach-chat and
 close-day-cron.
 
 ### Three separate prompts

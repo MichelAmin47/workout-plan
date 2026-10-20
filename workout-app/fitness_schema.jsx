@@ -3,6 +3,7 @@ import { supabase } from "./src/supabase.js";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { Haptics, ImpactStyle } from "@capacitor/haptics";
 import { registerPlugin } from "@capacitor/core";
+import { currentIsoWeek, isoWeekDate } from "./src/isoWeek.js";
 const BatteryOptimization = registerPlugin("BatteryOptimization");
 const NativeTimer = registerPlugin("NativeTimer");
 
@@ -32,8 +33,20 @@ function hexA(hex, alpha) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-function wKey(exercise, week) {
-  return `${exercise}__${week}`;
+// Every in-memory week key is a "yw" (ISO year * 100 + ISO week, e.g.
+// 202653, 202701): sorting yw numerically is sorting by (jaar, week), so
+// history ordering and "earlier week" comparisons work across New Year.
+// week rows carry it as `w.yw`; Supabase rows are mapped with ywOf().
+function ywOf(jaar, week) {
+  return jaar * 100 + week;
+}
+
+function splitYw(yw) {
+  return { jaar: Math.floor(yw / 100), week: yw % 100 };
+}
+
+function wKey(exercise, yw) {
+  return `${exercise}__${yw}`;
 }
 
 // exercises.reps is free text: a single number ("8"), or — starting with
@@ -71,44 +84,39 @@ function estimatedOneRepMax(weight, reps) {
   return Math.round(weight * (1 + reps / 30) * 10) / 10;
 }
 
-function dKey(weekNum, dayId) {
-  return `${weekNum}__${dayId}`;
+function dKey(yw, dayId) {
+  return `${yw}__${dayId}`;
 }
 
-// Reverse of currentWeekIndex's ISO-week math (date -> week): given a
-// calendar week number and an ISO weekday (1=Mon..7=Sun, same numbering
-// as schema_days.dag_volgorde), returns that day's actual calendar date
-// as YYYY-MM-DD. Standard ISO-8601 anchor (week 1 is always the week
-// containing 4 January), run forward from Jan 4 rather than
-// currentWeekIndex's Thursday-shift trick — easier to invert cleanly.
-// Assumes the target week falls in the current year: nothing in this
-// app's data model disambiguates a week number across a year boundary
-// (schemas has no year column) — the same assumption currentWeekIndex's
-// own `new Date()` reliance already makes everywhere else. Not a new gap.
-function dateForDay(calWeek, dagVolgorde) {
-  const now = new Date();
-  const jan4 = new Date(now.getFullYear(), 0, 4);
-  const jan4Dow = jan4.getDay() || 7;
-  const week1Monday = new Date(jan4);
-  week1Monday.setDate(jan4.getDate() - jan4Dow + 1);
-  const target = new Date(week1Monday);
-  target.setDate(week1Monday.getDate() + (calWeek - 1) * 7 + (dagVolgorde - 1));
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}`;
+// The calendar date (YYYY-MM-DD) of a day in a week object: ISO weekday
+// dagVolgorde (1=Mon..7=Sun, same numbering as schema_days.dag_volgorde)
+// of ISO week w.week of ISO year w.jaar. 2026-W53 runs 2026-12-28 ..
+// 2027-01-03; the year comes from the week, never from today's date.
+function dateForDay(w, dagVolgorde) {
+  return isoWeekDate(w.jaar, w.week, dagVolgorde);
 }
 
-function eKey(exercise, weekNum, dayId) {
-  return `${exercise}__${weekNum}__${dayId}`;
+function eKey(exercise, yw, dayId) {
+  return `${exercise}__${yw}__${dayId}`;
 }
 
-function sKey(original, weekNum, dayId) {
-  return `${original}__${weekNum}__${dayId}`;
+function sKey(original, yw, dayId) {
+  return `${original}__${yw}__${dayId}`;
+}
+
+// The schema-1 block (2026 weeks 23-30) is the only one laid out as
+// Barbell hoofdoefening + Spiergroep; every later block uses supersets.
+// Was `week.yw >= 31`, which would have put 2027 weeks 1-30 back on the
+// old layout. Data-driven detection doesn't work (schema 1 has two
+// "Superset 1" notes of its own).
+function usesSupersetLayout(w) {
+  return !(w.jaar === 2026 && w.week < 31);
 }
 
 // The one "is this week a deload" check, used by the write path to set
 // weights.deload. Exact match on schema_weeks.phase, never on weight_hint.
-function isDeloadWeek(weekNum, weeks) {
-  return weeks.find(w => w.week === weekNum)?.phase === "Deload";
+function isDeloadWeek(yw, weeks) {
+  return weeks.find(w => w.yw === yw)?.phase === "Deload";
 }
 
 // The one "may this weights entry serve as a reference" check: a deload
@@ -118,15 +126,25 @@ function isReferenceWeight(entry) {
   return entry?.deload !== true;
 }
 
-function findPrevWeight(exerciseName, currentWeek, weights) {
-  for (let w = currentWeek - 1; w >= 1; w--) {
-    const entry = weights[wKey(exerciseName, w)];
+// The most recent earlier week (highest yw below currentYw, across years —
+// in 2027-W1 that is the last real week of 2026) with a logged M or Z
+// reference weight. The label names the year only when it differs from
+// the current week's year.
+function findPrevWeight(exerciseName, currentYw, weights) {
+  let best = null;
+  for (const [k, entry] of Object.entries(weights)) {
+    const i = k.lastIndexOf("__");
+    if (k.slice(0, i) !== exerciseName) continue;
+    const yw = Number(k.slice(i + 2));
+    if (yw >= currentYw || (best && yw <= best.yw)) continue;
     if (!isReferenceWeight(entry)) continue;
-    if (entry && (entry.M !== "" && entry.M != null || entry.Z !== "" && entry.Z != null)) {
-      return { M: entry.M, Z: entry.Z, repsM: entry.repsM, repsZ: entry.repsZ, weekNum: w, label: `Laatste keer — Week ${w}` };
-    }
+    if (entry && (entry.M !== "" && entry.M != null || entry.Z !== "" && entry.Z != null)) best = { yw, entry };
   }
-  return null;
+  if (!best) return null;
+  const { yw, entry } = best;
+  const { jaar, week } = splitYw(yw);
+  const yearSuffix = jaar !== splitYw(currentYw).jaar ? ` (${jaar})` : "";
+  return { M: entry.M, Z: entry.Z, repsM: entry.repsM, repsZ: entry.repsZ, weekNum: yw, label: `Laatste keer — Week ${week}${yearSuffix}` };
 }
 
 // All-time highest logged M weight per exact exercise string, over every
@@ -154,8 +172,8 @@ function formatNl(n, decimals) {
 }
 
 // Every week with a numeric M weight for this exact exercise string,
-// ascending. Same key parsing as buildPersonalRecords. Only M. Deload
-// rows are left out.
+// ascending by yw, i.e. by (jaar, week) — across years. Same key parsing as
+// buildPersonalRecords. Only M. Deload rows are left out.
 function measuredWeeksM(exercise, weights) {
   const out = [];
   for (const [k, entry] of Object.entries(weights)) {
@@ -165,23 +183,23 @@ function measuredWeeksM(exercise, weights) {
     if (entry?.M === "" || entry?.M == null) continue;
     const kg = Number(entry.M);
     if (!Number.isFinite(kg)) continue;
-    out.push({ week: Number(k.slice(i + 2)), kg, reps: usableReps(entry.repsM) });
+    out.push({ yw: Number(k.slice(i + 2)), kg, reps: usableReps(entry.repsM) });
   }
-  return out.sort((a, b) => a.week - b.week);
+  return out.sort((a, b) => a.yw - b.yw);
 }
 
-// Whether `name` took part in an exercise swap in `weekNum` (as original or
+// Whether `name` took part in an exercise swap in week `yw` (as original or
 // replacement). Swapped weeks have no reliable prescription for the name.
-function swappedInWeek(name, weekNum, swaps) {
+function swappedInWeek(name, yw, swaps) {
   return Object.entries(swaps).some(([k, v]) => {
     const [original, w] = k.split("__");
-    return Number(w) === weekNum && (original === name || v === name);
+    return Number(w) === yw && (original === name || v === name);
   });
 }
 
 // Day summary row for one exercise in one week (person M). "Vorige keer"
 // is findPrevWeight, the same lookup as the "Laatste keer" line. PRs are
-// strictly greater than every earlier (lower) week; ties and "no earlier
+// strictly greater than every earlier (lower yw, any year) week; ties and "no earlier
 // week" are not a PR. PR 1RM needs usable reps today and only compares
 // against earlier weeks that have usable reps.
 //
@@ -194,21 +212,21 @@ function swappedInWeek(name, weekNum, swaps) {
 // A deload row today gets the "deload" chip, no PRs and no e1RM delta.
 // "Vorige keer", PRs and the sparkline never include deload rows (see
 // findPrevWeight / measuredWeeksM).
-function summarizeExercise(name, weekNum, weights, prescribedReps = {}, swaps = {}) {
-  const entry = weights[wKey(name, weekNum)];
+function summarizeExercise(name, yw, weights, prescribedReps = {}, swaps = {}) {
+  const entry = weights[wKey(name, yw)];
   const deload = !isReferenceWeight(entry);
   const kg = Number(entry?.M);
   const reps = usableReps(entry?.repsM);
   const e1rm = reps != null ? estimatedOneRepMax(kg, reps) : null;
 
-  const prevResult = findPrevWeight(name, weekNum, weights);
+  const prevResult = findPrevWeight(name, yw, weights);
   const prevKg = prevResult && prevResult.M !== "" && prevResult.M != null ? Number(prevResult.M) : null;
   const prevReps = prevResult ? usableReps(prevResult.repsM) : null;
 
-  const presToday = prescribedReps[wKey(name, weekNum)];
+  const presToday = prescribedReps[wKey(name, yw)];
   const presPrev = prevResult ? prescribedReps[wKey(name, prevResult.weekNum)] : undefined;
   const newRepRange = presToday != null && presPrev != null && presToday !== presPrev
-    && !swappedInWeek(name, weekNum, swaps) && !swappedInWeek(name, prevResult.weekNum, swaps);
+    && !swappedInWeek(name, yw, swaps) && !swappedInWeek(name, prevResult.weekNum, swaps);
 
   let delta;
   if (deload) delta = { label: "deload", up: false };
@@ -233,11 +251,11 @@ function summarizeExercise(name, weekNum, weights, prescribedReps = {}, swaps = 
   }
 
   const measured = measuredWeeksM(name, weights);
-  const earlier = measured.filter(m => m.week < weekNum);
+  const earlier = measured.filter(m => m.yw < yw);
   const prKg = !deload && earlier.length > 0 && kg > Math.max(...earlier.map(m => m.kg));
   const earlier1rm = earlier.filter(m => m.reps != null).map(m => estimatedOneRepMax(m.kg, m.reps));
   const pr1rm = !deload && e1rm != null && earlier1rm.length > 0 && e1rm > Math.max(...earlier1rm);
-  const spark = measured.filter(m => m.week <= weekNum).slice(-6)
+  const spark = measured.filter(m => m.yw <= yw).slice(-6)
     .map(m => ({ kg: m.kg, e1rm: m.reps != null ? estimatedOneRepMax(m.kg, m.reps) : null }));
 
   return { name, kg, reps, e1rm, e1rmDelta, prevKg, prevReps, delta, prKg, pr1rm, spark };
@@ -246,17 +264,17 @@ function summarizeExercise(name, weekNum, weights, prescribedReps = {}, swaps = 
 // Whether the selected day has anything to summarize: a score row, a
 // completed_days row, or an M weights row for one of the day's exercises
 // (by displayed name) in that week. Z never counts.
-function dayHasSummary(day, weekNum, { dayScores, completedDays, weights, swaps }) {
+function dayHasSummary(day, w, { dayScores, completedDays, weights, swaps }) {
   if (day.type === "power_hour" || day.type === "boksen") {
-    return Boolean(dayScores[dateForDay(weekNum, day.dag_volgorde)]);
+    return Boolean(dayScores[dateForDay(w, day.dag_volgorde)]);
   }
   if (day.type !== "training") return false;
-  if (dayScores[dateForDay(weekNum, day.dag_volgorde)]) return true;
-  if (day.dag_nummer != null && completedDays.has(dKey(weekNum, day.dag_nummer))) return true;
+  if (dayScores[dateForDay(w, day.dag_volgorde)]) return true;
+  if (day.dag_nummer != null && completedDays.has(dKey(w.yw, day.dag_nummer))) return true;
   return [day.barbell, ...day.spiergroep, ...day.kettlebell, ...day.core, ...day.mobility].some((ex) => {
     if (!ex?.name) return false;
-    const name = swaps[sKey(ex.name, weekNum, day.dag_nummer)] ?? ex.name;
-    const m = weights[wKey(name, weekNum)]?.M;
+    const name = swaps[sKey(ex.name, w.yw, day.dag_nummer)] ?? ex.name;
+    const m = weights[wKey(name, w.yw)]?.M;
     return m !== "" && m != null;
   });
 }
@@ -405,14 +423,11 @@ const KB_EXERCISES = [
   "KB Thruster", "KB Turkish Get-Up", "KB Windmill", "KB Wood Chop",
 ];
 
-// Bumped from v5: v5's cached JSON has no `mobility` field on training-day
-// objects at all (the field didn't exist yet), so a stale v5 cache would
-// paint days with `day.mobility` undefined until the fresh fetch lands —
-// every `day.mobility.map(...)`/`...day.mobility` call site assumes an
-// array, not undefined, same as the existing barbell/spiergroep/kettlebell/
-// core fields. See the mount effect below for the matching v5 cleanup
-// (mirrors the v2/v3/v4 ones).
-const SCHEMA_CACHE_KEY = "cached_schema_v6";
+// Bumped from v6: v6's cached weeks have no `jaar`/`yw` (ISO year, year-
+// week key), so a stale v6 cache would key every lookup on undefined until
+// the fresh fetch lands. See the mount effect below for the matching v6
+// cleanup (mirrors the v2-v5 ones).
+const SCHEMA_CACHE_KEY = "cached_schema_v7";
 
 // Fallback naam/emoji for a "special activity" day (Power Hour, Boksen) when
 // an override doesn't supply its own — mirrors the isTraining/isRust
@@ -422,7 +437,7 @@ function specialActivityDefaults(type) {
   return { naam: "Power Hour", emoji: "🕐" };
 }
 
-const EXERCISES_PAGE_SIZE = 1000;
+const PAGE_SIZE = 1000;
 
 // PostgREST caps a single response at 1000 rows by default. The exercises
 // table crossed that threshold today (two inserts: a 9-row mobility batch
@@ -442,25 +457,22 @@ const EXERCISES_PAGE_SIZE = 1000;
 // `.order("id")` as a second sort key makes the ordering total and
 // deterministic across all page requests.
 //
-// weights and completed_exercises use this exact same unpaginated
-// .select("*") pattern (fetchUserData, below) and will hit the same cap
-// later as they grow — currently 364 and 414 rows, not urgent yet, but the
-// same fix applies there when they get close to 1000.
-async function fetchAllExercises() {
+// weights and completed_exercises (fetchUserData, below) are paged the
+// same way — they reach 1000 rows around summer 2027. Their order ends in a
+// unique tail too: weights (jaar, week, id); completed_exercises has no id,
+// so its whole unique key (jaar, week, day, exercise).
+async function fetchAllRows(table, orderColumns) {
   const rows = [];
   let from = 0;
   while (true) {
-    const { data, error } = await supabase
-      .from("exercises")
-      .select("*")
-      .order("volgorde")
-      .order("id")
-      .range(from, from + EXERCISES_PAGE_SIZE - 1);
+    let query = supabase.from(table).select("*");
+    for (const column of orderColumns) query = query.order(column);
+    const { data, error } = await query.range(from, from + PAGE_SIZE - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
     rows.push(...data);
-    if (data.length < EXERCISES_PAGE_SIZE) break;
-    from += EXERCISES_PAGE_SIZE;
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
   }
   return rows;
 }
@@ -536,18 +548,32 @@ function buildWeeks(schemas, schemaDays, exercises, weekOverrides = [], schemaWe
           mobility: dayExs.filter(e => e.categorie === "mobility").map(toEx),
         };
       });
-      allWeeks.push({ week: calWeek, label: `Week ${calWeek}`, phase, schemaId: s.id, startWeek: s.start_week, eindWeek: s.eind_week, days });
+      allWeeks.push({ week: calWeek, jaar: s.jaar, yw: ywOf(s.jaar, calWeek), label: `Week ${calWeek}`, phase, schemaId: s.id, startWeek: s.start_week, eindWeek: s.eind_week, days });
     }
   }
-  return allWeeks;
+  // (jaar, week) order across schemas and years; a schema lies within one
+  // ISO year, so yw order is the calendar order.
+  return allWeeks.sort((a, b) => a.yw - b.yw);
 }
 
-function currentWeekIndex(allWeeks) {
-  const d = new Date();
-  const dow = d.getDay() || 7;
-  d.setDate(d.getDate() + 4 - dow);
-  const isoWeek = Math.ceil(((d - new Date(d.getFullYear(), 0, 1)) / 86400000 + 1) / 7);
-  return allWeeks.findIndex(w => w.label === `Week ${isoWeek}`);
+// Where the app opens: today's ISO week of today's ISO year (Amsterdam
+// days, from the helper — on 1-3 Jan 2027 that is still 2026-W53). A gap
+// week with no schema opens the nearest earlier week of the same year,
+// else that year's first week. A year with no schema at all opens the
+// latest year that has one, on its last week — viewYear then differs from
+// the current ISO year, so it is shown read-only as archive.
+function initialView(allWeeks, today = currentIsoWeek()) {
+  const indexed = allWeeks.map((w, index) => ({ w, index }));
+  const thisYear = indexed.filter(({ w }) => w.jaar === today.isoYear);
+  if (thisYear.length === 0) {
+    if (indexed.length === 0) return { index: 0, viewYear: today.isoYear };
+    const latest = Math.max(...allWeeks.map(w => w.jaar));
+    return { index: indexed.filter(({ w }) => w.jaar === latest).at(-1).index, viewYear: latest };
+  }
+  const exact = thisYear.find(({ w }) => w.week === today.isoWeek);
+  const earlier = thisYear.filter(({ w }) => w.week < today.isoWeek);
+  const pick = exact ?? earlier.at(-1) ?? thisYear[0];
+  return { index: pick.index, viewYear: today.isoYear };
 }
 
 export default function FitnessSchema() {
@@ -555,8 +581,15 @@ export default function FitnessSchema() {
   const [selectedDay, setSelectedDay] = useState(() => {
     const saved = localStorage.getItem("selectedDay");
     if (saved !== null) { const n = Number(saved); if (n >= 0 && n <= 6) return n; }
-    return (new Date().getDay() + 6) % 7; // Mon=0, Sun=6
+    return currentIsoWeek().weekday - 1; // Mon=0, Sun=6 (Amsterdam)
   });
+  // The ISO year whose weeks the selector shows. Set at mount by
+  // initialView (the current ISO year, or the latest year with schemas when
+  // the current one has none) and by the year sheet. Never persisted: the
+  // app always reopens in the current ISO year. Any other year is the
+  // read-only archive.
+  const [viewYear, setViewYear] = useState(() => currentIsoWeek().isoYear);
+  const [yearSheetOpen, setYearSheetOpen] = useState(false);
   const [schemaGen, setSchemaGen] = useState(0);
   const [weights, setWeights] = useState({});
   const [savedIndicators, setSavedIndicators] = useState({});
@@ -596,9 +629,9 @@ export default function FitnessSchema() {
 
   const fetchSchemaData = async () => {
     const [{ data: schemas }, { data: schemaDays }, exercises, { data: weekOverrides }, { data: restDayGoals }, { data: schemaWeeks }] = await Promise.all([
-      supabase.from("schemas").select("*").order("start_week"),
+      supabase.from("schemas").select("*").order("jaar").order("start_week"),
       supabase.from("schema_days").select("*"),
-      fetchAllExercises(),
+      fetchAllRows("exercises", ["volgorde", "id"]),
       supabase.from("week_overrides").select("*"),
       supabase.from("rest_day_goals").select("*"),
       supabase.from("schema_weeks").select("*"),
@@ -614,17 +647,20 @@ export default function FitnessSchema() {
   };
 
   const fetchUserData = async () => {
+    // Paged fetches resolve to the same { data } shape as a single request,
+    // so one failing table still leaves the others' state untouched.
+    const paged = (table, order) => fetchAllRows(table, order).then(data => ({ data }), error => ({ data: null, error }));
     const [wRes, cdRes, ceRes, swRes, dsRes] = await Promise.all([
-      supabase.from("weights").select("*"),
+      paged("weights", ["jaar", "week", "id"]),
       supabase.from("completed_days").select("*"),
-      supabase.from("completed_exercises").select("*"),
+      paged("completed_exercises", ["jaar", "week", "day", "exercise"]),
       supabase.from("exercise_swaps").select("*"),
       supabase.from("day_scores").select("*"),
     ]);
     if (wRes.data) {
       const map = {};
       for (const row of wRes.data) {
-        const k = wKey(row.exercise, row.week);
+        const k = wKey(row.exercise, ywOf(row.jaar, row.week));
         if (!map[k]) map[k] = { M: "", Z: "" };
         map[k][row.person] = row.weight ?? "";
         map[k][`reps${row.person}`] = row.reps ?? "";
@@ -633,11 +669,11 @@ export default function FitnessSchema() {
       }
       setWeights(map);
     }
-    if (cdRes.data) setCompletedDays(new Set(cdRes.data.map(r => dKey(r.week, r.day))));
-    if (ceRes.data) setCompletedExercises(new Set(ceRes.data.map(r => eKey(r.exercise, r.week, r.day))));
+    if (cdRes.data) setCompletedDays(new Set(cdRes.data.map(r => dKey(ywOf(r.jaar, r.week), r.day))));
+    if (ceRes.data) setCompletedExercises(new Set(ceRes.data.map(r => eKey(r.exercise, ywOf(r.jaar, r.week), r.day))));
     if (swRes.data) {
       const map = {};
-      for (const row of swRes.data) map[sKey(row.original_exercise, row.week, row.day)] = row.new_exercise;
+      for (const row of swRes.data) map[sKey(row.original_exercise, ywOf(row.jaar, row.week), row.day)] = row.new_exercise;
       setSwaps(map);
     }
     if (dsRes.data) {
@@ -678,16 +714,25 @@ export default function FitnessSchema() {
     // v5 -> v6: v5's cached JSON has no `mobility` field on training-day
     // objects — same stale-cache reasoning as every bump above.
     try { localStorage.removeItem("cached_schema_v5"); } catch { /* localStorage unavailable */ }
+    // v6 -> v7: v6's cached weeks have no `jaar`/`yw` — same stale-cache
+    // reasoning as every bump above.
+    try { localStorage.removeItem("cached_schema_v6"); } catch { /* localStorage unavailable */ }
 
     let hasCache = false;
+    // True when the cache opened the "no schema this ISO year" archive
+    // fallback: the fresh fetch may carry the new year's schema, so the
+    // view is chosen again then.
+    let cacheFellBack = false;
     try {
       const raw = localStorage.getItem(SCHEMA_CACHE_KEY);
       if (raw) {
         const { weeks, restDayGoals } = JSON.parse(raw);
         if (weeks?.length) {
           setSchema({ weeks, restDayGoals: restDayGoals || [] });
-          const idx = currentWeekIndex(weeks);
-          if (idx >= 0) setSelectedWeek(idx);
+          const view = initialView(weeks);
+          setSelectedWeek(view.index);
+          setViewYear(view.viewYear);
+          cacheFellBack = view.viewYear !== currentIsoWeek().isoYear;
           setSchemaLoading(false);
           hasCache = true;
         }
@@ -698,9 +743,10 @@ export default function FitnessSchema() {
       .then(({ weeks: allWeeks, restDayGoals }) => {
         localStorage.setItem(SCHEMA_CACHE_KEY, JSON.stringify({ weeks: allWeeks, restDayGoals }));
         setSchema({ weeks: allWeeks, restDayGoals });
-        if (!hasCache) {
-          const idx = currentWeekIndex(allWeeks);
-          if (idx >= 0) setSelectedWeek(idx);
+        if (!hasCache || cacheFellBack) {
+          const view = initialView(allWeeks);
+          setSelectedWeek(view.index);
+          setViewYear(view.viewYear);
         }
         setSchemaOffline(false);
         setSchemaLoading(false);
@@ -762,8 +808,27 @@ export default function FitnessSchema() {
     </div>
   );
 
-  const todayDayIdx = (new Date().getDay() + 6) % 7;
+  const today = currentIsoWeek();
+  // Viewing any year other than today's ISO year (on 1-3 Jan 2027 that is
+  // still 2026) is the archive: grey header, every write path a no-op.
+  const readOnly = viewYear !== today.isoYear;
+  const brandColor = readOnly ? "#64748b" : "#f37121";
+  const todayDayIdx = today.weekday - 1;
   const week = schema.weeks[selectedWeek];
+  const schemaYears = [...new Set(schema.weeks.map(w => w.jaar))].sort((a, b) => b - a);
+  const currentYearHasSchema = schemaYears.includes(today.isoYear);
+  // Switches the selector to another year: today's week (or initialView's
+  // fallback) for the current year, the year's last week for an archive year.
+  const switchYear = (jaar) => {
+    closeAndSave();
+    setSummaryOpen(false);
+    setYearSheetOpen(false);
+    const idx = jaar === today.isoYear
+      ? initialView(schema.weeks, today).index
+      : schema.weeks.findLastIndex(w => w.jaar === jaar);
+    if (idx >= 0) setSelectedWeek(idx);
+    setViewYear(jaar);
+  };
   const day = week.days[selectedDay] ?? week.days.find(d => d.type === "training") ?? week.days[0];
   const colors = day.dag_nummer
     ? {
@@ -797,7 +862,7 @@ export default function FitnessSchema() {
     for (const d of w.days) {
       if (d.type !== "training") continue;
       for (const ex of [d.barbell, ...d.spiergroep, ...d.kettlebell, ...d.core]) {
-        if (ex?.name && ex.reps != null) prescribedReps[wKey(ex.name, w.week)] = ex.reps;
+        if (ex?.name && ex.reps != null) prescribedReps[wKey(ex.name, w.yw)] = ex.reps;
       }
     }
   }
@@ -811,10 +876,10 @@ export default function FitnessSchema() {
   // once, `weights[k].reps<person>` becomes a real value and this stops
   // falling back, the same "touched vs untouched" signal weight already
   // uses.
-  const effectiveReps = (exercise, weekNum, person) => {
-    const val = weights[wKey(exercise, weekNum)]?.[`reps${person}`];
+  const effectiveReps = (exercise, yw, person) => {
+    const val = weights[wKey(exercise, yw)]?.[`reps${person}`];
     if (val !== "" && val != null) return val;
-    const prescribed = prescribedReps[wKey(exercise, weekNum)];
+    const prescribed = prescribedReps[wKey(exercise, yw)];
     return prescribed != null ? prescribed : "";
   };
 
@@ -823,23 +888,31 @@ export default function FitnessSchema() {
   // local state, never the database; see CLAUDE.md "Reps logging" for the
   // history). No saved-indicator flash for a delete: that checkmark means
   // "your number was saved," and there's no number to confirm here.
-  const saveMeasurement = (exercise, weekNum, person, weightValue, repsValue) => {
+  //
+  // Every write in this file sends `jaar` explicitly (the column has no
+  // DEFAULT), and every upsert's onConflict names the jaar-including unique
+  // constraint exactly — PostgREST needs that match. Every write is also a
+  // no-op in the read-only archive (readOnly).
+  const saveMeasurement = (exercise, yw, person, weightValue, repsValue) => {
+    if (readOnly) return;
+    const { jaar, week: weekNr } = splitYw(yw);
     if (weightValue === "" || weightValue === null || weightValue === undefined) {
       supabase.from("weights")
         .delete()
         .eq("exercise", exercise)
-        .eq("week", weekNum)
+        .eq("jaar", jaar)
+        .eq("week", weekNr)
         .eq("person", person)
         .then(({ error }) => { if (error) console.error("[saveMeasurement delete error]", error); });
       return;
     }
     const reps = (repsValue === "" || repsValue === null || repsValue === undefined) ? null : Number(repsValue);
     supabase.from("weights").upsert(
-      { exercise, week: weekNum, person, weight: Number(weightValue), reps, deload: isDeloadWeek(weekNum, schema.weeks) },
-      { onConflict: "exercise,week,person" }
+      { exercise, jaar, week: weekNr, person, weight: Number(weightValue), reps, deload: isDeloadWeek(yw, schema.weeks) },
+      { onConflict: "exercise,jaar,week,person" }
     ).then(({ error }) => {
       if (error) { console.error("[saveMeasurement error]", error); return; }
-      const indicatorKey = `${exercise}__${weekNum}__${person}`;
+      const indicatorKey = `${exercise}__${yw}__${person}`;
       setSavedIndicators((prev) => ({ ...prev, [indicatorKey]: true }));
       setTimeout(() => setSavedIndicators((prev) => {
         const next = { ...prev }; delete next[indicatorKey]; return next;
@@ -855,12 +928,12 @@ export default function FitnessSchema() {
   // delete for every exercise that simply happens to be unlogged. The
   // timer's presence is the one signal that distinguishes "just edited"
   // from "already matches the database, nothing to do."
-  const flushSave = (exerciseName, weekNum) => {
-    const k = wKey(exerciseName, weekNum);
+  const flushSave = (exerciseName, yw) => {
+    const k = wKey(exerciseName, yw);
     const w = weights[k] || {};
     const pending = {};
     ["M", "Z"].forEach((person) => {
-      const timerKey = `${exerciseName}__${weekNum}__${person}`;
+      const timerKey = `${exerciseName}__${yw}__${person}`;
       if (saveTimers.current[timerKey]) {
         pending[person] = true;
         clearTimeout(saveTimers.current[timerKey]);
@@ -876,9 +949,9 @@ export default function FitnessSchema() {
       // Clearing deletes the whole row, so its reps go with it — falling
       // back to effectiveReps here (as the save path does) would leave a
       // stale reps number mirrored for a row that no longer exists.
-      const reps = isClearing ? "" : effectiveReps(exerciseName, weekNum, person);
+      const reps = isClearing ? "" : effectiveReps(exerciseName, yw, person);
       stateUpdate[`reps${person}`] = reps;
-      saveMeasurement(exerciseName, weekNum, person, value, reps);
+      saveMeasurement(exerciseName, yw, person, value, reps);
     });
     setWeights((prev) => ({
       ...prev,
@@ -887,15 +960,16 @@ export default function FitnessSchema() {
   };
 
   const handleExerciseClick = (name) => {
-    const weekNum = week.week;
+    const yw = week.yw;
     if (expandedExercise && expandedExercise !== name) {
-      flushSave(expandedExercise, weekNum);
+      flushSave(expandedExercise, yw);
     }
     setExpandedExercise((prev) => (prev === name ? null : name));
   };
 
-  const handleWeightChange = (exercise, weekNum, person, value) => {
-    const k = wKey(exercise, weekNum);
+  const handleWeightChange = (exercise, yw, person, value) => {
+    if (readOnly) return;
+    const k = wKey(exercise, yw);
     const isClearing = value === "" || value === null || value === undefined;
     // Computed once, used for both the local mirror and the save below, so
     // the two can never disagree — this is what was missing: the save used
@@ -905,18 +979,18 @@ export default function FitnessSchema() {
     // about to be deleted entirely, so reps resets to empty rather than
     // falling back to the prescribed number — there is no row left for
     // that number to describe.
-    const reps = isClearing ? "" : effectiveReps(exercise, weekNum, person);
+    const reps = isClearing ? "" : effectiveReps(exercise, yw, person);
     // Mirrors the deload flag saveMeasurement sends, so findPrevWeight
     // (which reads this state) skips a deload row without a restart.
     setWeights((prev) => ({
       ...prev,
-      [k]: { ...(prev[k] || { M: "", Z: "" }), [person]: value, [`reps${person}`]: reps, deload: isDeloadWeek(weekNum, schema.weeks) },
+      [k]: { ...(prev[k] || { M: "", Z: "" }), [person]: value, [`reps${person}`]: reps, deload: isDeloadWeek(yw, schema.weeks) },
     }));
-    const timerKey = `${exercise}__${weekNum}__${person}`;
+    const timerKey = `${exercise}__${yw}__${person}`;
     clearTimeout(saveTimers.current[timerKey]);
     saveTimers.current[timerKey] = setTimeout(() => {
       delete saveTimers.current[timerKey];
-      saveMeasurement(exercise, weekNum, person, value, reps);
+      saveMeasurement(exercise, yw, person, value, reps);
     }, 500);
   };
 
@@ -926,8 +1000,9 @@ export default function FitnessSchema() {
   // the same debounce timer key as handleWeightChange, so whichever call
   // (weight or reps) fires last wins — correct, since it always captures
   // the freshest value of both at the moment it's scheduled.
-  const handleRepsChange = (exercise, weekNum, person, value) => {
-    const k = wKey(exercise, weekNum);
+  const handleRepsChange = (exercise, yw, person, value) => {
+    if (readOnly) return;
+    const k = wKey(exercise, yw);
     const field = `reps${person}`;
     setWeights((prev) => ({
       ...prev,
@@ -935,43 +1010,49 @@ export default function FitnessSchema() {
     }));
     const weightValue = weights[k]?.[person];
     if (weightValue === "" || weightValue == null) return;
-    const timerKey = `${exercise}__${weekNum}__${person}`;
+    const timerKey = `${exercise}__${yw}__${person}`;
     clearTimeout(saveTimers.current[timerKey]);
     saveTimers.current[timerKey] = setTimeout(() => {
       delete saveTimers.current[timerKey];
-      saveMeasurement(exercise, weekNum, person, weightValue, value);
+      saveMeasurement(exercise, yw, person, weightValue, value);
     }, 500);
   };
 
   const closeAndSave = () => {
     if (expandedExercise) {
-      flushSave(expandedExercise, week.week);
+      flushSave(expandedExercise, week.yw);
       setExpandedExercise(null);
     }
   };
 
-  const saveSwap = (original, newExercise, weekNum, dayId) => {
-    const k = sKey(original, weekNum, dayId);
+  const saveSwap = (original, newExercise, yw, dayId) => {
+    if (readOnly) return;
+    const k = sKey(original, yw, dayId);
+    const { jaar, week: weekNr } = splitYw(yw);
     setSwaps((prev) => ({ ...prev, [k]: newExercise }));
     supabase.from("exercise_swaps").upsert(
-      { original_exercise: original, new_exercise: newExercise, week: weekNum, day: dayId },
-      { onConflict: "original_exercise,week,day" }
+      { original_exercise: original, new_exercise: newExercise, jaar, week: weekNr, day: dayId },
+      { onConflict: "original_exercise,jaar,week,day" }
     ).then(({ error }) => { if (error) console.error("[saveSwap error]", error); });
     setSwapModal(null);
   };
 
-  const revertSwap = (original, weekNum, dayId) => {
-    const k = sKey(original, weekNum, dayId);
+  const revertSwap = (original, yw, dayId) => {
+    if (readOnly) return;
+    const k = sKey(original, yw, dayId);
+    const { jaar, week: weekNr } = splitYw(yw);
     setSwaps((prev) => { const next = { ...prev }; delete next[k]; return next; });
     supabase.from("exercise_swaps")
       .delete()
       .eq("original_exercise", original)
-      .eq("week", weekNum)
+      .eq("jaar", jaar)
+      .eq("week", weekNr)
       .eq("day", dayId)
       .then(({ error }) => { if (error) console.error("[revertSwap error]", error); });
   };
 
   const saveScore = (datum, training, motivatie) => {
+    if (readOnly) return;
     setDayScores((prev) => ({ ...prev, [datum]: { training, motivatie } }));
     supabase.from("day_scores").upsert(
       { datum, score_training: training, score_motivatie: motivatie },
@@ -1002,12 +1083,13 @@ export default function FitnessSchema() {
 
   const bbStartPress = (e) => {
     bbLongPressed.current = false;
+    if (readOnly) return;
     const t = e.touches?.[0];
     if (t) bbStartPos.current = { x: t.clientX, y: t.clientY };
     bbTimerRef.current = setTimeout(() => {
       bbLongPressed.current = true;
       triggerImpact();
-      toggleExerciseCompletion(day.barbell.name, week.week, day.dag_nummer);
+      toggleExerciseCompletion(day.barbell.name, week.yw, day.dag_nummer);
     }, 1000);
   };
   const bbCancelPress = () => clearTimeout(bbTimerRef.current);
@@ -1017,25 +1099,29 @@ export default function FitnessSchema() {
     if (Math.abs(t.clientX - bbStartPos.current.x) > 10 || Math.abs(t.clientY - bbStartPos.current.y) > 10) bbCancelPress();
   };
 
-  const toggleDayCompletion = (weekNum, dayId) => {
-    const k = dKey(weekNum, dayId);
+  const toggleDayCompletion = (yw, dayId) => {
+    if (readOnly) return;
+    const k = dKey(yw, dayId);
+    const { jaar, week: weekNr } = splitYw(yw);
     if (completedDays.has(k)) {
       setCompletedDays((prev) => { const s = new Set(prev); s.delete(k); return s; });
-      supabase.from("completed_days").delete().eq("week", weekNum).eq("day", dayId).then();
+      supabase.from("completed_days").delete().eq("jaar", jaar).eq("week", weekNr).eq("day", dayId).then();
     } else {
       setCompletedDays((prev) => new Set([...prev, k]));
-      supabase.from("completed_days").insert({ week: weekNum, day: dayId }).then();
+      supabase.from("completed_days").insert({ jaar, week: weekNr, day: dayId }).then();
     }
   };
 
-  const toggleExerciseCompletion = (exercise, weekNum, dayId) => {
-    const k = eKey(exercise, weekNum, dayId);
+  const toggleExerciseCompletion = (exercise, yw, dayId) => {
+    if (readOnly) return;
+    const k = eKey(exercise, yw, dayId);
+    const { jaar, week: weekNr } = splitYw(yw);
     if (completedExercises.has(k)) {
       setCompletedExercises((prev) => { const s = new Set(prev); s.delete(k); return s; });
-      supabase.from("completed_exercises").delete().eq("exercise", exercise).eq("week", weekNum).eq("day", dayId).then();
+      supabase.from("completed_exercises").delete().eq("exercise", exercise).eq("jaar", jaar).eq("week", weekNr).eq("day", dayId).then();
     } else {
       setCompletedExercises((prev) => new Set([...prev, k]));
-      supabase.from("completed_exercises").insert({ exercise, week: weekNum, day: dayId }).then();
+      supabase.from("completed_exercises").insert({ exercise, jaar, week: weekNr, day: dayId }).then();
     }
   };
 
@@ -1082,12 +1168,25 @@ export default function FitnessSchema() {
         );
       })()}
 
-      {/* Header */}
-      <div style={{ background: "#f37121", color: "#fff", padding: "14px 20px 20px", textAlign: "center" }}>
+      {/* Header — orange for the current ISO year, grey for the read-only
+          archive. The eyebrow opens the year sheet. */}
+      <div style={{ background: brandColor, color: "#fff", padding: "14px 20px 20px", textAlign: "center", transition: "background 0.2s" }}>
         {week.startWeek != null && week.eindWeek != null && (
-          <div style={{ fontSize: 11, letterSpacing: 4, textTransform: "uppercase", color: "rgba(255,255,255,0.75)", marginBottom: 6 }}>
-            Week {week.startWeek} – {week.eindWeek}
-          </div>
+          <button
+            onClick={() => setYearSheetOpen(true)}
+            aria-label="Kies jaar"
+            style={{ background: "none", border: "none", padding: "3px 6px 1px", margin: "0 0 4px", cursor: "pointer", fontFamily: "inherit", fontSize: 11, lineHeight: "17px", letterSpacing: 4, textTransform: "uppercase", color: "rgba(255,255,255,0.75)" }}
+          >
+            {readOnly ? `Archief ${week.jaar}` : week.jaar} · Week {week.startWeek} – {week.eindWeek}
+            {/* Chevron as an SVG one cap-height tall sitting on the
+                baseline, so its centre is the capitals' centre line in
+                whatever font the phone renders (a "⌄" glyph sits at the
+                bottom of its own box and rode low). The attributes are the
+                fallback where the `cap` unit is unsupported. */}
+            <svg aria-hidden="true" viewBox="0 0 10 10" width="0.7em" height="0.7em" style={{ width: "1cap", height: "1cap", marginLeft: 6, verticalAlign: "baseline", overflow: "visible" }}>
+              <path d="M1.5 3.25 L5 6.75 L8.5 3.25" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
         )}
         <h1 style={{ margin: 0, fontSize: 26, fontWeight: 700, letterSpacing: -0.5 }}>
           {week.startWeek != null && week.eindWeek != null ? `Week ${week.week - week.startWeek + 1} van ${week.eindWeek - week.startWeek + 1}` : "Trainingsschema"}
@@ -1097,6 +1196,20 @@ export default function FitnessSchema() {
             {week.phase}
           </span>
         </div>
+        {readOnly && (
+          currentYearHasSchema ? (
+            <button
+              onClick={() => switchYear(today.isoYear)}
+              style={{ marginTop: 12, background: "rgba(255,255,255,0.2)", color: "#fff", border: "none", borderRadius: 20, padding: "6px 16px", fontSize: 13, fontWeight: 700, fontFamily: "sans-serif", cursor: "pointer" }}
+            >
+              Naar {today.isoYear} →
+            </button>
+          ) : (
+            <div style={{ marginTop: 12, fontSize: 13, fontFamily: "sans-serif", color: "rgba(255,255,255,0.85)" }}>
+              Nog geen schema voor {today.isoYear}
+            </div>
+          )
+        )}
       </div>
 
       {/* Offline indicator */}
@@ -1110,7 +1223,7 @@ export default function FitnessSchema() {
       {/* Week selector */}
       <div style={{ background: "#fff", borderBottom: "1px solid #eee", padding: "14px 16px", overflowX: "auto" }}>
         <div style={{ display: "flex", gap: 8, justifyContent: "center", minWidth: "fit-content", margin: "0 auto" }}>
-          {schema.weeks.map((w, i) => (
+          {schema.weeks.map((w, i) => w.jaar === viewYear && (
             <button
               key={i}
               ref={el => weekButtonRefs.current[i] = el}
@@ -1123,7 +1236,7 @@ export default function FitnessSchema() {
                 fontFamily: "sans-serif",
                 fontSize: 13,
                 fontWeight: selectedWeek === i ? 700 : 400,
-                background: selectedWeek === i ? "#f37121" : "#f0f0f0",
+                background: selectedWeek === i ? brandColor : "#f0f0f0",
                 color: selectedWeek === i ? "#fff" : "#555",
                 transition: "all 0.15s",
                 whiteSpace: "nowrap",
@@ -1142,19 +1255,19 @@ export default function FitnessSchema() {
             key={`${schemaGen}-${i}`}
             day={d}
             isSelected={selectedDay === i}
-            isToday={todayDayIdx === i}
+            isToday={!readOnly && todayDayIdx === i}
             isCompleted={
               d.type === "training"
-                ? (d.dag_nummer != null && completedDays.has(dKey(week.week, d.dag_nummer)))
-                : (d.type === "power_hour" || d.type === "boksen") && Boolean(dayScores[dateForDay(week.week, d.dag_volgorde)])
+                ? (d.dag_nummer != null && completedDays.has(dKey(week.yw, d.dag_nummer)))
+                : (d.type === "power_hour" || d.type === "boksen") && Boolean(dayScores[dateForDay(week, d.dag_volgorde)])
             }
             onSelect={() => { closeAndSave(); setSummaryOpen(false); setSelectedDay(i); }}
-            onOpenSummary={selectedDay === i && d === day && dayHasSummary(d, week.week, { dayScores, completedDays, weights, swaps }) ? () => setSummaryOpen(true) : undefined}
-            onLongPress={() => {
-              const datum = dateForDay(week.week, d.dag_volgorde);
+            onOpenSummary={selectedDay === i && d === day && dayHasSummary(d, week, { dayScores, completedDays, weights, swaps }) ? () => setSummaryOpen(true) : undefined}
+            onLongPress={readOnly ? undefined : () => {
+              const datum = dateForDay(week, d.dag_volgorde);
               if (d.type === "training" && d.dag_nummer != null) {
-                const willComplete = !completedDays.has(dKey(week.week, d.dag_nummer));
-                toggleDayCompletion(week.week, d.dag_nummer);
+                const willComplete = !completedDays.has(dKey(week.yw, d.dag_nummer));
+                toggleDayCompletion(week.yw, d.dag_nummer);
                 if (willComplete) setScorePrompt({ datum, dayLabel: d.naam });
               } else if (d.type === "power_hour" || d.type === "boksen") {
                 setScorePrompt({ datum, dayLabel: d.naam });
@@ -1180,8 +1293,8 @@ export default function FitnessSchema() {
         })()}
 
         {(day.type === "power_hour" || day.type === "boksen") && (() => {
-          const datum = dateForDay(week.week, day.dag_volgorde);
-          const onOpenPrompt = () => setScorePrompt({ datum, dayLabel: day.naam });
+          const datum = dateForDay(week, day.dag_volgorde);
+          const onOpenPrompt = readOnly ? undefined : () => setScorePrompt({ datum, dayLabel: day.naam });
           return day.type === "power_hour"
             ? <PowerHourCard day={day} score={dayScores[datum]} onOpenPrompt={onOpenPrompt} />
             : <BoksenCard day={day} score={dayScores[datum]} onOpenPrompt={onOpenPrompt} />;
@@ -1214,15 +1327,15 @@ export default function FitnessSchema() {
                 note={ex.note}
                 accent="#0d9488"
                 light="#ccfbf1"
-                completed={completedExercises.has(eKey(ex.name, week.week, day.dag_nummer))}
-                onLongPress={() => toggleExerciseCompletion(ex.name, week.week, day.dag_nummer)}
+                completed={completedExercises.has(eKey(ex.name, week.yw, day.dag_nummer))}
+                onLongPress={readOnly ? undefined : () => toggleExerciseCompletion(ex.name, week.yw, day.dag_nummer)}
               />
             ))}
           </Section>
         )}
 
         {/* Barbell */}
-        {week.week >= 31 ? (() => {
+        {usesSupersetLayout(week) ? (() => {
           const superset1 = [
             { ...day.barbell, categorie: "barbell" },
             ...day.spiergroep.filter(ex => ex.note === "Superset 1"),
@@ -1232,7 +1345,7 @@ export default function FitnessSchema() {
           const ssProps = {
             expandedExercise,
             onToggle: handleExerciseClick,
-            weekNum: week.week,
+            yw: week.yw,
             dayId: day.dag_nummer,
             weights,
             savedIndicators,
@@ -1241,7 +1354,8 @@ export default function FitnessSchema() {
             onRepsChange: (name, wk, person, val) => handleRepsChange(name, wk, person, val),
             getEffectiveReps: effectiveReps,
             personalRecords,
-            toggleCompletion: toggleExerciseCompletion,
+            toggleCompletion: readOnly ? undefined : toggleExerciseCompletion,
+            readOnly,
             lightColor: colors.light,
           };
           return (
@@ -1253,9 +1367,9 @@ export default function FitnessSchema() {
             {los.length > 0 && (
               <Section title="Losse oefeningen" icon="🎯" accent={colors.accent} timerSeconds={90} timerActive={activeTimer === "losse"} onTimerClick={() => handleTimerClick("losse", "Losse oefeningen", "🎯", 90, colors.accent)}>
                 {los.map((ex, i) => {
-                  const k = wKey(ex.name, week.week);
+                  const k = wKey(ex.name, week.yw);
                   const w = weights[k] || { M: "", Z: "" };
-                  const prevResult = findPrevWeight(ex.name, week.week, weights);
+                  const prevResult = findPrevWeight(ex.name, week.yw, weights);
                   const prevW = prevResult || { M: null, Z: null };
                   return (
                     <ExRow
@@ -1271,20 +1385,21 @@ export default function FitnessSchema() {
                       onToggle={() => handleExerciseClick(ex.name)}
                       weightM={w.M}
                       weightZ={w.Z}
-                      onWeightChange={(person, value) => handleWeightChange(ex.name, week.week, person, value)}
-                      repsM={effectiveReps(ex.name, week.week, "M")}
-                      repsZ={effectiveReps(ex.name, week.week, "Z")}
-                      onRepsChange={(person, value) => handleRepsChange(ex.name, week.week, person, value)}
+                      onWeightChange={(person, value) => handleWeightChange(ex.name, week.yw, person, value)}
+                      readOnly={readOnly}
+                      repsM={effectiveReps(ex.name, week.yw, "M")}
+                      repsZ={effectiveReps(ex.name, week.yw, "Z")}
+                      onRepsChange={(person, value) => handleRepsChange(ex.name, week.yw, person, value)}
                       prevWeightM={prevW.M}
                       prevWeightZ={prevW.Z}
                       prevRepsM={prevW.repsM}
                       prevRepsZ={prevW.repsZ}
                       prevWeekLabel={prevResult?.label}
                       pr={personalRecords[ex.name]}
-                      savedM={!!savedIndicators[`${ex.name}__${week.week}__M`]}
-                      savedZ={!!savedIndicators[`${ex.name}__${week.week}__Z`]}
-                      completed={completedExercises.has(eKey(ex.name, week.week, day.dag_nummer))}
-                      onLongPress={() => toggleExerciseCompletion(ex.name, week.week, day.dag_nummer)}
+                      savedM={!!savedIndicators[`${ex.name}__${week.yw}__M`]}
+                      savedZ={!!savedIndicators[`${ex.name}__${week.yw}__Z`]}
+                      completed={completedExercises.has(eKey(ex.name, week.yw, day.dag_nummer))}
+                      onLongPress={readOnly ? undefined : () => toggleExerciseCompletion(ex.name, week.yw, day.dag_nummer)}
                     />
                   );
                 })}
@@ -1303,12 +1418,12 @@ export default function FitnessSchema() {
               onTimerClick={() => handleTimerClick("barbell", "Barbell Hoofdoefening", "🏋️", 120, "#f37121")}
             >
           {(() => {
-            const k = wKey(day.barbell.name, week.week);
+            const k = wKey(day.barbell.name, week.yw);
             const w = weights[k] || { M: "", Z: "" };
-            const prevResult = findPrevWeight(day.barbell.name, week.week, weights);
+            const prevResult = findPrevWeight(day.barbell.name, week.yw, weights);
             const prevW = prevResult || { M: null, Z: null };
             const hasPrev = prevW.M !== "" && prevW.M != null || prevW.Z !== "" && prevW.Z != null;
-            const barbellCompleted = completedExercises.has(eKey(day.barbell.name, week.week, day.dag_nummer));
+            const barbellCompleted = completedExercises.has(eKey(day.barbell.name, week.yw, day.dag_nummer));
             return (
               <div style={{ borderRadius: 10, overflow: "hidden" }}>
                 <div
@@ -1335,25 +1450,27 @@ export default function FitnessSchema() {
                   >
                     <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
                       {["M", "Z"].map((person) => {
-                        const currentReps = effectiveReps(day.barbell.name, week.week, person);
+                        const currentReps = effectiveReps(day.barbell.name, week.yw, person);
                         const currentRepsNum = currentReps === "" || currentReps == null ? null : Number(currentReps);
                         return (
                         <div key={person} style={{ display: person === "Z" ? "none" : "flex", alignItems: "center", gap: 6 }}>
                           <input
                             type="number"
+                            disabled={readOnly}
                             step="any"
                             min={0}
                             value={person === "M" ? w.M : w.Z}
-                            onChange={(e) => handleWeightChange(day.barbell.name, week.week, person, e.target.value)}
+                            onChange={(e) => handleWeightChange(day.barbell.name, week.yw, person, e.target.value)}
                             placeholder="kg"
                             style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }}
                           />
-                          <span style={{ display: "inline-flex", width: 14, justifyContent: "center", color: "#16a34a", fontSize: 14, fontWeight: 700, lineHeight: 1, visibility: savedIndicators[`${day.barbell.name}__${week.week}__${person}`] ? "visible" : "hidden" }}>✓</span>
+                          <span style={{ display: "inline-flex", width: 14, justifyContent: "center", color: "#16a34a", fontSize: 14, fontWeight: 700, lineHeight: 1, visibility: savedIndicators[`${day.barbell.name}__${week.yw}__${person}`] ? "visible" : "hidden" }}>✓</span>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
                             <button
                               type="button"
+                              hidden={readOnly}
                               disabled={currentRepsNum == null}
-                              onClick={() => handleRepsChange(day.barbell.name, week.week, person, String(Math.max(1, currentRepsNum - 1)))}
+                              onClick={() => handleRepsChange(day.barbell.name, week.yw, person, String(Math.max(1, currentRepsNum - 1)))}
                               style={{ width: 26, height: 26, borderRadius: 6, border: "1px solid #e0c8b8", background: "#fff", color: "#888", fontSize: 14, fontWeight: 700, lineHeight: 1, cursor: currentRepsNum == null ? "default" : "pointer", opacity: currentRepsNum == null ? 0.4 : 1 }}
                             >−</button>
                             <span style={{ minWidth: 18, textAlign: "center", fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#1a1a1a", userSelect: "none" }}>
@@ -1361,7 +1478,8 @@ export default function FitnessSchema() {
                             </span>
                             <button
                               type="button"
-                              onClick={() => handleRepsChange(day.barbell.name, week.week, person, String(Math.min(50, (currentRepsNum ?? 0) + 1)))}
+                              hidden={readOnly}
+                              onClick={() => handleRepsChange(day.barbell.name, week.yw, person, String(Math.min(50, (currentRepsNum ?? 0) + 1)))}
                               style={{ width: 26, height: 26, borderRadius: 6, border: "1px solid #e0c8b8", background: "#fff", color: "#888", fontSize: 14, fontWeight: 700, lineHeight: 1, cursor: "pointer" }}
                             >+</button>
                           </div>
@@ -1391,9 +1509,9 @@ export default function FitnessSchema() {
           onTimerClick={() => handleTimerClick("spiergroep", "Spiergroep Oefeningen", "🎯", 90, colors.accent)}
         >
           {day.spiergroep.map((ex, i) => {
-            const k = wKey(ex.name, week.week);
+            const k = wKey(ex.name, week.yw);
             const w = weights[k] || { M: "", Z: "" };
-            const prevResult = findPrevWeight(ex.name, week.week, weights);
+            const prevResult = findPrevWeight(ex.name, week.yw, weights);
             const prevW = prevResult || { M: null, Z: null };
             return (
               <ExRow
@@ -1409,20 +1527,21 @@ export default function FitnessSchema() {
                 onToggle={() => handleExerciseClick(ex.name)}
                 weightM={w.M}
                 weightZ={w.Z}
-                onWeightChange={(person, value) => handleWeightChange(ex.name, week.week, person, value)}
-                repsM={effectiveReps(ex.name, week.week, "M")}
-                repsZ={effectiveReps(ex.name, week.week, "Z")}
-                onRepsChange={(person, value) => handleRepsChange(ex.name, week.week, person, value)}
+                onWeightChange={(person, value) => handleWeightChange(ex.name, week.yw, person, value)}
+                readOnly={readOnly}
+                repsM={effectiveReps(ex.name, week.yw, "M")}
+                repsZ={effectiveReps(ex.name, week.yw, "Z")}
+                onRepsChange={(person, value) => handleRepsChange(ex.name, week.yw, person, value)}
                 prevWeightM={prevW.M}
                 prevWeightZ={prevW.Z}
                 prevRepsM={prevW.repsM}
                 prevRepsZ={prevW.repsZ}
                 prevWeekLabel={prevResult?.label}
                 pr={personalRecords[ex.name]}
-                savedM={!!savedIndicators[`${ex.name}__${week.week}__M`]}
-                savedZ={!!savedIndicators[`${ex.name}__${week.week}__Z`]}
-                completed={completedExercises.has(eKey(ex.name, week.week, day.dag_nummer))}
-                onLongPress={() => toggleExerciseCompletion(ex.name, week.week, day.dag_nummer)}
+                savedM={!!savedIndicators[`${ex.name}__${week.yw}__M`]}
+                savedZ={!!savedIndicators[`${ex.name}__${week.yw}__Z`]}
+                completed={completedExercises.has(eKey(ex.name, week.yw, day.dag_nummer))}
+                onLongPress={readOnly ? undefined : () => toggleExerciseCompletion(ex.name, week.yw, day.dag_nummer)}
               />
             );
           })}
@@ -1476,18 +1595,18 @@ export default function FitnessSchema() {
                   </div>
                 )}
                 {day.kettlebell.map((ex, i) => {
-                  const sk = sKey(ex.name, week.week, day.dag_nummer);
+                  const sk = sKey(ex.name, week.yw, day.dag_nummer);
                   const swappedName = swaps[sk];
                   const displayName = swappedName || ex.name;
-                  const k = wKey(displayName, week.week);
+                  const k = wKey(displayName, week.yw);
                   const w = weights[k] || { M: "", Z: "" };
-                  const prevResult = findPrevWeight(displayName, week.week, weights);
+                  const prevResult = findPrevWeight(displayName, week.yw, weights);
                   const prevW = prevResult || { M: null, Z: null };
                   return (
                     <SwipeableRow
                       key={i}
-                      onSwipeRight={() => { closeAndSave(); setSwapModal({ original: ex.name, week: week.week, day: day.dag_nummer, options: KB_EXERCISES }); }}
-                      onSwipeLeft={swappedName ? () => revertSwap(ex.name, week.week, day.dag_nummer) : undefined}
+                      onSwipeRight={readOnly ? undefined : () => { closeAndSave(); setSwapModal({ original: ex.name, week: week.yw, day: day.dag_nummer, options: KB_EXERCISES }); }}
+                      onSwipeLeft={swappedName && !readOnly ? () => revertSwap(ex.name, week.yw, day.dag_nummer) : undefined}
                     >
                       <ExRow
                         num={i + 1}
@@ -1501,20 +1620,21 @@ export default function FitnessSchema() {
                         onToggle={() => handleExerciseClick(displayName)}
                         weightM={w.M}
                         weightZ={w.Z}
-                        onWeightChange={(person, value) => handleWeightChange(displayName, week.week, person, value)}
-                        repsM={effectiveReps(displayName, week.week, "M")}
-                        repsZ={effectiveReps(displayName, week.week, "Z")}
-                        onRepsChange={(person, value) => handleRepsChange(displayName, week.week, person, value)}
+                        onWeightChange={(person, value) => handleWeightChange(displayName, week.yw, person, value)}
+                        readOnly={readOnly}
+                        repsM={effectiveReps(displayName, week.yw, "M")}
+                        repsZ={effectiveReps(displayName, week.yw, "Z")}
+                        onRepsChange={(person, value) => handleRepsChange(displayName, week.yw, person, value)}
                         prevWeightM={prevW.M}
                         prevWeightZ={prevW.Z}
                         prevRepsM={prevW.repsM}
                         prevRepsZ={prevW.repsZ}
                         prevWeekLabel={prevResult?.label}
                         pr={personalRecords[displayName]}
-                        savedM={!!savedIndicators[`${displayName}__${week.week}__M`]}
-                        savedZ={!!savedIndicators[`${displayName}__${week.week}__Z`]}
-                        completed={completedExercises.has(eKey(displayName, week.week, day.dag_nummer))}
-                        onLongPress={() => toggleExerciseCompletion(displayName, week.week, day.dag_nummer)}
+                        savedM={!!savedIndicators[`${displayName}__${week.yw}__M`]}
+                        savedZ={!!savedIndicators[`${displayName}__${week.yw}__Z`]}
+                        completed={completedExercises.has(eKey(displayName, week.yw, day.dag_nummer))}
+                        onLongPress={readOnly ? undefined : () => toggleExerciseCompletion(displayName, week.yw, day.dag_nummer)}
                         swapped={!!swappedName}
                         originalName={swappedName ? ex.name : undefined}
                         hiitInterval={ex.hiitInterval || hiitInterval}
@@ -1537,14 +1657,14 @@ export default function FitnessSchema() {
           onTimerClick={() => handleTimerClick("core", "Core Finisher", "🔥", 45, "#7c3aed")}
         >
           {day.core.map((ex, i) => {
-            const sk = sKey(ex.name, week.week, day.dag_nummer);
+            const sk = sKey(ex.name, week.yw, day.dag_nummer);
             const swappedName = swaps[sk];
             const displayName = swappedName || ex.name;
             return (
               <SwipeableRow
                 key={i}
-                onSwipeRight={() => { closeAndSave(); setSwapModal({ original: ex.name, week: week.week, day: day.dag_nummer, options: CORE_EXERCISES }); }}
-                onSwipeLeft={swappedName ? () => revertSwap(ex.name, week.week, day.dag_nummer) : undefined}
+                onSwipeRight={readOnly ? undefined : () => { closeAndSave(); setSwapModal({ original: ex.name, week: week.yw, day: day.dag_nummer, options: CORE_EXERCISES }); }}
+                onSwipeLeft={swappedName && !readOnly ? () => revertSwap(ex.name, week.yw, day.dag_nummer) : undefined}
               >
                 <ExRow
                   num={i + 1}
@@ -1554,8 +1674,8 @@ export default function FitnessSchema() {
                   accent="#7c3aed"
                   light="#ede9fe"
                   optional={ex.optional}
-                  completed={completedExercises.has(eKey(displayName, week.week, day.dag_nummer))}
-                  onLongPress={() => toggleExerciseCompletion(displayName, week.week, day.dag_nummer)}
+                  completed={completedExercises.has(eKey(displayName, week.yw, day.dag_nummer))}
+                  onLongPress={readOnly ? undefined : () => toggleExerciseCompletion(displayName, week.yw, day.dag_nummer)}
                   swapped={!!swappedName}
                   originalName={swappedName ? ex.name : undefined}
                 />
@@ -1602,13 +1722,20 @@ export default function FitnessSchema() {
           const selEx = progressieExercise ?? allExercises[0];
           // A week whose entry is a deload row is dropped entirely (no
           // x-tick, no null point), so neither line breaks at a deload week.
-          const chartData = schema.weeks.filter(w => isReferenceWeight(weights[wKey(selEx, w.week)])).map(w => {
-            const entry = weights[wKey(selEx, w.week)];
+          // History crosses years: every schema week of every year, in
+          // (jaar, week) order (schema.weeks is sorted by yw). Labels carry
+          // the year ("W52 '26", "W1 '27") only when the weeks with data
+          // span more than one year.
+          const chartWeeks = schema.weeks.filter(w => isReferenceWeight(weights[wKey(selEx, w.yw)]));
+          const loggedYears = new Set(chartWeeks.filter(w => weights[wKey(selEx, w.yw)]).map(w => w.jaar));
+          const chartLabel = (w) => loggedYears.size > 1 ? `W${w.week} '${String(w.jaar).slice(-2)}` : `W${w.week}`;
+          const chartData = chartWeeks.map(w => {
+            const entry = weights[wKey(selEx, w.yw)];
             const mVal = entry?.M;
             const mWeight = mVal !== "" && mVal != null ? Number(mVal) : null;
             const mReps = usableReps(entry?.repsM);
             return {
-              week: `W${w.label.replace("Week ", "")}`,
+              week: chartLabel(w),
               M: mWeight,
               repsM: mReps,
               M1RM: mWeight != null && mReps != null ? estimatedOneRepMax(mWeight, mReps) : null,
@@ -1768,14 +1895,14 @@ export default function FitnessSchema() {
       )}
 
       {summaryOpen && (() => {
-        const datum = dateForDay(week.week, day.dag_volgorde);
+        const datum = dateForDay(week, day.dag_volgorde);
         let groups = [];
         let finisherBlocks = [];
         if (day.type === "training") {
-          const displayName = (ex) => swaps[sKey(ex.name, week.week, day.dag_nummer)] ?? ex.name;
+          const displayName = (ex) => swaps[sKey(ex.name, week.yw, day.dag_nummer)] ?? ex.name;
           // Same grouping as the day screen above (schema 2: supersets +
           // losse oefeningen; schema 1: barbell + spiergroep).
-          const raw = week.week >= 31
+          const raw = usesSupersetLayout(week)
             ? [
                 { title: "Superset 1", exercises: [day.barbell, ...day.spiergroep.filter(ex => ex.note === "Superset 1")] },
                 { title: "Superset 2", exercises: day.spiergroep.filter(ex => ex.note === "Superset 2") },
@@ -1791,8 +1918,8 @@ export default function FitnessSchema() {
               rows: g.exercises
                 .filter(ex => ex?.name)
                 .map(displayName)
-                .filter(name => { const m = weights[wKey(name, week.week)]?.M; return m !== "" && m != null; })
-                .map(name => summarizeExercise(name, week.week, weights, prescribedReps, swaps)),
+                .filter(name => { const m = weights[wKey(name, week.yw)]?.M; return m !== "" && m != null; })
+                .map(name => summarizeExercise(name, week.yw, weights, prescribedReps, swaps)),
             }))
             .filter(g => g.rows.length > 0);
           // Same order, names and colours as the day screen's sections;
@@ -1806,7 +1933,7 @@ export default function FitnessSchema() {
               ...b,
               items: list.filter(ex => ex?.name).map(ex => {
                 const name = displayName(ex);
-                return { name, optional: !!ex.optional, done: completedExercises.has(eKey(name, week.week, day.dag_nummer)) };
+                return { name, optional: !!ex.optional, done: completedExercises.has(eKey(name, week.yw, day.dag_nummer)) };
               }),
             }))
             .filter(b => b.items.length > 0);
@@ -1824,6 +1951,16 @@ export default function FitnessSchema() {
           />
         );
       })()}
+
+      {yearSheetOpen && (
+        <YearSheet
+          years={schemaYears}
+          currentYear={today.isoYear}
+          viewYear={viewYear}
+          onSelect={switchYear}
+          onClose={() => setYearSheetOpen(false)}
+        />
+      )}
 
       {scorePrompt && (
         <ScorePromptModal
@@ -1857,7 +1994,7 @@ function Section({ title, icon, accent, timerSeconds, timerActive, onTimerClick,
   );
 }
 
-function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange, repsM, repsZ, onRepsChange, prevWeightM, prevWeightZ, prevRepsM, prevRepsZ, prevWeekLabel, pr, savedM, savedZ, completed, onLongPress, swapped, originalName, hiitInterval }) {
+function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange, repsM, repsZ, onRepsChange, prevWeightM, prevWeightZ, prevRepsM, prevRepsZ, prevWeekLabel, pr, savedM, savedZ, completed, onLongPress, swapped, originalName, hiitInterval, readOnly }) {
   const isClickable = !!onToggle;
   const hasPrev = (prevWeightM !== "" && prevWeightM != null) || (prevWeightZ !== "" && prevWeightZ != null);
   return (
@@ -1904,6 +2041,7 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
               <div key={person} style={{ display: person === "Z" ? "none" : "flex", alignItems: "center", gap: 6 }}>
                 <input
                   type="number"
+                  disabled={readOnly}
                   step="any"
                   min={0}
                   value={person === "M" ? weightM : weightZ}
@@ -1915,6 +2053,7 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
                   <button
                     type="button"
+                    hidden={readOnly}
                     disabled={currentRepsNum == null}
                     onClick={() => onRepsChange(person, String(Math.max(1, currentRepsNum - 1)))}
                     style={{ width: 26, height: 26, borderRadius: 6, border: "1px solid #e0c8b8", background: "#fff", color: "#888", fontSize: 14, fontWeight: 700, lineHeight: 1, cursor: currentRepsNum == null ? "default" : "pointer", opacity: currentRepsNum == null ? 0.4 : 1 }}
@@ -1924,6 +2063,7 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
                   </span>
                   <button
                     type="button"
+                    hidden={readOnly}
                     onClick={() => onRepsChange(person, String(Math.min(50, (currentRepsNum ?? 0) + 1)))}
                     style={{ width: 26, height: 26, borderRadius: 6, border: "1px solid #e0c8b8", background: "#fff", color: "#888", fontSize: 14, fontWeight: 700, lineHeight: 1, cursor: "pointer" }}
                   >+</button>
@@ -1990,7 +2130,7 @@ function HintBadges({ text, onDark, textColor }) {
   );
 }
 
-function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExercise, onToggle, weekNum, dayId, weights, savedIndicators, completedExercises, onWeightChange, onRepsChange, getEffectiveReps, toggleCompletion, personalRecords }) {
+function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExercise, onToggle, yw, dayId, weights, savedIndicators, completedExercises, onWeightChange, onRepsChange, getEffectiveReps, toggleCompletion, personalRecords, readOnly }) {
   return (
     <div style={{ marginBottom: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, paddingLeft: 4 }}>
@@ -2002,20 +2142,20 @@ function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExer
       <div style={{ background: "#fff", borderRadius: 12, overflow: "hidden", border: `2px solid ${hexA(accentColor, 0.2)}` }}>
         {exercises.map((ex, i) => {
           const type = inferExerciseType(ex.name, ex.categorie);
-          const k = wKey(ex.name, weekNum);
+          const k = wKey(ex.name, yw);
           const w = weights[k] || { M: "", Z: "" };
-          const prevResult = findPrevWeight(ex.name, weekNum, weights);
+          const prevResult = findPrevWeight(ex.name, yw, weights);
           const prevW = prevResult || { M: null, Z: null };
           const hasPrev = (prevW.M !== "" && prevW.M != null) || (prevW.Z !== "" && prevW.Z != null);
           const isExpanded = expandedExercise === ex.name;
-          const isCompleted = completedExercises.has(eKey(ex.name, weekNum, dayId));
+          const isCompleted = completedExercises.has(eKey(ex.name, yw, dayId));
           return (
             <div key={i}>
               <div
                 style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", background: hexA(lightColor, 0.33), cursor: "pointer" }}
                 onClick={() => onToggle(ex.name)}
               >
-                <ExCircle num={i + 1} completed={isCompleted} accent={accentColor} onLongPress={() => toggleCompletion(ex.name, weekNum, dayId)} />
+                <ExCircle num={i + 1} completed={isCompleted} accent={accentColor} onLongPress={toggleCompletion ? () => toggleCompletion(ex.name, yw, dayId) : undefined} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", fontFamily: "sans-serif" }}>{ex.name}</span>
@@ -2028,18 +2168,19 @@ function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExer
                 </div>
               </div>
               {isExpanded && (() => {
-                const currentReps = getEffectiveReps(ex.name, weekNum, "M");
+                const currentReps = getEffectiveReps(ex.name, yw, "M");
                 const currentRepsNum = currentReps === "" || currentReps == null ? null : Number(currentReps);
                 return (
                 <div style={{ background: "#fff8f5", borderTop: "1px solid #f0d0b8", padding: "10px 12px 10px 52px", display: "flex", flexDirection: "column", gap: 8 }} onClick={e => e.stopPropagation()}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <input type="number" step="any" min={0} value={w.M} onChange={e => onWeightChange(ex.name, weekNum, "M", e.target.value)} placeholder="kg" style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }} />
-                    <span style={{ display: "inline-flex", width: 14, justifyContent: "center", color: "#16a34a", fontSize: 14, fontWeight: 700, visibility: savedIndicators[`${ex.name}__${weekNum}__M`] ? "visible" : "hidden" }}>✓</span>
+                    <input type="number" disabled={readOnly} step="any" min={0} value={w.M} onChange={e => onWeightChange(ex.name, yw, "M", e.target.value)} placeholder="kg" style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }} />
+                    <span style={{ display: "inline-flex", width: 14, justifyContent: "center", color: "#16a34a", fontSize: 14, fontWeight: 700, visibility: savedIndicators[`${ex.name}__${yw}__M`] ? "visible" : "hidden" }}>✓</span>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
                       <button
                         type="button"
+                        hidden={readOnly}
                         disabled={currentRepsNum == null}
-                        onClick={() => onRepsChange(ex.name, weekNum, "M", String(Math.max(1, currentRepsNum - 1)))}
+                        onClick={() => onRepsChange(ex.name, yw, "M", String(Math.max(1, currentRepsNum - 1)))}
                         style={{ width: 26, height: 26, borderRadius: 6, border: "1px solid #e0c8b8", background: "#fff", color: "#888", fontSize: 14, fontWeight: 700, lineHeight: 1, cursor: currentRepsNum == null ? "default" : "pointer", opacity: currentRepsNum == null ? 0.4 : 1 }}
                       >−</button>
                       <span style={{ minWidth: 18, textAlign: "center", fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#1a1a1a", userSelect: "none" }}>
@@ -2047,7 +2188,8 @@ function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExer
                       </span>
                       <button
                         type="button"
-                        onClick={() => onRepsChange(ex.name, weekNum, "M", String(Math.min(50, (currentRepsNum ?? 0) + 1)))}
+                        hidden={readOnly}
+                        onClick={() => onRepsChange(ex.name, yw, "M", String(Math.min(50, (currentRepsNum ?? 0) + 1)))}
                         style={{ width: 26, height: 26, borderRadius: 6, border: "1px solid #e0c8b8", background: "#fff", color: "#888", fontSize: 14, fontWeight: 700, lineHeight: 1, cursor: "pointer" }}
                       >+</button>
                     </div>
@@ -2085,12 +2227,14 @@ function ExCircle({ num, completed, accent, optional, onLongPress }) {
 
   const startPress = (e) => {
     longPressed.current = false;
+    // No handler (read-only archive): no haptic, no long press at all.
+    if (!onLongPress) return;
     const t = e.touches?.[0];
     if (t) startPos.current = { x: t.clientX, y: t.clientY };
     timer.current = setTimeout(() => {
       longPressed.current = true;
       triggerImpact();
-      if (onLongPress) onLongPress();
+      onLongPress();
     }, 1000);
   };
 
@@ -2213,12 +2357,14 @@ function ScoreSummary({ score, onOpenPrompt }) {
           <StarRow value={score?.motivatie} />
         </div>
       </div>
-      <button
-        onClick={onOpenPrompt}
-        style={{ background: "#ea580c", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 700, fontFamily: "sans-serif", cursor: "pointer" }}
-      >
-        {score ? "Score aanpassen" : "Geef een score"}
-      </button>
+      {onOpenPrompt && (
+        <button
+          onClick={onOpenPrompt}
+          style={{ background: "#ea580c", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 700, fontFamily: "sans-serif", cursor: "pointer" }}
+        >
+          {score ? "Score aanpassen" : "Geef een score"}
+        </button>
+      )}
     </div>
   );
 }
@@ -2269,7 +2415,7 @@ function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPr
     // when long-press did nothing for these types) — now it opens the
     // star-score prompt, so the gesture does something and the guard no
     // longer applies to them.
-    if (isRust) return;
+    if (isRust || !onLongPress) return;
     longPressed.current = false;
     const t = e.touches?.[0];
     if (t) startPos.current = { x: t.clientX, y: t.clientY };
@@ -2596,6 +2742,55 @@ function ScorePromptModal({ dayLabel, initialScore, onSubmit, onClose }) {
         >
           Opslaan
         </button>
+      </div>
+    </>
+  );
+}
+
+// Year picker opened from the header eyebrow: every year that has a
+// schema, newest first, the current ISO year marked. Same open/close
+// mechanics as ScorePromptModal (scroll lock, Escape, back gesture via a
+// pushed history entry that is popped again on any other close).
+function YearSheet({ years, currentYear, viewYear, onSelect, onClose }) {
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    window.history.pushState({ yearSheet: true }, "");
+    const closedViaPopstate = { current: false };
+    const handlePopState = () => { closedViaPopstate.current = true; onClose(); };
+    const handleKeyDown = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("popstate", handlePopState);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("keydown", handleKeyDown);
+      if (!closedViaPopstate.current) window.history.back();
+    };
+    // Mount/unmount only — same reasoning as ScorePromptModal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "#0007", zIndex: 100 }} />
+      <div role="dialog" aria-label="Kies jaar" style={{ position: "fixed", left: 0, right: 0, bottom: 0, background: "#fff", borderRadius: "20px 20px 0 0", padding: "20px 16px 28px", zIndex: 101, maxWidth: 600, margin: "0 auto", boxShadow: "0 -10px 40px rgba(0,0,0,0.2)", fontFamily: "sans-serif" }}>
+        <div style={{ fontSize: 12, color: "#999", textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center", marginBottom: 14 }}>Jaar</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {years.map((y) => {
+            const selected = y === viewYear;
+            const isCurrent = y === currentYear;
+            return (
+              <button
+                key={y}
+                onClick={() => onSelect(y)}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", borderRadius: 12, border: selected ? `2px solid ${isCurrent ? "#f37121" : "#64748b"}` : "2px solid #eee", background: selected ? (isCurrent ? "#fff8f3" : "#f1f5f9") : "#fff", cursor: "pointer", fontSize: 16, fontWeight: selected ? 700 : 500, color: "#1a1a1a" }}
+              >
+                <span>{y}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: isCurrent ? "#f37121" : "#64748b" }}>{isCurrent ? "Huidig jaar" : "Archief"}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </>
   );

@@ -16,65 +16,18 @@ const CHECKIN_SHOWN_KEY = 'coach_checkin_shown_v1'
 // against real output and turned out too tight.
 const CHECKIN_TIMEOUT_MS = 20000
 
-// Same formula as _shared/today.ts's currentCalWeek (Deno, the Edge
-// Function runtime) and workout-app's original currentWeekIndex() — a third
-// copy, not moved into a shared module. See bouwplan-voeding-app.md "Blok
-// 5" point 2 for why: deploy_edge_function embeds file contents literally
-// per deploy call, so a shared/ location wouldn't remove the Edge-Function
-// side's copy anyway, only the client's — a real but partial win judged not
-// worth a new cross-app-boundary import for a ~5-line, block-7-stable
-// formula. If this ever needs to change, it needs to change in all three
-// places.
-function currentCalWeek(d) {
-  const dow = d.getDay() || 7
-  const shifted = new Date(d)
-  shifted.setDate(shifted.getDate() + 4 - dow)
-  const jan1 = new Date(shifted.getFullYear(), 0, 1)
-  return Math.ceil(((shifted.getTime() - jan1.getTime()) / 86400000 + 1) / 7)
-}
+// The client-side half of the old two-tier trigger gate (currentCalWeek /
+// resolveSchemaForWeek / resolveDayType: decide cheaply whether to call
+// morning-checkin at all) was removed on 2026-10-20 rather than made
+// ISO-year-aware: it had been dead since the gate silently failed twice
+// (2026-08-18, 2026-08-21) and morning-checkin became unconditional. Its
+// week formula was one of three copies of a bug (one week too high in
+// years where Jan 1 is a Friday). Day-type resolution for the card lives
+// server-side in morning-checkin/index.ts via _shared/today.ts. If gating
+// is ever revisited, start from there, not from git history.
 
-async function resolveSchemaForWeek(calWeek) {
-  const { data } = await supabase.from('schemas').select('id, start_week, eind_week')
-  return (data ?? []).find((s) => calWeek >= s.start_week && calWeek <= s.eind_week) ?? null
-}
-
-// DEAD CODE, kept intentionally (not deleted) — see shouldShowCheckin below
-// for why. resolveDayType/resolveSchemaForWeek/currentCalWeek and
-// aandachtspuntHasQuestion below were the client-side half of a two-tier
-// trigger gate (this file decided cheaply whether to call morning-checkin
-// at all; the Edge Function re-checked the same conditions against real
-// data before spending a Claude call). The trigger gate itself silently
-// failed twice on the same "yesterday was a training day" path
-// (2026-08-18, 2026-08-21) and was removed rather than debugged further —
-// morning-checkin is now called unconditionally every day. Left in place,
-// unused, in case the decision to gate is ever revisited; not repurposed
-// for anything else since this file only ever decides whether to call the
-// server, never what the card says (that's server-side, in
-// morning-checkin/index.ts, which still needs — and keeps — its own
-// day-type resolution for card content).
-async function resolveDayType(calWeek, weekday) {
-  const schema = await resolveSchemaForWeek(calWeek)
-  if (!schema) return null
-
-  const { data: overrides } = await supabase
-    .from('week_overrides')
-    .select('dag_nummer, dag_van_week')
-    .eq('schema_id', schema.id)
-    .eq('week_nummer', calWeek)
-    .eq('dag_nummer', weekday)
-    .limit(1)
-  if (overrides && overrides.length > 0) return overrides[0].dag_van_week
-
-  const { data: schemaDays } = await supabase
-    .from('schema_days')
-    .select('type')
-    .eq('schema_id', schema.id)
-    .eq('dag_volgorde', weekday)
-    .limit(1)
-  return schemaDays && schemaDays.length > 0 ? schemaDays[0].type : null
-}
-
-// DEAD CODE, kept intentionally — see the comment above resolveDayType.
+// DEAD CODE, kept intentionally — unused since the trigger gate was removed
+// (see above); the server keeps its own copy in morning-checkin/index.ts.
 function aandachtspuntHasQuestion(text) {
   if (!text) return false
   return /\?/.test(text) || /\bvraag\b/i.test(text)
