@@ -1175,10 +1175,17 @@ export default function FitnessSchema() {
           <button
             onClick={() => setYearSheetOpen(true)}
             aria-label="Kies jaar"
-            style={{ background: "none", border: "none", padding: "2px 6px", margin: "0 0 4px", cursor: "pointer", fontFamily: "inherit", fontSize: 11, letterSpacing: 4, textTransform: "uppercase", color: "rgba(255,255,255,0.75)" }}
+            style={{ background: "none", border: "none", padding: "3px 6px 1px", margin: "0 0 4px", cursor: "pointer", fontFamily: "inherit", fontSize: 11, lineHeight: "17px", letterSpacing: 4, textTransform: "uppercase", color: "rgba(255,255,255,0.75)" }}
           >
             {readOnly ? `Archief ${week.jaar}` : week.jaar} · Week {week.startWeek} – {week.eindWeek}
-            <span style={{ letterSpacing: 0, marginLeft: 6, fontSize: 13 }}>⌄</span>
+            {/* Chevron as an SVG one cap-height tall sitting on the
+                baseline, so its centre is the capitals' centre line in
+                whatever font the phone renders (a "⌄" glyph sits at the
+                bottom of its own box and rode low). The attributes are the
+                fallback where the `cap` unit is unsupported. */}
+            <svg aria-hidden="true" viewBox="0 0 10 10" width="0.7em" height="0.7em" style={{ width: "1cap", height: "1cap", marginLeft: 6, verticalAlign: "baseline", overflow: "visible" }}>
+              <path d="M1.5 3.25 L5 6.75 L8.5 3.25" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
           </button>
         )}
         <h1 style={{ margin: 0, fontSize: 26, fontWeight: 700, letterSpacing: -0.5 }}>
