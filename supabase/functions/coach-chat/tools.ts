@@ -156,6 +156,34 @@ export const TOOLS = [
     },
   },
   {
+    name: 'favoriet_opslaan',
+    description:
+      'Save a meal as a quick-log favourite ("sla dit op als favoriet"), so the user can log it later with one tap. A favourite holds ONLY known products from "Bekende producten" — never an estimate. Normally pass log_id: the id of the meal the user means (from this turn\'s nutrition_log_add result or the "vandaag gelogde maaltijden" list); the server copies its product components exactly. Only when there is no such logged meal, pass componenten yourself. If a component is not a known product, the server refuses: then ask the user for the package values, store the product with product_opslaan, and try again — never save a favourite with an estimate. If the user gives no name, choose a short one and mention it.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        naam: { type: 'string', description: 'Short name shown on the quick-log button, e.g. "Brood pindakaas kip"' },
+        log_id: { type: 'string', description: 'uuid of the nutrition_log row to save as favourite (preferred)' },
+        componenten: {
+          type: 'array',
+          minItems: 1,
+          description: 'Only without log_id. One entry per component, in order.',
+          items: {
+            type: 'object',
+            properties: {
+              product_id: COMPONENT_PROPERTIES.product_id,
+              gram: COMPONENT_PROPERTIES.gram,
+              stuks: COMPONENT_PROPERTIES.stuks,
+              basis: COMPONENT_PROPERTIES.basis,
+            },
+            required: ['product_id'],
+          },
+        },
+      },
+      required: ['naam'],
+    },
+  },
+  {
     name: 'memory_add',
     description:
       'Store a new durable fact about the user in long-term memory. Only call this when the fact passes ALL storage criteria from your instructions (still true in a month, would concretely change future advice, not already readable from other context). When in doubt, do not call this. Product values (protein/kcal per 100g or per piece) never go here — those belong in product_opslaan.',
@@ -328,6 +356,7 @@ const STUK_MEERVOUD: Record<string, string> = {
   ei: 'eieren',
   reep: 'repen',
   sneetje: 'sneetjes',
+  snee: 'sneeën',
   bakje: 'bakjes',
   zakje: 'zakjes',
   blikje: 'blikjes',
@@ -523,6 +552,185 @@ async function computeDayTotals(todayStr: string): Promise<{ eiwitTotaal: number
   }
 }
 
+// The whole nutrition_log_add write: shared by the model's tool call and a
+// quick-log tap (logFavoriet below), so both go through exactly the same
+// resolveComponent → insert → trigger → buildKaart path.
+async function addLog(input: Record<string, unknown>, todayStr: string): Promise<Record<string, unknown>> {
+  const rawComponents = Array.isArray(input.componenten) ? (input.componenten as Record<string, unknown>[]) : []
+  if (rawComponents.length === 0) {
+    return { error: 'componenten is verplicht: minstens één onderdeel.' + NIETS_OPGESLAGEN }
+  }
+  const componenten: Component[] = []
+  for (const raw of rawComponents) {
+    const resolved = await resolveComponent(raw ?? {})
+    if (!resolved.ok) return { error: resolved.error }
+    componenten.push(resolved.component)
+  }
+  // eiwitten_g/calorieen deliberately not written — the trigger sets
+  // them from componenten; anything the model sent at the top level is
+  // ignored.
+  const { data, error } = await supabase
+    .from('nutrition_log')
+    .insert({ datum: todayStr, tijdstip: input.tijdstip, omschrijving: input.omschrijving, componenten })
+    .select(LOG_COLUMNS)
+    .single()
+  if (error) return { error: error.message }
+  const row = data as LogRow
+  const totals = await computeDayTotals(todayStr)
+  return { id: row.id, status: 'logged', ...rowForModel(row), ...totals, _kaart: buildKaart(row, 'gelogd') }
+}
+
+// ── Quick-log favourites (nutrition_favoriet) ──
+//
+// A favourite stores only {product_id, gram|stuks, basis} per component —
+// the table's trigger (supabase/migrations/20261030_nutrition_favoriet.sql)
+// rejects anything else, so an estimate can never be saved. Values are
+// always resolved fresh from nutrition_product with resolveComponent, the
+// same as a model-issued product component.
+
+interface FavorietComponent {
+  product_id: string
+  gram?: number
+  stuks?: number
+  basis?: 'rauw' | 'bereid'
+}
+
+interface FavorietRow {
+  id: string
+  naam: string
+  componenten: FavorietComponent[]
+  gebruikt_aantal: number
+}
+
+const FAVORIET_COLUMNS = 'id, naam, componenten, gebruikt_aantal'
+const TIJDSTIP_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/
+
+// Keeps only the four allowed keys, so a favourite built from a logged
+// row never carries naam/eiwitten_g/bron along.
+function toFavorietComponent(raw: Record<string, unknown>): FavorietComponent {
+  const c: FavorietComponent = { product_id: String(raw.product_id ?? '') }
+  if (toNumber(raw.gram) !== null) c.gram = toNumber(raw.gram) as number
+  if (toNumber(raw.stuks) !== null) c.stuks = toNumber(raw.stuks) as number
+  if (raw.basis === 'rauw' || raw.basis === 'bereid') c.basis = raw.basis
+  return c
+}
+
+// For the quick-log sheet: active favourites, most used first, each
+// resolved exactly as a log would be — the protein shown is the protein
+// that gets logged. A favourite whose product has since been deactivated
+// is left out (logging it would fail anyway).
+export async function listFavorieten() {
+  const { data, error } = await supabase
+    .from('nutrition_favoriet')
+    .select(FAVORIET_COLUMNS)
+    .eq('actief', true)
+    .order('gebruikt_aantal', { ascending: false })
+    .order('created_at', { ascending: true })
+  if (error) throw new Error(error.message)
+  const favorieten = []
+  for (const fav of (data ?? []) as FavorietRow[]) {
+    const onderdelen: string[] = []
+    let eiwit = 0
+    let ok = true
+    for (const raw of fav.componenten) {
+      const resolved = await resolveComponent(raw as unknown as Record<string, unknown>)
+      if (!resolved.ok) {
+        console.warn('[favorieten] favourite not loggable, skipped', fav.id, resolved.error)
+        ok = false
+        break
+      }
+      onderdelen.push(`${resolved.component.hoeveelheid} ${resolved.component.naam}`)
+      eiwit += Math.round(resolved.component.eiwitten_g * 10) / 10
+    }
+    if (ok) favorieten.push({ id: fav.id, naam: fav.naam, gebruiktAantal: fav.gebruikt_aantal, eiwit: Math.round(eiwit * 10) / 10, onderdelen })
+  }
+  return favorieten
+}
+
+export type QuickLogResult =
+  | { ok: true; input: Record<string, unknown>; result: Record<string, unknown> }
+  | { ok: false; error: string }
+
+// A quick-log tap: the favourite record is turned into the exact
+// nutrition_log_add input and written through addLog — no model involved,
+// so nothing can be re-interpreted or estimated. The usage count only goes
+// up once the row is in.
+export async function logFavoriet(favorietId: unknown, tijdstip: unknown, todayStr: string): Promise<QuickLogResult> {
+  if (typeof tijdstip !== 'string' || !TIJDSTIP_PATTERN.test(tijdstip)) return { ok: false, error: `ongeldig tijdstip ${String(tijdstip)}` }
+  if (typeof favorietId !== 'string' || !favorietId) return { ok: false, error: 'favorietId ontbreekt' }
+  const { data, error } = await supabase.from('nutrition_favoriet').select(FAVORIET_COLUMNS).eq('id', favorietId).eq('actief', true).limit(1)
+  if (error) return { ok: false, error: error.message }
+  const fav = data?.[0] as FavorietRow | undefined
+  if (!fav) return { ok: false, error: `onbekende of inactieve favoriet ${favorietId}` }
+
+  const input = { omschrijving: fav.naam, tijdstip, componenten: fav.componenten }
+  const result = await addLog(input, todayStr)
+  if ('error' in result) return { ok: false, error: String(result.error) }
+
+  // Guarded on the count just read: a concurrent tap would make this a
+  // no-op rather than a lost update, and only costs one count.
+  const { error: countError } = await supabase
+    .from('nutrition_favoriet')
+    .update({ gebruikt_aantal: fav.gebruikt_aantal + 1, laatst_gebruikt_op: new Date().toISOString() })
+    .eq('id', fav.id)
+    .eq('gebruikt_aantal', fav.gebruikt_aantal)
+  if (countError) console.warn('[quick-log] usage count not updated', fav.id, countError.message)
+
+  return { ok: true, input, result }
+}
+
+async function saveFavoriet(input: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const naam = typeof input.naam === 'string' ? input.naam.trim() : ''
+  if (!naam) return { error: 'Geef de favoriet een naam.' + NIETS_OPGESLAGEN }
+
+  let raws: Record<string, unknown>[]
+  if (typeof input.log_id === 'string' && input.log_id) {
+    const { data, error } = await supabase.from('nutrition_log').select(LOG_COLUMNS).eq('id', input.log_id).limit(1)
+    if (error) return { error: error.message }
+    const row = data?.[0] as LogRow | undefined
+    if (!row) return { error: `Geen maaltijd gevonden met id ${input.log_id}.` + NIETS_OPGESLAGEN }
+    if (!row.componenten || row.componenten.length === 0) {
+      return { error: 'Deze maaltijd is gelogd zonder onderdelen; geef de onderdelen dan als componenten mee.' + NIETS_OPGESLAGEN }
+    }
+    const nietProduct = row.componenten.filter((c) => c.bron !== 'product' || !c.product_id)
+    if (nietProduct.length > 0) {
+      return {
+        error: `Een favoriet bevat alleen bekende producten, en ${nietProduct.map((c) => `"${c.naam}"`).join(', ')} ${nietProduct.length === 1 ? 'is' : 'zijn'} geen product (geschat of door de gebruiker opgegeven). Vraag de gebruiker eerst de verpakkingswaarden, sla het product op met product_opslaan, en probeer het dan opnieuw met componenten.` + NIETS_OPGESLAGEN,
+      }
+    }
+    raws = row.componenten.map((c) => ({ product_id: c.product_id, gram: c.gram, stuks: c.stuks, basis: c.basis }))
+  } else if (Array.isArray(input.componenten) && input.componenten.length > 0) {
+    raws = input.componenten as Record<string, unknown>[]
+  } else {
+    return { error: 'Geef log_id of componenten mee.' + NIETS_OPGESLAGEN }
+  }
+
+  const componenten: FavorietComponent[] = []
+  const onderdelen = []
+  let eiwit = 0
+  for (const raw of raws) {
+    if (typeof raw?.product_id !== 'string' || !raw.product_id) {
+      return {
+        error: 'Een favoriet bevat alleen bekende producten; elk onderdeel heeft een product_id uit "Bekende producten" nodig. Vraag de gebruiker eerst de verpakkingswaarden en sla het product op met product_opslaan.' + NIETS_OPGESLAGEN,
+      }
+    }
+    const component = toFavorietComponent(raw)
+    // Dry run: a favourite that would fail at log time is never saved.
+    const resolved = await resolveComponent(component as unknown as Record<string, unknown>)
+    if (!resolved.ok) return { error: resolved.error }
+    componenten.push(component)
+    onderdelen.push({ naam: resolved.component.naam, hoeveelheid: resolved.component.hoeveelheid, eiwitten_g: Math.round(resolved.component.eiwitten_g * 10) / 10 })
+    eiwit += Math.round(resolved.component.eiwitten_g * 10) / 10
+  }
+
+  const { data, error } = await supabase.from('nutrition_favoriet').insert({ naam, componenten }).select('id, naam').single()
+  if (error) {
+    const hint = error.code === '23505' ? ` Er bestaat al een favoriet met de naam "${naam}" — kies een andere naam.` : ''
+    return { error: `${error.message}.${hint}` + NIETS_OPGESLAGEN }
+  }
+  return { status: 'favoriet_opgeslagen', id: data.id, naam: data.naam, onderdelen, eiwitten_g: Math.round(eiwit * 10) / 10 }
+}
+
 export async function executeTool(
   name: string,
   input: Record<string, unknown>,
@@ -530,30 +738,10 @@ export async function executeTool(
   conversationMessages: ConversationMessage[],
 ): Promise<unknown> {
   switch (name) {
-    case 'nutrition_log_add': {
-      const rawComponents = Array.isArray(input.componenten) ? (input.componenten as Record<string, unknown>[]) : []
-      if (rawComponents.length === 0) {
-        return { error: 'componenten is verplicht: minstens één onderdeel.' + NIETS_OPGESLAGEN }
-      }
-      const componenten: Component[] = []
-      for (const raw of rawComponents) {
-        const resolved = await resolveComponent(raw ?? {})
-        if (!resolved.ok) return { error: resolved.error }
-        componenten.push(resolved.component)
-      }
-      // eiwitten_g/calorieen deliberately not written — the trigger sets
-      // them from componenten; anything the model sent at the top level is
-      // ignored.
-      const { data, error } = await supabase
-        .from('nutrition_log')
-        .insert({ datum: todayStr, tijdstip: input.tijdstip, omschrijving: input.omschrijving, componenten })
-        .select(LOG_COLUMNS)
-        .single()
-      if (error) return { error: error.message }
-      const row = data as LogRow
-      const totals = await computeDayTotals(todayStr)
-      return { id: row.id, status: 'logged', ...rowForModel(row), ...totals, _kaart: buildKaart(row, 'gelogd') }
-    }
+    case 'nutrition_log_add':
+      return addLog(input, todayStr)
+    case 'favoriet_opslaan':
+      return saveFavoriet(input)
     case 'nutrition_log_update': {
       const { data: existingRows, error: readError } = await supabase.from('nutrition_log').select(LOG_COLUMNS).eq('id', input.id).limit(1)
       if (readError) return { error: readError.message }

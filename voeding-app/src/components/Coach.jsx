@@ -11,8 +11,10 @@ import { UserBubble, CoachBubble } from './ChatBubble.jsx'
 import TypingIndicator from './TypingIndicator.jsx'
 import SendIcon from './SendIcon.jsx'
 import EyeIcon from './EyeIcon.jsx'
+import BoltIcon from './BoltIcon.jsx'
+import QuickLogSheet from './QuickLogSheet.jsx'
 import { buildOpeningMessages, quickReplyOptions, makeMessageId } from '../data/seedMessages.js'
-import { askCoach } from '../lib/chatApi.js'
+import { askCoach, fetchFavorieten } from '../lib/chatApi.js'
 import { supabase } from '../supabase.js'
 import { fetchProteinProgress } from '../lib/dayProgress.js'
 import { todayDateString, loadStoredThread, saveThread, clearThread } from '../lib/threadStorage.js'
@@ -145,6 +147,11 @@ export default function Coach() {
   // is also distinguishable from the first once consumed.
   const [notificationTapToken, setNotificationTapToken] = useState(0)
   const consumedTapTokenRef = useRef(0)
+  // Quick-log sheet. favorieten: null until the first fetch lands; the last
+  // good list stays shown while a refresh is in flight.
+  const [quickLogOpen, setQuickLogOpen] = useState(false)
+  const [favorieten, setFavorieten] = useState(null)
+  const [favorietenError, setFavorietenError] = useState(false)
   const scrollRef = useRef(null)
   const inputRef = useRef(null)
   // Not rendered, so a ref is enough — read at save time, written whenever a
@@ -234,6 +241,22 @@ export default function Coach() {
     return () => {
       cancelled = true
     }
+  }, [])
+
+  function refreshFavorieten() {
+    fetchFavorieten()
+      .then((list) => {
+        setFavorieten(list)
+        setFavorietenError(false)
+      })
+      .catch((err) => {
+        console.error('fetching favourites failed', err)
+        setFavorietenError(true)
+      })
+  }
+
+  useEffect(() => {
+    refreshFavorieten()
   }, [])
 
   // On mount: resume a stored thread unless a summary appeared for its date
@@ -433,9 +456,29 @@ export default function Coach() {
     if (!trimmed) return
 
     const userMessage = { id: makeMessageId(), type: 'user', text: trimmed, time: nowTime() }
+    setInputValue('')
+    await runCoachTurn(userMessage)
+  }
+
+  // One tap on a favourite: shown as a compact bolt bubble, sent to
+  // coach-chat as { favorietId, tijdstip } — the server logs the favourite
+  // from its own record; the model only responds.
+  async function sendQuickLog(favoriet, tijdstip) {
+    setQuickLogOpen(false)
+    const userMessage = {
+      id: makeMessageId(),
+      type: 'user',
+      text: `${favoriet.naam} · ${tijdstip}`,
+      time: nowTime(),
+      quickLog: { favorietId: favoriet.id, naam: favoriet.naam, tijdstip },
+    }
+    await runCoachTurn(userMessage, { favorietId: favoriet.id, tijdstip })
+    refreshFavorieten()
+  }
+
+  async function runCoachTurn(userMessage, quickLog = null) {
     const threadWithUserMessage = [...messages, userMessage]
     setMessages(threadWithUserMessage)
-    setInputValue('')
     setIsTyping(true)
 
     let replyText
@@ -444,14 +487,19 @@ export default function Coach() {
     let mealCard = null
     let logCards = []
     let deletedLogIds = []
+    // A quick log that wrote nothing is marked, so later turns don't tell
+    // the coach it was logged (see chatApi.js toApiMessages).
+    let quickLogFailed = false
     try {
-      const result = await askCoach(threadWithUserMessage)
+      const result = await askCoach(threadWithUserMessage, quickLog)
       replyText = result.reply
       daySummaryWritten = result.daySummaryWritten
       closedActiveDate = result.activeDate
       mealCard = result.mealCard
       logCards = result.logCards
       deletedLogIds = result.deletedLogIds
+      quickLogFailed = result.quickLogStatus === 'mislukt'
+      if (result.favorietOpgeslagen) refreshFavorieten()
       // Rides directly on the value coach-chat already computed for this
       // turn's nutrition write (see chatApi.js) — null when no write
       // happened, in which case the counters are simply left as they were.
@@ -464,6 +512,7 @@ export default function Coach() {
     } catch (err) {
       console.error('coach-chat call failed', err)
       replyText = FALLBACK_ERROR_TEXT
+      quickLogFailed = quickLog !== null
     }
 
     setIsTyping(false)
@@ -488,6 +537,7 @@ export default function Coach() {
     const removedLogIds = new Set(deletedLogIds)
     setMessages((prev) => [
       ...prev.map((m) => {
+        if (quickLogFailed && m.id === userMessage.id) return { ...m, quickLog: { ...m.quickLog, status: 'mislukt' } }
         if (m.type !== 'log-card' || m.status === 'verwijderd') return m
         if (removedLogIds.has(m.logId)) return { ...m, status: 'verwijderd' }
         if (updatedLogIds.has(m.logId)) return { ...m, status: 'vervangen' }
@@ -620,7 +670,7 @@ export default function Coach() {
                 <SummaryCard key={msg.id} eyebrow={msg.eyebrow} text={msg.text} note={msg.note} streak={msg.streak} />
               )
             case 'user':
-              return <UserBubble key={msg.id} text={msg.text} time={msg.time} />
+              return <UserBubble key={msg.id} text={msg.text} time={msg.time} quickLog={msg.quickLog} />
             case 'coach':
               return <CoachBubble key={msg.id} text={msg.text} time={msg.time} />
             case 'day-close-button':
@@ -649,6 +699,18 @@ export default function Coach() {
       )}
 
       <form className="input-bar" onSubmit={handleSubmit}>
+        <button
+          type="button"
+          className="quick-log-btn"
+          aria-label="Snel loggen"
+          disabled={isTyping}
+          onClick={() => {
+            setQuickLogOpen(true)
+            refreshFavorieten()
+          }}
+        >
+          <BoltIcon />
+        </button>
         <textarea
           ref={inputRef}
           className="input-field"
@@ -662,6 +724,15 @@ export default function Coach() {
           <SendIcon />
         </button>
       </form>
+
+      {quickLogOpen && (
+        <QuickLogSheet
+          favorieten={favorieten}
+          loadError={favorietenError}
+          onClose={() => setQuickLogOpen(false)}
+          onPick={sendQuickLog}
+        />
+      )}
     </div>
   )
 }

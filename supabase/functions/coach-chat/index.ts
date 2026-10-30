@@ -10,7 +10,7 @@
 import { amsterdamNow, isoDateString, resolveActiveDate } from '../_shared/today.ts'
 import { callClaude, extractText, type ClaudeMessage } from '../_shared/anthropic.ts'
 import { PERSONA_PROMPT, buildDynamicContext } from './prompt.ts'
-import { TOOLS, executeTool, formatMealCard } from './tools.ts'
+import { TOOLS, executeTool, formatMealCard, listFavorieten, logFavoriet } from './tools.ts'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -123,6 +123,9 @@ async function runToolLoop(
   maxIterations: number,
   calledToolNames: string[],
   onToolResult: (name: string, result: unknown) => void,
+  // Returns a result to use INSTEAD of executing the tool, or null to run
+  // it normally. Only used by a quick-log request (see below).
+  blockTool: (name: string) => unknown | null = () => null,
 ): Promise<TurnResult> {
   for (let i = 0; i < maxIterations; i++) {
     const result = await callClaude(apiKey, {
@@ -152,7 +155,7 @@ async function runToolLoop(
       for (const block of data.content ?? []) {
         if (block.type === 'tool_use' && block.id && block.name) {
           calledToolNames.push(block.name)
-          const toolResult = await executeTool(block.name, block.input ?? {}, todayStr, workingMessages)
+          const toolResult = blockTool(block.name) ?? (await executeTool(block.name, block.input ?? {}, todayStr, workingMessages))
           onToolResult(block.name, toolResult)
           toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(withoutClientKeys(toolResult)) })
         }
@@ -185,6 +188,13 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = await req.json().catch(() => null)
+
+    // The quick-log sheet's list — no model call. Resolved server-side with
+    // the same code a log uses, so the protein shown is what gets logged.
+    if (body?.action === 'favorieten') {
+      return jsonResponse({ favorieten: await listFavorieten() })
+    }
+
     const messages = body?.messages
 
     if (!Array.isArray(messages) || messages.length === 0) {
@@ -203,10 +213,42 @@ Deno.serve(async (req: Request) => {
     // close_day_summary, so logging and closing always agree on which day
     // is being acted on. See _shared/today.ts for the full reasoning.
     const todayStr = isoDateString(resolveActiveDate(amsterdamNow()))
+    const workingMessages = [...messages] as ClaudeMessage[]
+
+    // Quick log ("snel loggen"): the client sends a favourite id + eating
+    // time, never components. The row is written HERE, from the favourite
+    // record, before any model call — the model only ever sees the result,
+    // so it cannot re-interpret or estimate the meal. The write goes into
+    // the conversation as a nutrition_log_add tool_use/tool_result pair, so
+    // the normal "Maaltijd loggen — bevestiging" flow applies unchanged.
+    // (A synthetic tool_use is valid because these calls run without
+    // extended thinking; with thinking on, this would have to become a
+    // plain-text user block instead.)
+    const quickLog = body?.quickLog
+    let quickLogged: Awaited<ReturnType<typeof logFavoriet>> | null = null
+    if (quickLog) {
+      const last = workingMessages[workingMessages.length - 1]
+      quickLogged = last?.role === 'user'
+        ? await logFavoriet(quickLog.favorietId, quickLog.tijdstip, todayStr)
+        : { ok: false, error: 'laatste bericht is geen gebruikersbericht' }
+      if (!quickLogged.ok) {
+        console.error('coach-chat: quick log failed, nothing written', { error: quickLogged.error, quickLog })
+        return jsonResponse({
+          reply: 'Snel loggen lukte niet, er is niets gelogd. Probeer het nog eens, of typ even wat je gegeten hebt.',
+          activeDate: todayStr,
+          quickLog: { status: 'mislukt' },
+          logCards: [],
+          deletedLogIds: [],
+          dayTotals: null,
+        })
+      }
+    }
+
+    // After the quick-log write on purpose: today's meal list then already
+    // contains that row (with id and component indices) for a same-turn
+    // correction.
     const dynamicContext = await buildDynamicContext()
     const systemPrompt = `${PERSONA_PROMPT}\n\n## Actuele context\n\n${dynamicContext.text}`
-
-    const workingMessages = [...messages] as ClaudeMessage[]
     let daySummaryWritten = false
     // Diagnostics only, for the !finalReplyText branch below — this loop
     // previously had no logging at all when it ran out of iterations,
@@ -230,7 +272,12 @@ Deno.serve(async (req: Request) => {
     const logCards: unknown[] = []
     const deletedLogIds: string[] = []
 
+    let favorietOpgeslagen = false
+
     const onToolResult = (name: string, toolResult: unknown) => {
+      if (name === 'favoriet_opslaan' && toolResult && typeof toolResult === 'object' && !('error' in toolResult)) {
+        favorietOpgeslagen = true
+      }
       if (name === 'close_day_summary' && toolResult && typeof toolResult === 'object' && !('error' in toolResult)) {
         daySummaryWritten = true
       }
@@ -253,11 +300,43 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // The tapped favourite is already logged; a model nutrition_log_add in
+    // the same request can only be a duplicate, so it is not executed.
+    let blockTool: (name: string) => unknown | null = () => null
+    if (quickLogged?.ok) {
+      onToolResult('nutrition_log_add', quickLogged.result)
+      const toolUseId = `toolu_snellog_${crypto.randomUUID().replace(/-/g, '')}`
+      workingMessages.push({ role: 'assistant', content: [{ type: 'tool_use', id: toolUseId, name: 'nutrition_log_add', input: quickLogged.input }] })
+      workingMessages.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: JSON.stringify(withoutClientKeys(quickLogged.result)) }] })
+      blockTool = (name) => {
+        if (name !== 'nutrition_log_add') return null
+        console.warn('coach-chat: model called nutrition_log_add during a quick log — blocked')
+        return { error: 'Deze snel-log is al gelogd door de app (zie het eerdere tool-resultaat). Er is niets opgeslagen.' }
+      }
+    }
+
+    // A quick log that is already in the database must still reach the
+    // client as a card when the model fails afterwards.
+    const quickLogFallback = () => {
+      if (!quickLogged?.ok) return null
+      const input = quickLogged.input as { omschrijving: string; tijdstip: string }
+      return jsonResponse({
+        reply: `Gelogd: ${input.omschrijving} om ${input.tijdstip}. De coach kan even niet reageren.`,
+        daySummaryWritten: false,
+        activeDate: todayStr,
+        mealCard: null,
+        dayTotals: lastNutritionTotals,
+        logCards,
+        deletedLogIds,
+        quickLog: { status: 'gelogd' },
+      })
+    }
+
     let turnResult: TurnResult
     try {
-      turnResult = await runToolLoop(apiKey, systemPrompt, workingMessages, todayStr, MAX_TOOL_ITERATIONS, calledToolNames, onToolResult)
+      turnResult = await runToolLoop(apiKey, systemPrompt, workingMessages, todayStr, MAX_TOOL_ITERATIONS, calledToolNames, onToolResult, blockTool)
     } catch {
-      return jsonResponse({ error: 'Coach is momenteel niet bereikbaar.' }, 502)
+      return quickLogFallback() ?? jsonResponse({ error: 'Coach is momenteel niet bereikbaar.' }, 502)
     }
 
     // render_meal_card's actual card content must come from the tool_use
@@ -284,7 +363,7 @@ Deno.serve(async (req: Request) => {
           calledToolNames,
         )
       }
-      return jsonResponse({ error: 'Coach kon geen antwoord afronden.' }, 502)
+      return quickLogFallback() ?? jsonResponse({ error: 'Coach kon geen antwoord afronden.' }, 502)
     }
 
     // Sub-mechanism A: nutrition_log_add ran this turn, but the totals it
@@ -293,7 +372,11 @@ Deno.serve(async (req: Request) => {
     // silent no-op write. Safe to retry: a real call was already made for
     // this exact meal, so trying again completes a requested action
     // rather than inventing one.
+    // Skipped for a quick log: its write happened before dynamicContext's
+    // starting totals were read, so they already include it, and a blocked
+    // duplicate call would look exactly like a no-op.
     const addNoOp =
+      !quickLogged &&
       calledToolNames.includes('nutrition_log_add') &&
       lastNutritionTotals !== null &&
       (lastNutritionTotals as { eiwitTotaal: number; calorieTotaal: number }).eiwitTotaal === dynamicContext.startingEiwitTotaal &&
@@ -334,7 +417,8 @@ Deno.serve(async (req: Request) => {
     // this point (original, or A's retry/fallback) — a claim surviving
     // into the actually-returned text is what matters, matching the plan:
     // run A first, then check B against the result.
-    const nutritionToolCalledThisRequest = calledToolNames.includes('nutrition_log_add') || calledToolNames.includes('nutrition_log_update')
+    const nutritionToolCalledThisRequest =
+      Boolean(quickLogged?.ok) || calledToolNames.includes('nutrition_log_add') || calledToolNames.includes('nutrition_log_update')
     if (!nutritionToolCalledThisRequest && EIWIT_CLAIM_PATTERN.test(finalReplyText)) {
       console.error('coach-chat: reply states a protein figure but no nutrition_log_add/_update ran this turn', { todayStr })
       finalReplyText = `${finalReplyText}\n\n(Let op: in dit bericht heb ik niets nieuws gelogd — eerder gelogde maaltijden blijven gewoon staan. Wilde je dit als nieuwe maaltijd loggen? Zeg het even.)`
@@ -358,7 +442,20 @@ Deno.serve(async (req: Request) => {
     //
     // logCards/deletedLogIds: see their declaration above. Additive — an
     // older client ignores both fields.
-    return jsonResponse({ reply: finalReplyText, daySummaryWritten, activeDate: todayStr, mealCard, dayTotals: lastNutritionTotals, logCards, deletedLogIds })
+    //
+    // quickLog/favorietOpgeslagen: additive; the client marks the tapped
+    // bubble and refreshes its favourites list.
+    return jsonResponse({
+      reply: finalReplyText,
+      daySummaryWritten,
+      activeDate: todayStr,
+      mealCard,
+      dayTotals: lastNutritionTotals,
+      logCards,
+      deletedLogIds,
+      ...(quickLogged ? { quickLog: { status: 'gelogd' } } : {}),
+      favorietOpgeslagen,
+    })
   } catch (err) {
     console.error('coach-chat error', err)
     return jsonResponse({ error: 'Er ging iets mis.' }, 500)
