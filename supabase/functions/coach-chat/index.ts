@@ -419,7 +419,10 @@ Deno.serve(async (req: Request) => {
     // run A first, then check B against the result.
     const nutritionToolCalledThisRequest =
       Boolean(quickLogged?.ok) || calledToolNames.includes('nutrition_log_add') || calledToolNames.includes('nutrition_log_update')
-    if (!nutritionToolCalledThisRequest && EIWIT_CLAIM_PATTERN.test(finalReplyText)) {
+    // A favourite confirmation ("goed voor 12,6g eiwit") states a protein
+    // figure without logging anything — that is not the 13 August shape.
+    const favorietTurn = calledToolNames.includes('favoriet_opslaan')
+    if (!nutritionToolCalledThisRequest && !favorietTurn && EIWIT_CLAIM_PATTERN.test(finalReplyText)) {
       console.error('coach-chat: reply states a protein figure but no nutrition_log_add/_update ran this turn', { todayStr })
       finalReplyText = `${finalReplyText}\n\n(Let op: in dit bericht heb ik niets nieuws gelogd — eerder gelogde maaltijden blijven gewoon staan. Wilde je dit als nieuwe maaltijd loggen? Zeg het even.)`
     }
