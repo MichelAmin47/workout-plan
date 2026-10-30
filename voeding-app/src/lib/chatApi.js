@@ -60,7 +60,13 @@ function scopeToCurrentDay(messages) {
 export function toApiMessages(messages) {
   const mapped = []
   for (const msg of scopeToCurrentDay(messages)) {
-    if (msg.type === 'user') {
+    if (msg.type === 'user' && msg.quickLog) {
+      // Built from the stored favourite name + time, not the bubble text.
+      // Says it is already logged, so the coach never logs it again in a
+      // later turn. A failed quick log logged nothing and is not sent.
+      if (msg.quickLog.status === 'mislukt') continue
+      mapped.push({ role: 'user', content: `⚡ Snel loggen (al gelogd door de app): ${msg.quickLog.naam}, gegeten om ${msg.quickLog.tijdstip}` })
+    } else if (msg.type === 'user') {
       mapped.push({ role: 'user', content: msg.text })
     } else if (msg.type === 'coach') {
       mapped.push({ role: 'assistant', content: msg.text })
@@ -87,9 +93,11 @@ export function toApiMessages(messages) {
   return merged
 }
 
-export async function askCoach(messages) {
+// quickLog: { favorietId, tijdstip } for a "snel loggen" tap — coach-chat
+// writes the favourite's row itself before the model is called.
+export async function askCoach(messages, quickLog = null) {
   const { data, error } = await supabase.functions.invoke('coach-chat', {
-    body: { messages: toApiMessages(messages) },
+    body: { messages: toApiMessages(messages), ...(quickLog ? { quickLog } : {}) },
   })
   if (error || !data?.reply) {
     throw error ?? new Error('No reply from coach-chat')
@@ -114,5 +122,18 @@ export async function askCoach(messages) {
     // older server, which simply means no cards.
     logCards: Array.isArray(data.logCards) ? data.logCards : [],
     deletedLogIds: Array.isArray(data.deletedLogIds) ? data.deletedLogIds : [],
+    // 'gelogd' | 'mislukt' for a quick-log request, null otherwise.
+    quickLogStatus: data.quickLog?.status ?? null,
+    favorietOpgeslagen: Boolean(data.favorietOpgeslagen),
   }
+}
+
+// The quick-log sheet's list: active favourites, most used first, with the
+// protein resolved server-side exactly as a log would compute it.
+export async function fetchFavorieten() {
+  const { data, error } = await supabase.functions.invoke('coach-chat', { body: { action: 'favorieten' } })
+  if (error || !Array.isArray(data?.favorieten)) {
+    throw error ?? new Error('No favourites from coach-chat')
+  }
+  return data.favorieten
 }

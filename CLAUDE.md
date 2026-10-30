@@ -55,6 +55,16 @@ Every meal the coach logs is stored with its components and shown as a log card 
 - **Log cards** are built in `tools.ts` (`buildKaart`) from the row as the database returned it after the write, passed to `index.ts` under `_`-prefixed keys (stripped before the tool result goes back to the model), and returned as `logCards`/`deletedLogIds`. The client stores only display fields (`type: 'log-card'`) and `chatApi.js` `cardToText` sends **nothing** for them — the same rows are already in coach-chat's context, and kcal in assistant history would nudge the coach to talk calories. The card shows kcal; the coach's text still never volunteers it.
 - `_shared/summary.ts` and morning-checkin select `nutrition_log` columns explicitly — `componenten` never reaches the day-close or the check-in.
 
+## voeding-app quick log ("snel loggen", favourites)
+
+Built 2026-10-30; migration `supabase/migrations/20261030_nutrition_favoriet.sql`. A bolt button left of the chat input opens a sheet (eating time + favourites); one tap logs a whole favourite **through coach-chat**.
+
+- **`nutrition_favoriet`**: `naam`, `componenten` jsonb `[{product_id, gram|stuks, basis?}]`, `gebruikt_aantal`, `laatst_gebruikt_op`, `actief`. Trigger `nutrition_favoriet_valideer` allows only those four keys per component and requires an active `nutrition_product` — a favourite can never contain an estimate. Ordered `gebruikt_aantal desc, created_at asc`.
+- **Deterministic by construction:** the client sends `quickLog: { favorietId, tijdstip }`, never components. coach-chat (`tools.ts` `logFavoriet`) writes the row from the favourite record through the same `addLog` path as a model `nutrition_log_add`, **before** any model call, then injects that write as a `nutrition_log_add` tool_use/tool_result pair so the coach replies normally. A model `nutrition_log_add` during a quick-log request is blocked (duplicate guard). The synthetic tool_use relies on coach-chat running without extended thinking.
+- `gebruikt_aantal` goes up only after the insert succeeded. A failed quick log writes nothing, makes no model call, and is marked `status: 'mislukt'` in the thread, so it is never sent to the coach as logged.
+- `{ action: 'favorieten' }` on coach-chat returns the sheet's list, resolved with `resolveComponent` (the protein shown is what gets logged). No favourites block is in the per-turn context.
+- New favourites only via chat: tool `favoriet_opslaan` (preferably `log_id` of a logged meal; refused if any component is not a product).
+
 ## Vercel deployment
 
 Production URL `https://workout-plan-taupe.vercel.app` serves `workout-app/`; `https://workout-plan-77mz.vercel.app` serves `voeding-app/` as its own separate Vercel project. No `vercel.json` exists for either — each project's **Root Directory** is set in its own Vercel dashboard (Settings → General). Live-update (picking up `main` pushes without an APK rebuild) is confirmed working for both apps against this setting. See `workout-app/CLAUDE.md` → "Vercel deployment" for the rest of workout-app's dashboard settings.
