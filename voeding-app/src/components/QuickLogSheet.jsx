@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 
 // "Snel loggen": pick an eating time, tap a favourite. The favourite is
 // logged by coach-chat from its stored record (see tools.ts logFavoriet) —
@@ -33,43 +33,60 @@ export function resolveTime(selection) {
 export default function QuickLogSheet({ favorieten, loadError, onClose, onPick }) {
   const [selection, setSelection] = useState({ key: 'nu', custom: '' })
   const shownTime = resolveTime(selection)
+  // Only the list scrolls (the header and time selection stay put); the
+  // fade at its bottom shows only while there is more below.
+  const listRef = useRef(null)
+  const [hasMore, setHasMore] = useState(false)
+
+  function updateHasMore() {
+    const el = listRef.current
+    if (el) setHasMore(el.scrollTop + el.clientHeight < el.scrollHeight - 1)
+  }
+
+  useLayoutEffect(() => {
+    updateHasMore()
+    window.addEventListener('resize', updateHasMore)
+    return () => window.removeEventListener('resize', updateHasMore)
+  }, [favorieten, selection.key])
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet" role="dialog" aria-label="Snel loggen" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-header">
-          <div className="sheet-title">Snel loggen</div>
-          <button type="button" className="sheet-close" onClick={onClose} aria-label="Sluiten">
-            ✕
-          </button>
-        </div>
-
-        <div className="sheet-section-label">Wanneer gegeten?</div>
-        <div className="sheet-pills">
-          {TIME_OPTIONS.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              className={`quick-reply${selection.key === option.key ? ' is-selected' : ''}`}
-              onClick={() => setSelection((s) => ({ ...s, key: option.key, custom: option.key === 'anders' && !s.custom ? clockTime() : s.custom }))}
-            >
-              {option.label}
-              {option.time ? ` ${option.time}` : ''}
+        <div className="sheet-top">
+          <div className="sheet-header">
+            <div className="sheet-title">Snel loggen</div>
+            <button type="button" className="sheet-close" onClick={onClose} aria-label="Sluiten">
+              ✕
             </button>
-          ))}
-        </div>
-        {selection.key === 'anders' && (
-          <input
-            type="time"
-            className="sheet-time-input"
-            value={selection.custom}
-            onChange={(e) => setSelection((s) => ({ ...s, custom: e.target.value }))}
-          />
-        )}
-        <div className="sheet-time-line">Wordt gelogd om {shownTime}</div>
+          </div>
 
-        <div className="sheet-section-label">Favorieten</div>
-        <div className="sheet-favorites">
+          <div className="sheet-section-label">Wanneer gegeten?</div>
+          <div className="sheet-pills">
+            {TIME_OPTIONS.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                className={`quick-reply${selection.key === option.key ? ' is-selected' : ''}`}
+                onClick={() => setSelection((s) => ({ ...s, key: option.key, custom: option.key === 'anders' && !s.custom ? clockTime() : s.custom }))}
+              >
+                {option.label}
+                {option.time ? ` ${option.time}` : ''}
+              </button>
+            ))}
+          </div>
+          {selection.key === 'anders' && (
+            <input
+              type="time"
+              className="sheet-time-input"
+              value={selection.custom}
+              onChange={(e) => setSelection((s) => ({ ...s, custom: e.target.value }))}
+            />
+          )}
+          <div className="sheet-time-line">Wordt gelogd om {shownTime}</div>
+
+          <div className="sheet-section-label">Favorieten</div>
+        </div>
+        <div ref={listRef} className={`sheet-favorites${hasMore ? ' has-more' : ''}`} onScroll={updateHasMore}>
           {favorieten === null && !loadError && <div className="sheet-empty">Laden…</div>}
           {loadError && favorieten === null && <div className="sheet-empty">Favorieten konden niet geladen worden.</div>}
           {favorieten?.length === 0 && <div className="sheet-empty">Nog geen favorieten.</div>}
