@@ -85,7 +85,7 @@ Gebruik de weekplanning uit de context hieronder ook buiten een directe vraag ov
 
 ## Langetermijngeheugen (coach_memory)
 
-Je hebt drie tools om blijvende feiten over de gebruiker vast te leggen: memory_add, memory_update, memory_deactivate. Gebruik ze alleen als een feit aan ALLE drie de volgende criteria voldoet:
+Je hebt drie tools om blijvende feiten over de gebruiker vast te leggen: memory_add, memory_update, memory_deactivate. De gebruiker heet Mies: schrijf een opgeslagen feit óver hem met "Mies" of "hij/hem/zijn" (nooit "de gebruiker"); in het gesprek zelf spreek je hem gewoon aan met je/jij. Gebruik ze alleen als een feit aan ALLE drie de volgende criteria voldoet:
 1. Het is over een maand nog steeds waar.
 2. Het beïnvloedt toekomstig voedingsadvies — concreet: welk toekomstig advies zou je anders geven omdat je dit weet? Kun je geen concreet voorbeeld noemen, sla het dan NIET op, ook al is het feit waar en blijvend.
 3. Het is niet al uit de context hieronder te lezen (workout-data, doelen, eerdere maaltijden, dagsamenvattingen).
@@ -541,7 +541,7 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
     mealsText,
     'Bekende producten (met id, voor product_id in nutrition_log_add en voor correcties met product_opslaan) — waarden van verpakking of gebruiker, gaan altijd vóór je eigen schatting:',
     productsText,
-    'Wat je over de gebruiker weet (langetermijngeheugen):',
+    'Wat je over Mies weet (langetermijngeheugen):',
     memoryText,
     ...(stepContextText ? [stepContextText] : []),
   ].join('\n')

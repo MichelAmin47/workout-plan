@@ -65,6 +65,17 @@ Built 2026-10-30; migration `supabase/migrations/20261030_nutrition_favoriet.sql
 - `{ action: 'favorieten' }` on coach-chat returns the sheet's list, resolved with `resolveComponent` (the protein shown is what gets logged). No favourites block is in the per-turn context.
 - New favourites only via chat: tool `favoriet_opslaan` (preferably `log_id` of a logged meal; refused if any component is not a product).
 
+## voeding-app morning check-in: topic cap, day words, models
+
+Built 2026-11-06; migration `supabase/migrations/20261106_vraag_onderwerp.sql`; shared logic in `supabase/functions/_shared/vraagOnderwerp.ts` (pure, unit-tested in `vraagOnderwerp.test.ts`).
+
+- **Topic cap is structural, not a prompt rule.** Every card question and every closer `vraag_voor_morgen` has a `vraag_onderwerp` (fixed enum of 9: eiwit_timing, maaltijd, herstel, energie, slaap, gezondheid, logging, training, anders). A topic is allowed on card date X only if it occurs < 3 times in `coach_checkin_card` for X-6 … X-1 (`capVenster`, one definition for both ends; the closer on D uses X = D+1). Capped topics are removed from the tool schema's enum at **both** ends (`summary.ts` and morning-checkin). "anders" is capped too. NULL topics don't count.
+- **Labels are not trusted.** A narrow eiwit_timing keyword check (`bepaalOnderwerp`) relabels a protein-timing question tagged as something else (05 Nov: a card labelled "afsluiter" asked about protein timing). A closer question whose topic is capped is not stored (closer) or not offered to the model (card → falls back to `maaltijden`).
+- **Day words:** only the "morgen" family of the closer's text is shifted in code before the card prompt (`verschuifMorgen`: morgen→vandaag, morgenochtend/-vroeg→vanochtend, morgenmiddag→vanmiddag, morgenavond→vanavond). vandaag/gisteren are **not** converted: the closer often already writes from the card's perspective. A "morgen" in the card output is rejected (retry), never rewritten. The closer's context clause before " — " is copied into `boodschap` only when it contains no other relative day word.
+- `antwoord_opties` is required in the card schema; the 2–3 count and the 40-char limit stay in `validateAntwoordOpties` (strict mode supports neither).
+- **Models:** morning-checkin `claude-sonnet-5-5` (2048 tokens), day-close `claude-opus-5-5` (4096), both `output_config.effort: 'low'`, `tool_choice: auto` + `strict: true` tool schemas (forced tool_choice 400s on 5.5). A response without the tool call → one corrective retry; the card then falls back to its template, the closer fails loudly (`[summary] GEEN SAMENVATTING`) and never writes an empty row. coach-chat sends no effort (unchanged body; `anthropic.test.ts`).
+- **Naming:** text written *about* the user (summaries, aandachtspunt, coach_memory facts, the closer's transcript label) uses "Mies" (hij/hem/zijn); direct address in chat, on the card and in `vraag_voor_morgen` stays je/jij.
+
 ## Vercel deployment
 
 Production URL `https://workout-plan-taupe.vercel.app` serves `workout-app/`; `https://workout-plan-77mz.vercel.app` serves `voeding-app/` as its own separate Vercel project. No `vercel.json` exists for either — each project's **Root Directory** is set in its own Vercel dashboard (Settings → General). Live-update (picking up `main` pushes without an APK rebuild) is confirmed working for both apps against this setting. See `workout-app/CLAUDE.md` → "Vercel deployment" for the rest of workout-app's dashboard settings.

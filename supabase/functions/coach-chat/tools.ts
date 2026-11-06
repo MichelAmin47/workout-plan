@@ -6,20 +6,22 @@ interface ConversationMessage {
   content: unknown
 }
 
-// Flattens the working message list into plain "Gebruiker: ... / Coach: ..."
-// turns for the summary model, skipping tool_use/tool_result plumbing.
+// Flattens the working message list into plain "Mies: ... / Coach: ..."
+// turns for the summary model, skipping tool_use/tool_result plumbing. The
+// user's turns are labelled with his name (was "Gebruiker", 2026-11-06): the
+// day-close model copied that label into every summary as "de gebruiker".
 function buildTranscript(messages: ConversationMessage[]): string {
   const lines: string[] = []
   for (const msg of messages) {
     if (typeof msg.content === 'string') {
-      lines.push(`${msg.role === 'user' ? 'Gebruiker' : 'Coach'}: ${msg.content}`)
+      lines.push(`${msg.role === 'user' ? 'Mies' : 'Coach'}: ${msg.content}`)
     } else if (Array.isArray(msg.content)) {
       const text = msg.content
         .filter((block: { type: string }) => block.type === 'text')
         .map((block: { text: string }) => block.text)
         .join(' ')
       if (text.trim()) {
-        lines.push(`${msg.role === 'user' ? 'Gebruiker' : 'Coach'}: ${text.trim()}`)
+        lines.push(`${msg.role === 'user' ? 'Mies' : 'Coach'}: ${text.trim()}`)
       }
     }
   }
@@ -29,9 +31,10 @@ function buildTranscript(messages: ConversationMessage[]): string {
 // The day-close model and morning-checkin read these facts later, out of
 // this conversation's context — a third-person fact about the user has to
 // get his gender right on its own (02-10: a day-close aandachtspunt said
-// "haar"; the user is a man). Same rule as _shared/summary.ts.
+// "haar"; the user is a man). Same rule as _shared/summary.ts. Since
+// 2026-11-06 stored facts name him "Mies" instead of "de gebruiker".
 const FEIT_DESCRIPTION =
-  'The fact, phrased as a neutral statement/observation. Refer to the user as "de gebruiker" or "hij/hem/zijn" — never "zij/haar".'
+  'The fact, phrased as a neutral statement/observation, in Dutch. Refer to the user as "Mies" or "hij/hem/zijn" — never "de gebruiker", never "zij/haar".'
 
 // One component of a logged meal, shared by nutrition_log_add's componenten
 // and nutrition_log_update's component_wijziging/component_toevoegen. Two
