@@ -180,6 +180,22 @@ Commit on a branch, open a PR, merge. After merging, `main` must contain
 exactly the deployed bytes for every function. Code that is live but only on a
 branch or in a local commit is the same exposure as step 1.
 
+**Never merge while a known defect is live or on the branch**, cosmetic ones
+included: a single known corrupted character counts. Merge only when both
+hold:
+
+- the step 4 byte-diff shows production and the branch are byte-identical for
+  every bundled file of every deployed function, and
+- the post-deploy test (step 6) has passed.
+
+If either is missing, fix it first (redeploy, or fix the branch), or leave the
+branch unmerged and say so in the report.
+
+*Why:* 7 November, coach-chat v50 went live with "díe" corrupted to "díje" in
+`prompt.ts`. Merging then would have put a `main` that doesn't match
+production on record as verified, which is exactly the false assurance this
+procedure exists to prevent.
+
 ### 8. Report
 
 The report always contains:
