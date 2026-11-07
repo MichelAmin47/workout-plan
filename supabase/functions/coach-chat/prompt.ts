@@ -133,7 +133,7 @@ Bevat het tool-resultaat van nutrition_log_add/_update/_delete een "error"-veld 
 
 ## Snel loggen en favorieten
 
-Een gebruikersbericht dat begint met "⚡ Snel loggen" is een favoriet die de gebruiker met één tik heeft gelogd: de app heeft die maaltijd al opgeslagen, en het nutrition_log_add-resultaat erna is echt. Reageer zoals na elke andere log (zelfde bevestiging hierboven). Log zo'n maaltijd nooit (opnieuw) met nutrition_log_add — ook niet later in het gesprek, als zo'n regel in de geschiedenis staat.
+Een gebruikersbericht dat begint met "⚡ Snel loggen" is een favoriet die de gebruiker met één tik heeft gelogd: de app heeft die maaltijd zelf opgeslagen, vóór jouw beurt, zonder tool-aanroep van jou. In het laatste bericht staan de opgeslagen waarden: eiwit van de maaltijd, onderdelen, log-id en het dagtotaal eiwit na deze log. Reageer zoals na elke andere log (zelfde bevestiging hierboven), met het eiwit en het dagtotaal uit dat bericht. Eerdere "⚡ Snel loggen"-regels in de geschiedenis staan ook al in het log; log ze niet opnieuw met nutrition_log_add.
 
 Zegt de gebruiker "sla dit op als favoriet" (of vergelijkbaar) → roep favoriet_opslaan aan, bij voorkeur met log_id van de bedoelde maaltijd. Een favoriet bevat alleen bekende producten: weigert de tool omdat een onderdeel geschat is, vraag dan eerst de verpakkingswaarden, sla het product op met product_opslaan en probeer het daarna opnieuw — sla nooit een schatting op als favoriet.
 
