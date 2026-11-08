@@ -311,7 +311,7 @@ Deno.serve(async (req: Request) => {
       blockTool = (name) => {
         if (name !== 'nutrition_log_add') return null
         console.warn('coach-chat: model called nutrition_log_add during a quick log — blocked')
-        return { error: 'Deze snel-log is al gelogd door de app (zie het eerdere tool-resultaat). Er is niets opgeslagen.' }
+        return { error: 'Deze maaltijd is al door de app opgeslagen (zie het "⚡ Snel loggen"-bericht). Deze aanroep is niet uitgevoerd; er is niets extra opgeslagen.' }
       }
     }
 
