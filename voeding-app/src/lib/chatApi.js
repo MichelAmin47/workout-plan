@@ -61,11 +61,16 @@ export function toApiMessages(messages) {
   const mapped = []
   for (const msg of scopeToCurrentDay(messages)) {
     if (msg.type === 'user' && msg.quickLog) {
-      // Built from the stored favourite name + time, not the bubble text.
-      // Says it is already logged, so the coach never logs it again in a
-      // later turn. A failed quick log logged nothing and is not sent.
+      // Built from the stored favourite name + date + time, not the bubble
+      // text. Same label shape as coach-chat's own quick-log line
+      // (supabase/functions/coach-chat/quickLogText.ts): the APP saved it,
+      // not the coach, so the coach never logs it again in a later turn.
+      // The date keeps a line from another day from ever reading as a
+      // re-log of today's meal. Messages stored before 2026-11-07 have no
+      // datum. A failed quick log logged nothing and is not sent.
       if (msg.quickLog.status === 'mislukt') continue
-      mapped.push({ role: 'user', content: `⚡ Snel loggen (al gelogd door de app): ${msg.quickLog.naam}, gegeten om ${msg.quickLog.tijdstip}` })
+      const op = msg.quickLog.datum ? ` op ${msg.quickLog.datum}` : ''
+      mapped.push({ role: 'user', content: `⚡ Snel loggen — door de app opgeslagen, niet door jou: ${msg.quickLog.naam}, gegeten${op} om ${msg.quickLog.tijdstip}` })
     } else if (msg.type === 'user') {
       mapped.push({ role: 'user', content: msg.text })
     } else if (msg.type === 'coach') {

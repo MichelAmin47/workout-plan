@@ -101,12 +101,42 @@ copying: it is unreliable for any file of real size. Therefore:
 - Include every bundled file of the function, also the unchanged ones — the
   tool replaces the whole bundle.
 - Use the `source/` / `_shared/` naming above.
+- **No placeholder or abbreviated content, ever.** Every `content` field is the
+  complete file. Never write a stand-in ("PLACEHOLDER", "…rest unchanged…",
+  a marker meant to be filled in later) and never shorten a file "to save
+  space". The tool deploys exactly what it receives, and a stub file means the
+  function fails at boot.
+- **Pre-deploy check, length + sha256.** Build the patched payload with a
+  script: fetch the live bundle with `get_edge_function`, apply the change with
+  exact, unique string replacements (assert each occurs once), and write the
+  payload to a file in the scratchpad. Before calling `deploy_edge_function`,
+  print one line per file: path, byte length and sha256 of the payload next to
+  the reference. For a changed file the reference is the committed disk file;
+  for an unchanged file it is the live file, which must also equal disk. Stop
+  if any line differs, or if any file is suspiciously short or contains a
+  placeholder marker.
+- **Know what the check does not cover.** `deploy_edge_function` takes file
+  content inline, so the call is still typed out by you after the check: the
+  check proves the patched source, not your transcription. Copy the checked
+  payload exactly, and treat the step 4 byte-diff as the real gate.
 
-*Why:* seven corruptions caught so far, all in unrelated text — "on" became
-"op" in a comment, "caseiïne" and "díje" in prompt text, an escaped
-apostrophe in `tools.ts`, a stubbed `summary.ts` that silently stopped writing
-day-closes. (§3, fifth failure mode: rule 1 of the original agreement was
-never executable.)
+*Why:* nine corruptions so far, all in unrelated text — "on" became "op" in a
+comment, "caseiïne" and "díje" in prompt text, an escaped apostrophe in
+`tools.ts`, a stubbed `summary.ts` that silently stopped writing day-closes.
+On 7 November two more:
+
+- **v48/v49 outage.** coach-chat v48 (20:10Z) and v49 (20:14Z) were deployed
+  with `source/prompt.ts` and `source/tools.ts` sent as placeholder text, so
+  the function could not start. coach-chat was down for about 14 minutes,
+  20:10–20:24Z, until v50. The function logs show no user requests in that
+  window.
+- **"díje" again.** v50 restored service but went live with "díe" corrupted to
+  "díje" in `prompt.ts`, the same corruption as before. Repaired in v51
+  (8 November), deployed from a payload patched onto live v50 and checked with
+  length + sha256 first, then byte-diffed with zero differences.
+
+(§3, fifth failure mode: rule 1 of the original agreement was never
+executable.)
 
 ### 4. Deploy → byte-diff → fix → re-diff
 
@@ -179,6 +209,22 @@ a morning card if morning-checkin was touched).
 Commit on a branch, open a PR, merge. After merging, `main` must contain
 exactly the deployed bytes for every function. Code that is live but only on a
 branch or in a local commit is the same exposure as step 1.
+
+**Never merge while a known defect is live or on the branch**, cosmetic ones
+included: a single known corrupted character counts. Merge only when both
+hold:
+
+- the step 4 byte-diff shows production and the branch are byte-identical for
+  every bundled file of every deployed function, and
+- the post-deploy test (step 6) has passed.
+
+If either is missing, fix it first (redeploy, or fix the branch), or leave the
+branch unmerged and say so in the report.
+
+*Why:* 7 November, coach-chat v50 went live with "díe" corrupted to "díje" in
+`prompt.ts`. Merging then would have put a `main` that doesn't match
+production on record as verified, which is exactly the false assurance this
+procedure exists to prevent.
 
 ### 8. Report
 

@@ -11,6 +11,7 @@ import { amsterdamNow, isoDateString, resolveActiveDate } from '../_shared/today
 import { callClaude, extractText, type ClaudeMessage } from '../_shared/anthropic.ts'
 import { PERSONA_PROMPT, buildDynamicContext } from './prompt.ts'
 import { TOOLS, executeTool, formatMealCard, listFavorieten, logFavoriet } from './tools.ts'
+import { buildQuickLogUserText, replaceQuickLogLine } from './quickLogText.ts'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -218,12 +219,12 @@ Deno.serve(async (req: Request) => {
     // Quick log ("snel loggen"): the client sends a favourite id + eating
     // time, never components. The row is written HERE, from the favourite
     // record, before any model call — the model only ever sees the result,
-    // so it cannot re-interpret or estimate the meal. The write goes into
-    // the conversation as a nutrition_log_add tool_use/tool_result pair, so
-    // the normal "Maaltijd loggen — bevestiging" flow applies unchanged.
-    // (A synthetic tool_use is valid because these calls run without
-    // extended thinking; with thinking on, this would have to become a
-    // plain-text user block instead.)
+    // so it cannot re-interpret or estimate the meal. The write reaches the
+    // model as plain text in the last user message, stated as the APP's
+    // action (quickLogText.ts) — never as a tool_use in the model's name:
+    // the 5.5 models always think, and on 07-11 a synthetic
+    // nutrition_log_add turn made the coach invent an apology for having
+    // "offered the meal twice".
     const quickLog = body?.quickLog
     let quickLogged: Awaited<ReturnType<typeof logFavoriet>> | null = null
     if (quickLog) {
@@ -305,13 +306,12 @@ Deno.serve(async (req: Request) => {
     let blockTool: (name: string) => unknown | null = () => null
     if (quickLogged?.ok) {
       onToolResult('nutrition_log_add', quickLogged.result)
-      const toolUseId = `toolu_snellog_${crypto.randomUUID().replace(/-/g, '')}`
-      workingMessages.push({ role: 'assistant', content: [{ type: 'tool_use', id: toolUseId, name: 'nutrition_log_add', input: quickLogged.input }] })
-      workingMessages.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: JSON.stringify(withoutClientKeys(quickLogged.result)) }] })
+      const quickLogText = buildQuickLogUserText(withoutClientKeys(quickLogged.result) as Record<string, unknown>, quickLogged.input as { omschrijving: unknown; tijdstip: unknown }, todayStr)
+      workingMessages.splice(0, workingMessages.length, ...replaceQuickLogLine(workingMessages, quickLogText))
       blockTool = (name) => {
         if (name !== 'nutrition_log_add') return null
         console.warn('coach-chat: model called nutrition_log_add during a quick log — blocked')
-        return { error: 'Deze snel-log is al gelogd door de app (zie het eerdere tool-resultaat). Er is niets opgeslagen.' }
+        return { error: 'Deze maaltijd is al door de app opgeslagen (zie het "⚡ Snel loggen"-bericht). Deze aanroep is niet uitgevoerd; er is niets extra opgeslagen.' }
       }
     }
 

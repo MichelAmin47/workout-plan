@@ -470,7 +470,9 @@ export default function Coach() {
       type: 'user',
       text: `${favoriet.naam} · ${tijdstip}`,
       time: nowTime(),
-      quickLog: { favorietId: favoriet.id, naam: favoriet.naam, tijdstip },
+      // datum: the thread's (04:00-shifted) day, which is the day coach-chat
+      // logs it under — only used for the history label in chatApi.js.
+      quickLog: { favorietId: favoriet.id, naam: favoriet.naam, tijdstip, datum: threadDate ?? todayDateString() },
     }
     await runCoachTurn(userMessage, { favorietId: favoriet.id, tijdstip })
     refreshFavorieten()
