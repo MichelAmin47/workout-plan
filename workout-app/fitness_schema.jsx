@@ -2127,7 +2127,10 @@ function PhaseBar({ theme, weeks, selectedYw }) {
         const rightHalf = weeksBefore + g.weeks.length / 2 > sorted.length / 2;
         weeksBefore += g.weeks.length;
         return (
-          <div key={gi} style={{ flex: deload ? "0 0 54px" : `${g.weeks.length} 1 0`, minWidth: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+          // Every week bar the same width, deload included: the group grows
+          // with its week count, and its basis is exactly its own 3px
+          // inter-week gaps, so those don't eat into its bars' share.
+          <div key={gi} style={{ flex: `${g.weeks.length} 1 ${3 * (g.weeks.length - 1)}px`, minWidth: 0, display: "flex", flexDirection: "column", gap: 6 }}>
             <div style={{ height: 13, display: "flex", justifyContent: rightHalf ? "flex-end" : "flex-start" }}>
               {current && (
                 <span style={{ flex: "none", lineHeight: "13px", fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color, whiteSpace: "nowrap" }}>
@@ -2138,12 +2141,16 @@ function PhaseBar({ theme, weeks, selectedYw }) {
             <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 10 }}>
               {g.weeks.map(w => {
                 const state = w.yw < selectedYw ? "done" : w.yw === selectedYw ? "current" : "future";
+                const doneColor = deload ? theme.phaseDoneDeload : theme.phaseDone;
+                // Every state has a 1px border (done: in its own fill colour):
+                // with flex 1 + border-box a borderless bar would start 2px
+                // smaller than a bordered one and end up narrower.
                 return (
                   <div key={w.yw} style={{
                     flex: 1, boxSizing: "border-box", borderRadius: 2,
                     height: state === "current" ? 10 : 6,
-                    background: state === "done" ? (deload ? theme.phaseDoneDeload : theme.phaseDone) : state === "current" ? color : "transparent",
-                    border: state === "current" ? `1px solid ${theme.text}` : state === "future" ? `1px solid ${deload ? theme.phaseDoneDeload : theme.phaseFuture}` : "none",
+                    background: state === "done" ? doneColor : state === "current" ? color : "transparent",
+                    border: `1px solid ${state === "current" ? theme.text : state === "future" ? (deload ? theme.phaseDoneDeload : theme.phaseFuture) : doneColor}`,
                   }} />
                 );
               })}

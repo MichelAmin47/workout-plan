@@ -86,10 +86,13 @@ squares (`skewX(-8deg)`). Set pills are NOT italic.
    skewed filled pill (accent; cyan when the current week is a deload). Big
    title "WEEK 3 / 10" (x / y, "/ 10" muted), Barlow Condensed 700 italic
    44 px. Under it the **phase bar**: weeks grouped per phase from
-   `schema_weeks.phase`, phase name above each group (current phase coloured,
-   others `dim`), done weeks dimmed accent, current week taller with a white
-   outline, future weeks outlined only, deload weeks cyan. Replaces the old
-   phase badge.
+   `schema_weeks.phase`. Every week has the same width, deload weeks
+   included: each group's width grows with its week count (no fixed width
+   for deload groups). Only the current group shows its phase name above it,
+   coloured (a block like 37–43 has a different phase every week, and all
+   names don't fit at phone width). Done weeks dimmed accent, current week
+   taller with a white outline, future weeks outlined only, deload weeks
+   cyan. Replaces the old phase badge.
 2. **Week tabs.** Same behaviour as now: all weeks with training data,
    horizontal scroll, current week centred on open. Calendar week labels
    ("Week 46"). Small and calm: Barlow 500 15 px, `muted` on `card`, no
