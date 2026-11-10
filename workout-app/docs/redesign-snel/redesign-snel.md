@@ -172,12 +172,59 @@ list them in the PR description with screenshots so Michel can review.
 ## PR plan
 
 1. Flag + tokens + fonts + header with phase bar + week tabs + day strip (incl.
-   summary tab). Adds this spec and `reference/` to the repo.
+   summary tab). Adds this spec and `reference/` to the repo. **Merged**
+   (MichelAmin47/workout-plan#23, 10 Nov 2026).
 2. Training-day blocks 5–12 (rows, day colours, done state, tags, timer pills,
-   kettlebell, progressie).
+   kettlebell, progressie). In review.
 3. Inline log panel.
 4. Summary sheet + score popup.
 5. Flag on by default. After a week without issues: remove old styles and the
    flag. Also in this PR: loading screen ("Schema laden…") in the dark style.
    Until then it stays light, so with the flag on there is a short light flash
    before the dark header appears.
+
+## Decisions in PR 2 (not covered by the spec above)
+
+Agreed with Michel before the build:
+
+- **Hint cards:** with the flag on, both phase hint cards are removed: the
+  green "Progressie" card (item 11) and the purple "Nieuwe prikkel" card,
+  which is the same kind of hint and is not in the mockup.
+- **Schema 1 (2026 weeks 23–30):** same rules. "Spiergroep oefeningen" works
+  like Losse oefeningen (day colour). "Barbell hoofdoefening" is a normal dark
+  row with a BB tag in accent (it was brand orange). Its long press stays on
+  the whole row.
+- **Progressie 1RM stat:** the highest estimated 1RM among the chart's points
+  (it sits next to MAX GEWICHT); "—" when the exercise has no 1RM point.
+
+Chosen in the build, to review:
+
+- **Active timer pill:** filled in the block colour with dark text (the spec
+  only describes the idle `#EEF1F5` pill). The bottom timer bar is not
+  redesigned yet and keeps its old colours.
+- **Set pills:** `x` between digits shows as `×` in every pill (as in the
+  mockup); mobility also shows `sec` as `s`. Timer label "1 min" / "90 sec".
+  Display only; database values are untouched.
+- **Hint tags:** a segment matching `gewicht` or `+<digit>` gets the `peak`
+  colours ("+gewicht", "+gewicht piek", "zonder gewicht" too, the same rule as
+  the old red pill); "dropset" gets the Dropset tag; anything else ("deload",
+  "60-70%", "nieuw", "full body") gets the mockup's neutral outline (`#3A4350`
+  border, `text2`). Segments over 20 characters stay plain muted text.
+  Equipment "cable" / "machine" (not designed) use the neutral outline too.
+- **GEWIJZIGD** (swapped KB/core): solid outline tag in the block colour;
+  "↩ original" in `muted`; the swipe-back "↩ Terug" hint in `peak.text`.
+- **Optional KB exercise** (e.g. KB Renegade Row, block 37–43): the same
+  dashed frame / square / tag as an optional losse oefening, in accent (the
+  mockup shows exactly this).
+- **1RM series:** cyan dots only, no line (spec: "cyan 1RM dots"); the old
+  look keeps its blue line.
+- **Archive:** everything that uses accent (kettlebell, progressie, Power
+  Hour) follows the archive grey, as the header does since PR 1. Day colours
+  and teal stay.
+- **Not designed yet, same tokens applied:** Anti-zit and Vrije dag cards
+  (line icons per goal type: stairs, standing figure, moon, wind, people,
+  sparkle), Power Hour / Boksen cards (accent, the PR 1 tile icons, stars
+  filled accent / `dim` outline, accent "Score aanpassen" button), the swap
+  sheet (dark sheet, accent "WISSEL VOOR", accent arrows).
+- **Inline log panel:** until PR 3 it only gets a dark background, a dark
+  divider and light value text; inputs and stepper are unchanged.

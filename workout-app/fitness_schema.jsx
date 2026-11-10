@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "./src/supabase.js";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from "recharts";
 import { Haptics, ImpactStyle } from "@capacitor/haptics";
 import { registerPlugin } from "@capacitor/core";
 import { currentIsoWeek, isoWeekDate } from "./src/isoWeek.js";
-import { readRedesignFlag, writeRedesignFlag, themeFor } from "./src/redesign.js";
+import { readRedesignFlag, writeRedesignFlag, themeFor, dayColorOnDark, formatSnelSets, formatSnelTimer, snelHintTag } from "./src/redesign.js";
 const BatteryOptimization = registerPlugin("BatteryOptimization");
 const NativeTimer = registerPlugin("NativeTimer");
 
@@ -290,14 +290,14 @@ function formatSummaryDate(datum, dagLabel) {
 
 // "· PR 32kg" suffix for the "Laatste keer" line. Green when the weight
 // logged for the viewed week equals the PR (hit or set it this week).
-function PrText({ pr, currentWeight, standalone }) {
+function PrText({ pr, currentWeight, standalone, theme }) {
   if (!pr) return null;
   const isCurrent = currentWeight !== "" && currentWeight != null && Number(currentWeight) === pr.num;
   return (
     <>
       {!standalone && " · "}
       <span style={{ whiteSpace: "nowrap" }}>
-        PR <span style={{ color: isCurrent ? "#16a34a" : "#1a1a1a", fontWeight: isCurrent ? 700 : 400 }}>{pr.value}kg</span>
+        PR <span style={{ color: isCurrent ? (theme ? theme.success : "#16a34a") : (theme ? theme.text : "#1a1a1a"), fontWeight: isCurrent ? 700 : 400 }}>{pr.value}kg</span>
       </span>
     </>
   );
@@ -389,8 +389,25 @@ function formatTimerLabel(seconds) {
   return `${seconds}sec`;
 }
 
-function CustomTooltip({ active, payload, label }) {
+function CustomTooltip({ active, payload, label, theme }) {
   if (!active || !payload?.length) return null;
+  if (theme) {
+    return (
+      <div style={{ background: theme.card, border: `1px solid ${theme.line2}`, borderRadius: 10, padding: "8px 12px", fontFamily: theme.fontBody, color: theme.text }}>
+        <div style={{ fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 15, marginBottom: 4 }}>{label}</div>
+        {payload.map((p, i) => {
+          const reps = p.dataKey === "M" ? p.payload.repsM : null;
+          return (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: p.color }} />
+              <span style={{ color: theme.muted }}>{p.name}:</span>
+              <span style={{ fontWeight: 600 }}>{p.value} kg{reps != null ? ` × ${reps}` : ""}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
   return (
     <div style={{ background: "#fff", border: "1px solid #f0f0f0", borderRadius: 10, padding: "10px 14px", boxShadow: "0 4px 12px #0002" }}>
       <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6, color: "#1a1a1a" }}>{label}</div>
@@ -411,6 +428,77 @@ function CustomTooltip({ active, payload, label }) {
   );
 }
 
+
+// Progressie card in the new look (spec item 12). Pure presentation: the
+// chart data and the stats come in already computed by the caller.
+function SnelProgressie({ theme, open, onToggle, selEx, exercises, onSelect, chartData, mMax, mGain, m1rmMax, hasM1RM, currentLabel }) {
+  const statLabel = { fontFamily: theme.fontHead, fontWeight: 600, fontSize: 13, letterSpacing: 1.5, textTransform: "uppercase", color: theme.muted };
+  return (
+    <section style={{ background: theme.card, border: `1px solid ${open ? theme.line2 : theme.cardBorder}`, borderRadius: 16, display: "flex", flexDirection: "column", fontFamily: theme.fontBody, color: theme.text }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open ? "true" : "false"}
+        style={{ minHeight: 56, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 14px", border: "none", background: "transparent", color: theme.text, cursor: "pointer" }}
+      >
+        <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <SnelIcon kind="trend" color={theme.accent} />
+          <span style={{ fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 20, textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap" }}>Progressie</span>
+        </span>
+        <span style={{ display: "flex", transform: open ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s" }}>
+          <SnelIcon kind="chevron" color={open ? theme.accent : theme.muted} size={18} strokeWidth={2.4} />
+        </span>
+      </button>
+      {open && (
+        <div style={{ padding: "0 12px 14px", display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ position: "relative" }}>
+            <select
+              aria-label="Oefening"
+              value={selEx}
+              onChange={e => onSelect(e.target.value)}
+              style={{ width: "100%", height: 46, boxSizing: "border-box", appearance: "none", WebkitAppearance: "none", padding: "0 40px 0 14px", borderRadius: 12, border: `1px solid ${theme.line2}`, background: theme.bg, color: theme.text, fontFamily: theme.fontBody, fontSize: 16, fontWeight: 600, outline: "none", cursor: "pointer" }}
+            >
+              {exercises.map(ex => <option key={ex} value={ex}>{ex}</option>)}
+            </select>
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill={theme.accent} style={{ position: "absolute", right: 14, top: 15, pointerEvents: "none" }}><path d="M5 8h14l-7 9z" /></svg>
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, padding: "0 4px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <span style={statLabel}>Max gewicht</span>
+              <span style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <span style={{ fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 34, lineHeight: 1, color: theme.accent }}>{mMax != null ? `${mMax} kg` : "—"}</span>
+                {mGain != null && (
+                  <span style={{ fontFamily: theme.fontHead, fontWeight: 700, fontSize: 16, color: mGain > 0 ? theme.gain : theme.muted }}>{mGain > 0 ? `+${mGain} kg` : `${mGain} kg`}</span>
+                )}
+              </span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+              <span style={statLabel}>1RM</span>
+              <span style={{ fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 22, lineHeight: 1, color: theme.oneRm }}>{m1rmMax != null ? `${formatNl(m1rmMax)} kg` : "—"}</span>
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={chartData} margin={{ top: 8, right: 16, left: -18, bottom: 0 }}>
+              <CartesianGrid vertical={false} stroke={theme.line} />
+              <XAxis dataKey="week" interval={5} tick={{ fontSize: 11, fill: theme.muted }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: theme.muted }} axisLine={false} tickLine={false} />
+              {currentLabel && <ReferenceLine x={currentLabel} stroke={theme.phaseFuture} strokeDasharray="3 3" />}
+              <Tooltip content={<CustomTooltip theme={theme} />} cursor={{ stroke: theme.line2 }} />
+              <Line type="monotone" dataKey="M" name="gewicht" stroke={theme.accent} strokeWidth={2.5} dot={{ fill: theme.accent, stroke: theme.card, strokeWidth: 1.5, r: 4 }} activeDot={{ r: 6 }} connectNulls />
+              {hasM1RM && (
+                <Line type="monotone" dataKey="M1RM" name="1RM" stroke="none" dot={{ fill: theme.oneRm, stroke: "none", r: 3.5 }} activeDot={{ r: 5, fill: theme.oneRm }} />
+              )}
+            </LineChart>
+          </ResponsiveContainer>
+          <div style={{ display: "flex", justifyContent: "center", gap: 18, fontSize: 13, color: theme.text2 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 14, height: 3, borderRadius: 2, background: theme.accent }} />gewicht</span>
+            {hasM1RM && <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 7, height: 7, borderRadius: 4, background: theme.oneRm }} />1RM</span>}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
 
 const KB_EXERCISES = [
   "KB Alternating March", "KB Around the World", "KB Bent Over Row",
@@ -863,6 +951,13 @@ export default function FitnessSchema() {
       }
     : { bg: "#f1f5f9", accent: "#94a3b8", light: "#e2e8f0" };
   const phase = phaseColors[week.phase] || phaseColorFallback;
+  // Redesign block colours (spec "Day colour", items 5-9): mobility always
+  // teal, kettlebell (and schema 1's barbell card) always accent, every
+  // other block the selected day's schema_days.kleur lightened for dark.
+  // null with the flag off; the old look keeps its own colours.
+  const blockColor = theme
+    ? { mobility: theme.mobility, day: dayColorOnDark(day.kleur), accent: theme.accent }
+    : null;
 
   // Swap alternatives for core exercises — derived from every core exercise
   // programmed across the schemas (same flatMap the Progressie chart uses),
@@ -1345,7 +1440,7 @@ export default function FitnessSchema() {
       </div>
 
       {/* Content */}
-      <div style={{ padding: "16px", maxWidth: 600, margin: "0 auto" }}>
+      <div style={{ padding: theme ? "22px 16px 24px" : "16px", maxWidth: 600, margin: "0 auto" }}>
 
         {day.type === "rust" && (() => {
           // Priority: week-specific row (week_nummer = calWeek) > catch-all (week_nummer = 0)
@@ -1355,16 +1450,16 @@ export default function FitnessSchema() {
             return specific.length > 0 ? specific : all.filter(g => g.week_nummer === 0);
           };
           return day.naam === "Anti-zit"
-            ? <StretchenCard goals={restGoals("stretchen")} day={day} />
-            : <VrijeDagCard goals={restGoals("vrije_dag")} day={day} />;
+            ? <StretchenCard theme={theme} goals={restGoals("stretchen")} day={day} />
+            : <VrijeDagCard theme={theme} goals={restGoals("vrije_dag")} day={day} />;
         })()}
 
         {(day.type === "power_hour" || day.type === "boksen") && (() => {
           const datum = dateForDay(week, day.dag_volgorde);
           const onOpenPrompt = readOnly ? undefined : () => setScorePrompt({ datum, dayLabel: day.naam });
           return day.type === "power_hour"
-            ? <PowerHourCard day={day} score={dayScores[datum]} onOpenPrompt={onOpenPrompt} />
-            : <BoksenCard day={day} score={dayScores[datum]} onOpenPrompt={onOpenPrompt} />;
+            ? <PowerHourCard theme={theme} day={day} score={dayScores[datum]} onOpenPrompt={onOpenPrompt} />
+            : <BoksenCard theme={theme} day={day} score={dayScores[datum]} onOpenPrompt={onOpenPrompt} />;
         })()}
 
         {day.type === "training" && (<>
@@ -1378,6 +1473,9 @@ export default function FitnessSchema() {
             same minimal shape as a core row, just without the swap wrapper. */}
         {day.mobility.length > 0 && (
           <Section
+            theme={theme}
+            color={blockColor?.mobility}
+            iconKind="mobility"
             title="Mobility"
             icon="🤸"
             accent="#0d9488"
@@ -1394,6 +1492,9 @@ export default function FitnessSchema() {
                 note={ex.note}
                 accent="#0d9488"
                 light="#ccfbf1"
+                theme={theme}
+                color={blockColor?.mobility}
+                mobility
                 completed={completedExercises.has(eKey(ex.name, week.yw, day.dag_nummer))}
                 onLongPress={readOnly ? undefined : () => toggleExerciseCompletion(ex.name, week.yw, day.dag_nummer)}
               />
@@ -1424,15 +1525,16 @@ export default function FitnessSchema() {
             toggleCompletion: readOnly ? undefined : toggleExerciseCompletion,
             readOnly,
             lightColor: colors.light,
+            theme,
           };
           return (
             <>
-            <Section title="Supersets" icon="⚡" accent={colors.accent} timerSeconds={90} timerActive={activeTimer === "spiergroep"} onTimerClick={() => handleTimerClick("spiergroep", "Supersets", "⚡", 90, colors.accent)}>
-              <SupersetBlock title="SUPERSET 1" exercises={superset1} accentColor={colors.accent} {...ssProps} />
-              <SupersetBlock title="SUPERSET 2" exercises={superset2} accentColor={colors.accent} {...ssProps} />
+            <Section theme={theme} color={blockColor?.day} iconKind="bolt" bodyGap={12} title="Supersets" icon="⚡" accent={colors.accent} timerSeconds={90} timerActive={activeTimer === "spiergroep"} onTimerClick={() => handleTimerClick("spiergroep", "Supersets", "⚡", 90, colors.accent)}>
+              <SupersetBlock title={theme ? "Superset 1" : "SUPERSET 1"} exercises={superset1} accentColor={blockColor?.day ?? colors.accent} {...ssProps} />
+              <SupersetBlock title={theme ? "Superset 2" : "SUPERSET 2"} exercises={superset2} accentColor={blockColor?.day ?? colors.accent} {...ssProps} />
             </Section>
             {los.length > 0 && (
-              <Section title="Losse oefeningen" icon="🎯" accent={colors.accent} timerSeconds={90} timerActive={activeTimer === "losse"} onTimerClick={() => handleTimerClick("losse", "Losse oefeningen", "🎯", 90, colors.accent)}>
+              <Section theme={theme} color={blockColor?.day} iconKind="target" title="Losse oefeningen" icon="🎯" accent={colors.accent} timerSeconds={90} timerActive={activeTimer === "losse"} onTimerClick={() => handleTimerClick("losse", "Losse oefeningen", "🎯", 90, colors.accent)}>
                 {los.map((ex, i) => {
                   const k = wKey(ex.name, week.yw);
                   const w = weights[k] || { M: "", Z: "" };
@@ -1448,6 +1550,8 @@ export default function FitnessSchema() {
                       accent={colors.accent}
                       light={colors.light}
                       optional={ex.optional}
+                      theme={theme}
+                      color={blockColor?.day}
                       expanded={expandedExercise === ex.name}
                       onToggle={() => handleExerciseClick(ex.name)}
                       weightM={w.M}
@@ -1477,6 +1581,9 @@ export default function FitnessSchema() {
         })() : (
           <>
             <Section
+              theme={theme}
+              color={blockColor?.accent}
+              iconKind="barbell"
               title="Barbell Hoofdoefening"
               icon="🏋️"
               accent="#f37121"
@@ -1492,13 +1599,26 @@ export default function FitnessSchema() {
             const hasPrev = prevW.M !== "" && prevW.M != null || prevW.Z !== "" && prevW.Z != null;
             const barbellCompleted = completedExercises.has(eKey(day.barbell.name, week.yw, day.dag_nummer));
             return (
-              <div style={{ borderRadius: 10, overflow: "hidden" }}>
+              <div style={theme ? { borderRadius: 12, overflow: "hidden", background: theme.row } : { borderRadius: 10, overflow: "hidden" }}>
                 <div
-                  style={{ background: "#f37121", padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
+                  style={theme
+                    ? { minHeight: 44, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 12, padding: "6px 12px", cursor: "pointer" }
+                    : { background: "#f37121", padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
                   onClick={(e) => { if (bbLongPressed.current) { bbLongPressed.current = false; e.stopPropagation(); return; } handleExerciseClick(day.barbell.name); }}
                   onMouseDown={bbStartPress} onMouseUp={bbCancelPress}
                   onTouchStart={bbStartPress} onTouchEnd={bbCancelPress} onTouchMove={bbHandleTouchMove}
                 >
+                  {theme ? (
+                    // Schema-1 barbell card in the new look (not designed;
+                    // decision PR 2): a normal dark row with a BB tag. The
+                    // long press stays on the whole row, so the square has
+                    // no handler of its own.
+                    <>
+                      <ExCircle theme={theme} color={blockColor.accent} num={1} completed={barbellCompleted} />
+                      <SnelExName theme={theme} name={day.barbell.name} color={blockColor.accent} type="barbell" note={day.barbell.note} />
+                      <SnelSetPill theme={theme} sets={day.barbell.sets} color={blockColor.accent} />
+                    </>
+                  ) : (<>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ visibility: barbellCompleted ? "visible" : "hidden", width: 24, height: 24, borderRadius: "50%", background: "#16a34a", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#fff", fontWeight: 700, flexShrink: 0 }}>✓</span>
                     <div>
@@ -1509,10 +1629,11 @@ export default function FitnessSchema() {
                   <div style={{ background: "#fff", color: "#f37121", padding: "5px 12px", borderRadius: 20, fontSize: 13, fontWeight: 700, fontFamily: "sans-serif", whiteSpace: "nowrap" }}>
                     {day.barbell.sets}
                   </div>
+                  </>)}
                 </div>
                 {expandedExercise === day.barbell.name && (
                   <div
-                    style={{ background: "#fff8f5", borderTop: "1px solid #f0d0b8", padding: "10px 12px 10px 16px", display: "flex", flexDirection: "column", gap: 8 }}
+                    style={{ background: theme ? theme.row : "#fff8f5", borderTop: theme ? `1px solid ${theme.line}` : "1px solid #f0d0b8", padding: "10px 12px 10px 16px", display: "flex", flexDirection: "column", gap: 8 }}
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
@@ -1540,7 +1661,7 @@ export default function FitnessSchema() {
                               onClick={() => handleRepsChange(day.barbell.name, week.yw, person, String(Math.max(1, currentRepsNum - 1)))}
                               style={{ width: 26, height: 26, borderRadius: 6, border: "1px solid #e0c8b8", background: "#fff", color: "#888", fontSize: 14, fontWeight: 700, lineHeight: 1, cursor: currentRepsNum == null ? "default" : "pointer", opacity: currentRepsNum == null ? 0.4 : 1 }}
                             >−</button>
-                            <span style={{ minWidth: 18, textAlign: "center", fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#1a1a1a", userSelect: "none" }}>
+                            <span style={{ minWidth: 18, textAlign: "center", fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: theme ? theme.text : "#1a1a1a", userSelect: "none" }}>
                               {currentRepsNum ?? "–"}
                             </span>
                             <button
@@ -1556,7 +1677,7 @@ export default function FitnessSchema() {
                     </div>
                     {(hasPrev || personalRecords[day.barbell.name]) && (
                       <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
-                        {hasPrev && <>{prevResult?.label} · <span style={{ color: "#1a1a1a" }}>{prevW.M !== "" && prevW.M != null ? `${prevW.M}kg${prevW.repsM !== "" && prevW.repsM != null ? ` × ${prevW.repsM}` : ''}` : "—"}</span><span style={{ display: "none" }}> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevW.Z !== "" && prevW.Z != null ? `${prevW.Z}kg${prevW.repsZ !== "" && prevW.repsZ != null ? ` × ${prevW.repsZ}` : ''}` : "—"}</span></span></>}<PrText pr={personalRecords[day.barbell.name]} currentWeight={w.M} standalone={!hasPrev} />
+                        {hasPrev && <>{prevResult?.label} · <span style={{ color: theme ? theme.text : "#1a1a1a" }}>{prevW.M !== "" && prevW.M != null ? `${prevW.M}kg${prevW.repsM !== "" && prevW.repsM != null ? ` × ${prevW.repsM}` : ''}` : "—"}</span><span style={{ display: "none" }}> / <span style={{ color: theme ? theme.text : "#1a1a1a" }}>Z:</span> <span style={{ color: theme ? theme.text : "#1a1a1a" }}>{prevW.Z !== "" && prevW.Z != null ? `${prevW.Z}kg${prevW.repsZ !== "" && prevW.repsZ != null ? ` × ${prevW.repsZ}` : ''}` : "—"}</span></span></>}<PrText theme={theme} pr={personalRecords[day.barbell.name]} currentWeight={w.M} standalone={!hasPrev} />
                       </div>
                     )}
                   </div>
@@ -1568,6 +1689,9 @@ export default function FitnessSchema() {
 
         {/* Spiergroep */}
         <Section
+          theme={theme}
+          color={blockColor?.day}
+          iconKind="target"
           title="Spiergroep Oefeningen"
           icon="🎯"
           accent={colors.accent}
@@ -1590,6 +1714,8 @@ export default function FitnessSchema() {
                 accent={colors.accent}
                 light={colors.light}
                 optional={ex.optional}
+                theme={theme}
+                color={blockColor?.day}
                 expanded={expandedExercise === ex.name}
                 onToggle={() => handleExerciseClick(ex.name)}
                 weightM={w.M}
@@ -1619,7 +1745,11 @@ export default function FitnessSchema() {
 
                 {/* Kettlebell */}
         <Section
-          title="Kettlebell (Full Body)"
+          theme={theme}
+          color={blockColor?.accent}
+          iconKind="kettlebell"
+          subtitle="full body"
+          title={theme ? "Kettlebell" : "Kettlebell (Full Body)"}
           icon="🔔"
           accent="#c05621"
           timerSeconds={60}
@@ -1630,7 +1760,23 @@ export default function FitnessSchema() {
             const hiitInterval = day.kettlebell[0]?.hiitInterval || null;
             return (
               <>
-                {hiitInterval && (
+                {hiitInterval && theme && (
+                  // Spec 8: HIIT info on one compact line in an accent box.
+                  <div style={{ minHeight: 40, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "6px 12px", borderRadius: 10, border: `1px solid ${blockColor.accent}`, background: theme.row }}>
+                    <span style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
+                      <span style={{ fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 14, letterSpacing: 1.5, textTransform: "uppercase", color: blockColor.accent, whiteSpace: "nowrap" }}>HIIT</span>
+                      <span style={{ fontSize: 13, color: theme.muted, whiteSpace: "nowrap" }}>per oefening</span>
+                    </span>
+                    <span style={{ display: "flex", alignItems: "baseline", gap: 6, whiteSpace: "nowrap" }}>
+                      <span style={{ fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 18, color: blockColor.accent }}>{hiitInterval.work}s</span>
+                      <span style={{ fontSize: 12, color: theme.muted }}>werk</span>
+                      <span style={{ fontSize: 14, color: theme.phaseFuture }}>/</span>
+                      <span style={{ fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 18, color: theme.text2 }}>{hiitInterval.rest}s</span>
+                      <span style={{ fontSize: 12, color: theme.muted }}>rust</span>
+                    </span>
+                  </div>
+                )}
+                {hiitInterval && !theme && (
                   <div style={{
                     margin: "0 0 8px",
                     background: "#fff8f3",
@@ -1672,6 +1818,7 @@ export default function FitnessSchema() {
                   return (
                     <SwipeableRow
                       key={i}
+                      theme={theme}
                       onSwipeRight={readOnly ? undefined : () => { closeAndSave(); setSwapModal({ original: ex.name, week: week.yw, day: day.dag_nummer, options: KB_EXERCISES }); }}
                       onSwipeLeft={swappedName && !readOnly ? () => revertSwap(ex.name, week.yw, day.dag_nummer) : undefined}
                     >
@@ -1682,6 +1829,8 @@ export default function FitnessSchema() {
                         note={ex.note}
                         accent="#c05621"
                         light="#fed7aa"
+                        theme={theme}
+                        color={blockColor?.accent}
                         optional={ex.optional}
                         expanded={expandedExercise === displayName}
                         onToggle={() => handleExerciseClick(displayName)}
@@ -1716,7 +1865,10 @@ export default function FitnessSchema() {
 
         {/* Core */}
         <Section
-          title="Core Finisher"
+          theme={theme}
+          color={blockColor?.day}
+          iconKind="flame"
+          title={theme ? "Core finisher" : "Core Finisher"}
           icon="🔥"
           accent="#7c3aed"
           timerSeconds={45}
@@ -1730,6 +1882,7 @@ export default function FitnessSchema() {
             return (
               <SwipeableRow
                 key={i}
+                theme={theme}
                 onSwipeRight={readOnly ? undefined : () => { closeAndSave(); setSwapModal({ original: ex.name, week: week.yw, day: day.dag_nummer, options: CORE_EXERCISES }); }}
                 onSwipeLeft={swappedName && !readOnly ? () => revertSwap(ex.name, week.yw, day.dag_nummer) : undefined}
               >
@@ -1740,6 +1893,8 @@ export default function FitnessSchema() {
                   note={ex.note}
                   accent="#7c3aed"
                   light="#ede9fe"
+                  theme={theme}
+                  color={blockColor?.day}
                   optional={ex.optional}
                   completed={completedExercises.has(eKey(displayName, week.yw, day.dag_nummer))}
                   onLongPress={readOnly ? undefined : () => toggleExerciseCompletion(displayName, week.yw, day.dag_nummer)}
@@ -1751,13 +1906,14 @@ export default function FitnessSchema() {
           })}
         </Section>
 
-        {/* Progress note */}
-        {week.phase === "Opbouw" && (
+        {/* Progress note — removed with the flag on (spec item 11; the
+            purple "Nieuwe prikkel" card too, decision PR 2). */}
+        {!theme && week.phase === "Opbouw" && (
           <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: "12px 14px", marginTop: 4, fontFamily: "sans-serif", fontSize: 13, color: "#166534" }}>
             <strong>📈 Progressie:</strong> Verhoog het gewicht elke week. Week 1 = basisgewicht, Week 2 = +5kg/zwaarder, Week 3 = piekgewicht.
           </div>
         )}
-        {week.phase === "Nieuwe Prikkel" && (
+        {!theme && week.phase === "Nieuwe Prikkel" && (
           <div style={{ background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 10, padding: "12px 14px", marginTop: 4, fontFamily: "sans-serif", fontSize: 13, color: "#5b21b6" }}>
             {schema.weeks[selectedWeek + 1]?.phase === "Nieuwe Prikkel"
               ? <><strong>⚡ Nieuwe prikkel:</strong> Nieuwe oefeningen activeren andere spiervezels. Begin met een goed uitvoerbaar gewicht en bouw op volgende week.</>
@@ -1766,9 +1922,11 @@ export default function FitnessSchema() {
           </div>
         )}
 
+        {!theme && (
         <div style={{ textAlign: "center", color: "#bbb", fontSize: 11, fontFamily: "sans-serif", marginTop: 20, marginBottom: 8 }}>
           Core dagelijks herhalen · Rust: 60–90 sec tussen sets
         </div>
+        )}
 
         </>)}
 
@@ -1816,6 +1974,28 @@ export default function FitnessSchema() {
           // Without this, a kettlebell exercise (weight logged, reps never)
           // would still reserve a legend slot for a line that draws nothing.
           const hasM1RM = chartData.some(d => d.M1RM != null);
+          if (theme) {
+            // Display-only: the highest estimated 1RM among the chart's own
+            // points (decision PR 2). chartData itself is unchanged.
+            const m1rmMax = hasM1RM ? Math.max(...chartData.map(d => d.M1RM).filter(v => v != null)) : null;
+            const currentLabel = chartLabel(week);
+            return (
+              <SnelProgressie
+                theme={theme}
+                open={progressieOpen}
+                onToggle={() => setProgressieOpen(o => !o)}
+                selEx={selEx}
+                exercises={allExercises}
+                onSelect={setProgressieExercise}
+                chartData={chartData}
+                mMax={mMax}
+                mGain={mGain}
+                m1rmMax={m1rmMax}
+                hasM1RM={hasM1RM}
+                currentLabel={chartData.some(d => d.week === currentLabel) ? currentLabel : null}
+              />
+            );
+          }
           return (
             <div style={{ marginTop: 12 }}>
               <div style={{
@@ -1958,6 +2138,7 @@ export default function FitnessSchema() {
           exercises={(swapModal.options || KB_EXERCISES).filter((n) => n !== (swaps[sKey(swapModal.original, swapModal.week, swapModal.day)] || swapModal.original))}
           onSelect={(name) => saveSwap(swapModal.original, name, swapModal.week, swapModal.day)}
           onClose={() => setSwapModal(null)}
+          theme={theme}
         />
       )}
 
@@ -2162,7 +2343,92 @@ function PhaseBar({ theme, weeks, selectedYw }) {
   );
 }
 
-function Section({ title, icon, accent, timerSeconds, timerActive, onTimerClick, children }) {
+// ── "Snel" shared pieces (spec "Shared components"); only rendered with
+// the flag on. Values from docs/redesign-snel/reference/Main.dc.html.
+
+// Line icons replacing every emoji in the redesigned blocks.
+function SnelIcon({ kind, color, size = 20, strokeWidth = 2.2 }) {
+  const common = { "aria-hidden": "true", width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth, strokeLinecap: "round", strokeLinejoin: "round", style: { flex: "none", display: "block" } };
+  switch (kind) {
+    case "mobility": return <svg {...common}><circle cx="12" cy="4.5" r="2" /><path d="M12 7v6M7 21l5-8 5 8M5 10l7-1 7 1" /></svg>;
+    case "bolt": return <svg {...common}><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" /></svg>;
+    case "target": return <svg {...common}><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1.2" fill={color} /></svg>;
+    case "kettlebell": return <svg {...common}><path d="M9 9V7a3 3 0 0 1 6 0v2" /><circle cx="12" cy="15" r="6" /></svg>;
+    case "flame": return <svg {...common}><path d="M12 3c.5 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2.5 1.5-3.5 2-6 1.5 1 2.5 2.5 2.5 4.5 1-2 1.5-5.5.5-8.5z" /></svg>;
+    case "trend": return <svg {...common}><path d="M3 17l6-6 4 4 8-8M15 7h6v6" /></svg>;
+    case "barbell": return <svg {...common}><path d="M6 8v8M3 10v4M18 8v8M21 10v4M6 12h12" /></svg>;
+    case "stopwatch": return <svg {...common}><circle cx="12" cy="13" r="8" /><path d="M12 13V9M10 2h4" /></svg>;
+    case "check": return <svg {...common}><path d="M5 12l5 5L19 7" /></svg>;
+    case "chevron": return <svg {...common}><path d="m6 9 6 6 6-6" /></svg>;
+    case "arrow": return <svg {...common}><path d="M5 12h14M13 6l6 6-6 6" /></svg>;
+    case "undo": return <svg {...common}><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 0 12h-3" /></svg>;
+    case "car": return <svg {...common}><path d="M5 16H3v-4l2-5h11l4 5h1v4h-2" /><path d="M9 16h6" /><circle cx="7" cy="16.5" r="2" /><circle cx="17" cy="16.5" r="2" /><path d="M6 12h13" /></svg>;
+    case "umbrella": return <svg {...common}><path d="M3 11a9 7 0 0 1 18 0z" /><path d="M12 11l-3 9" /><path d="M3 21h18" /></svg>;
+    case "stairs": return <svg {...common}><path d="M3 20h5v-5h5v-5h5V5h3" /></svg>;
+    case "stand": return <svg {...common}><circle cx="12" cy="4.5" r="2" /><path d="M12 7v7M9 21l3-7 3 7M8 10h8" /></svg>;
+    case "moon": return <svg {...common}><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" /></svg>;
+    case "wind": return <svg {...common}><path d="M3 8h11a3 3 0 1 0-3-3M3 12h16a3 3 0 1 1-3 3M3 16h7" /></svg>;
+    case "people": return <svg {...common}><circle cx="9" cy="7" r="3" /><path d="M3 20v-1a6 6 0 0 1 12 0v1" /><circle cx="17" cy="9" r="2.5" /><path d="M17 14a4.5 4.5 0 0 1 4.5 4.5V20" /></svg>;
+    case "sparkle": return <svg {...common}><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18" /></svg>;
+    case "goal": return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="M8 12l3 3 5-6" /></svg>;
+    default: return null;
+  }
+}
+
+// Small uppercase tag under an exercise name (BB, DB, Dropset, +gewicht
+// piek, Optioneel, …). `dashed` = Optioneel's dashed outline.
+function SnelTag({ bg = "transparent", fg, border, dashed, children }) {
+  return (
+    <span style={{ padding: "1px 6px", borderRadius: 5, border: `1px ${dashed ? "dashed" : "solid"} ${border}`, background: bg, color: fg, fontSize: 11, lineHeight: "15px", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "nowrap", flexShrink: 0 }}>
+      {children}
+    </span>
+  );
+}
+
+// Outlined set pill in the block colour. Not italic (spec).
+function SnelSetPill({ theme, sets, color, dashed, mobility }) {
+  return (
+    <span style={{ padding: "3px 10px", borderRadius: 999, border: `1px ${dashed ? "dashed" : "solid"} ${color}`, color, fontFamily: theme.fontHead, fontWeight: 700, fontSize: 15, lineHeight: "18px", whiteSpace: "nowrap", flexShrink: 0 }}>
+      {formatSnelSets(sets, { mobility })}
+    </span>
+  );
+}
+
+// KB "40s | 20s" split pill (spec 8: "the split pill on the row stays").
+function SnelSplitPill({ theme, interval, color }) {
+  return (
+    <span style={{ display: "flex", borderRadius: 999, overflow: "hidden", border: `1px solid ${color}`, fontFamily: theme.fontHead, fontWeight: 700, fontSize: 15, lineHeight: "18px", whiteSpace: "nowrap", flexShrink: 0 }}>
+      <span style={{ padding: "2px 9px", color }}>{interval.work}s</span>
+      <span style={{ padding: "2px 9px", background: theme.line, color: theme.text2 }}>{interval.rest}s</span>
+    </span>
+  );
+}
+
+function Section({ theme, color, iconKind, subtitle, bodyGap, title, icon, accent, timerSeconds, timerActive, onTimerClick, children }) {
+  if (theme) {
+    return (
+      <section style={{ background: theme.card, border: `1px solid ${theme.cardBorder}`, borderRadius: 16, padding: 12, marginBottom: 14, display: "flex", flexDirection: "column", gap: bodyGap ?? 6, fontFamily: theme.fontBody, color: theme.text }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+            <SnelIcon kind={iconKind} color={color} />
+            <h3 style={{ margin: 0, fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 20, lineHeight: "24px", textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap" }}>{title}</h3>
+            {subtitle && <span style={{ fontSize: 13, color: theme.muted, whiteSpace: "nowrap" }}>{subtitle}</span>}
+          </div>
+          <button
+            type="button"
+            onClick={onTimerClick}
+            aria-pressed={timerActive ? "true" : "false"}
+            aria-label={`Rusttimer ${formatSnelTimer(timerSeconds)}`}
+            style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 8, border: "none", background: timerActive ? color : theme.text, color: theme.bg, fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 15, lineHeight: "18px", whiteSpace: "nowrap", cursor: "pointer", flexShrink: 0 }}
+          >
+            <SnelIcon kind="stopwatch" color={theme.bg} size={14} strokeWidth={2.6} />
+            {formatSnelTimer(timerSeconds)}
+          </button>
+        </div>
+        {children}
+      </section>
+    );
+  }
   return (
     <div style={{ background: "#fff", borderRadius: 12, marginBottom: 12, overflow: "hidden", boxShadow: "0 1px 4px #0001" }}>
       <div style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2182,9 +2448,105 @@ function Section({ title, icon, accent, timerSeconds, timerActive, onTimerClick,
   );
 }
 
-function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange, repsM, repsZ, onRepsChange, prevWeightM, prevWeightZ, prevRepsM, prevRepsZ, prevWeekLabel, pr, savedM, savedZ, completed, onLongPress, swapped, originalName, hiitInterval, readOnly }) {
+// Name column of a redesigned exercise row: name (Barlow 600 italic 16,
+// never dimmed) and, under it, the tags in spec order — OPTIONEEL, then
+// GEWIJZIGD, equipment (supersets only), then the weight_hint/note tags.
+function SnelExName({ theme, name, color, optional, swapped, type, note, originalName }) {
+  const segments = note ? note.split("·").map(s => s.trim()).filter(Boolean) : [];
+  const typeLabel = type === "barbell" ? "BB" : type === "dumbbell" ? "DB" : type;
+  const typeColors = type === "barbell" ? { bg: theme.text, fg: theme.bg, border: theme.text }
+    : type === "dumbbell" ? { bg: "#3B82F6", fg: "#FFFFFF", border: "#3B82F6" }
+    : { bg: "transparent", fg: theme.text2, border: theme.phaseFuture };
+  const hasTags = optional || swapped || type || segments.length > 0;
+  return (
+    <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+      <span style={{ fontSize: 16, lineHeight: "20px", fontWeight: 600, fontStyle: "italic", color: theme.text }}>{name}</span>
+      {hasTags && (
+        <span style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 5 }}>
+          {optional && <SnelTag fg={color} border={color} dashed>Optioneel</SnelTag>}
+          {swapped && <SnelTag fg={color} border={color}>Gewijzigd</SnelTag>}
+          {type && <SnelTag {...typeColors}>{typeLabel}</SnelTag>}
+          {segments.map((seg, i) => seg.length > 20
+            ? <span key={i} style={{ fontSize: 12, lineHeight: "15px", color: theme.muted }}>{seg}</span>
+            : <SnelTag key={i} {...snelHintTag(theme, seg)}>{seg}</SnelTag>)}
+        </span>
+      )}
+      {originalName && <span style={{ fontSize: 12, lineHeight: "15px", color: theme.muted }}>↩ {originalName}</span>}
+    </span>
+  );
+}
+
+function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange, repsM, repsZ, onRepsChange, prevWeightM, prevWeightZ, prevRepsM, prevRepsZ, prevWeekLabel, pr, savedM, savedZ, completed, onLongPress, swapped, originalName, hiitInterval, readOnly, theme, color, mobility }) {
   const isClickable = !!onToggle;
   const hasPrev = (prevWeightM !== "" && prevWeightM != null) || (prevWeightZ !== "" && prevWeightZ != null);
+  const panel = expanded && (
+        <div
+          style={{ background: theme ? theme.row : "#fff8f5", borderTop: theme ? `1px solid ${theme.line}` : "1px solid #f0d0b8", padding: "10px 12px 10px 48px", display: "flex", flexDirection: "column", gap: 8 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
+            {["M", "Z"].map((person) => {
+              const currentReps = person === "M" ? repsM : repsZ;
+              const currentRepsNum = currentReps === "" || currentReps == null ? null : Number(currentReps);
+              return (
+              <div key={person} style={{ display: person === "Z" ? "none" : "flex", alignItems: "center", gap: 6 }}>
+                <input
+                  type="number"
+                  disabled={readOnly}
+                  step="any"
+                  min={0}
+                  value={person === "M" ? weightM : weightZ}
+                  onChange={(e) => onWeightChange(person, e.target.value)}
+                  placeholder="kg"
+                  style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }}
+                />
+                <span style={{ display: "inline-flex", width: 14, justifyContent: "center", color: "#16a34a", fontSize: 14, fontWeight: 700, lineHeight: 1, visibility: ((person === "M" && savedM) || (person === "Z" && savedZ)) ? "visible" : "hidden" }}>✓</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
+                  <button
+                    type="button"
+                    hidden={readOnly}
+                    disabled={currentRepsNum == null}
+                    onClick={() => onRepsChange(person, String(Math.max(1, currentRepsNum - 1)))}
+                    style={{ width: 26, height: 26, borderRadius: 6, border: "1px solid #e0c8b8", background: "#fff", color: "#888", fontSize: 14, fontWeight: 700, lineHeight: 1, cursor: currentRepsNum == null ? "default" : "pointer", opacity: currentRepsNum == null ? 0.4 : 1 }}
+                  >−</button>
+                  <span style={{ minWidth: 18, textAlign: "center", fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: theme ? theme.text : "#1a1a1a", userSelect: "none" }}>
+                    {currentRepsNum ?? "–"}
+                  </span>
+                  <button
+                    type="button"
+                    hidden={readOnly}
+                    onClick={() => onRepsChange(person, String(Math.min(50, (currentRepsNum ?? 0) + 1)))}
+                    style={{ width: 26, height: 26, borderRadius: 6, border: "1px solid #e0c8b8", background: "#fff", color: "#888", fontSize: 14, fontWeight: 700, lineHeight: 1, cursor: "pointer" }}
+                  >+</button>
+                </div>
+              </div>
+              );
+            })}
+          </div>
+          {(hasPrev || pr) && (
+            <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
+              {hasPrev && <>{prevWeekLabel || "Vorige week"} · <span style={{ color: theme ? theme.text : "#1a1a1a" }}>{prevWeightM !== "" && prevWeightM != null ? `${prevWeightM}kg${prevRepsM !== "" && prevRepsM != null ? ` × ${prevRepsM}` : ''}` : "—"}</span><span style={{ display: "none" }}> / <span style={{ color: theme ? theme.text : "#1a1a1a" }}>Z:</span> <span style={{ color: theme ? theme.text : "#1a1a1a" }}>{prevWeightZ !== "" && prevWeightZ != null ? `${prevWeightZ}kg${prevRepsZ !== "" && prevRepsZ != null ? ` × ${prevRepsZ}` : ''}` : "—"}</span></span></>}<PrText theme={theme} pr={pr} currentWeight={weightM} standalone={!hasPrev} />
+            </div>
+          )}
+        </div>
+  );
+  if (theme) {
+    return (
+      <div style={{ borderRadius: 12, overflow: "hidden", border: optional ? `1px dashed ${color}` : "none", background: optional ? "transparent" : theme.row }}>
+        <div
+          style={{ minHeight: 44, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 12, padding: "6px 12px", cursor: isClickable ? "pointer" : "default" }}
+          onClick={onToggle}
+        >
+          <ExCircle theme={theme} color={color} num={num} completed={completed} accent={accent} optional={optional} onLongPress={onLongPress} />
+          <SnelExName theme={theme} name={name} color={color} optional={optional} swapped={swapped} note={note} originalName={originalName} />
+          {hiitInterval
+            ? <SnelSplitPill theme={theme} interval={hiitInterval} color={color} />
+            : <SnelSetPill theme={theme} sets={sets} color={color} dashed={optional} mobility={mobility} />}
+        </div>
+        {panel}
+      </div>
+    );
+  }
   return (
     <div style={{ borderRadius: 8, overflow: "hidden", border: optional ? "1.5px dashed #f37121" : "none" }}>
       <div
@@ -2216,57 +2578,7 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
           </div>
         )}
       </div>
-      {expanded && (
-        <div
-          style={{ background: "#fff8f5", borderTop: "1px solid #f0d0b8", padding: "10px 12px 10px 48px", display: "flex", flexDirection: "column", gap: 8 }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
-            {["M", "Z"].map((person) => {
-              const currentReps = person === "M" ? repsM : repsZ;
-              const currentRepsNum = currentReps === "" || currentReps == null ? null : Number(currentReps);
-              return (
-              <div key={person} style={{ display: person === "Z" ? "none" : "flex", alignItems: "center", gap: 6 }}>
-                <input
-                  type="number"
-                  disabled={readOnly}
-                  step="any"
-                  min={0}
-                  value={person === "M" ? weightM : weightZ}
-                  onChange={(e) => onWeightChange(person, e.target.value)}
-                  placeholder="kg"
-                  style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }}
-                />
-                <span style={{ display: "inline-flex", width: 14, justifyContent: "center", color: "#16a34a", fontSize: 14, fontWeight: 700, lineHeight: 1, visibility: ((person === "M" && savedM) || (person === "Z" && savedZ)) ? "visible" : "hidden" }}>✓</span>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
-                  <button
-                    type="button"
-                    hidden={readOnly}
-                    disabled={currentRepsNum == null}
-                    onClick={() => onRepsChange(person, String(Math.max(1, currentRepsNum - 1)))}
-                    style={{ width: 26, height: 26, borderRadius: 6, border: "1px solid #e0c8b8", background: "#fff", color: "#888", fontSize: 14, fontWeight: 700, lineHeight: 1, cursor: currentRepsNum == null ? "default" : "pointer", opacity: currentRepsNum == null ? 0.4 : 1 }}
-                  >−</button>
-                  <span style={{ minWidth: 18, textAlign: "center", fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#1a1a1a", userSelect: "none" }}>
-                    {currentRepsNum ?? "–"}
-                  </span>
-                  <button
-                    type="button"
-                    hidden={readOnly}
-                    onClick={() => onRepsChange(person, String(Math.min(50, (currentRepsNum ?? 0) + 1)))}
-                    style={{ width: 26, height: 26, borderRadius: 6, border: "1px solid #e0c8b8", background: "#fff", color: "#888", fontSize: 14, fontWeight: 700, lineHeight: 1, cursor: "pointer" }}
-                  >+</button>
-                </div>
-              </div>
-              );
-            })}
-          </div>
-          {(hasPrev || pr) && (
-            <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
-              {hasPrev && <>{prevWeekLabel || "Vorige week"} · <span style={{ color: "#1a1a1a" }}>{prevWeightM !== "" && prevWeightM != null ? `${prevWeightM}kg${prevRepsM !== "" && prevRepsM != null ? ` × ${prevRepsM}` : ''}` : "—"}</span><span style={{ display: "none" }}> / <span style={{ color: "#1a1a1a" }}>Z:</span> <span style={{ color: "#1a1a1a" }}>{prevWeightZ !== "" && prevWeightZ != null ? `${prevWeightZ}kg${prevRepsZ !== "" && prevRepsZ != null ? ` × ${prevRepsZ}` : ''}` : "—"}</span></span></>}<PrText pr={pr} currentWeight={weightM} standalone={!hasPrev} />
-            </div>
-          )}
-        </div>
-      )}
+      {panel}
     </div>
   );
 }
@@ -2318,16 +2630,23 @@ function HintBadges({ text, onDark, textColor }) {
   );
 }
 
-function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExercise, onToggle, yw, dayId, weights, savedIndicators, completedExercises, onWeightChange, onRepsChange, getEffectiveReps, toggleCompletion, personalRecords, readOnly }) {
+function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExercise, onToggle, yw, dayId, weights, savedIndicators, completedExercises, onWeightChange, onRepsChange, getEffectiveReps, toggleCompletion, personalRecords, readOnly, theme }) {
   return (
-    <div style={{ marginBottom: 8 }}>
+    <div style={theme ? { display: "flex", flexDirection: "column", gap: 6 } : { marginBottom: 8 }}>
+      {theme ? (
+        // Spec 6: label as plain italic text in the day colour, no pill, no line.
+        <span style={{ fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 13, lineHeight: "16px", letterSpacing: 1.5, textTransform: "uppercase", color: accentColor }}>{title}</span>
+      ) : (
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, paddingLeft: 4 }}>
         <div style={{ background: accentColor, color: "#fff", fontSize: 10, fontWeight: 800, letterSpacing: 1, padding: "3px 8px", borderRadius: 20, fontFamily: "sans-serif" }}>
           {title}
         </div>
         <div style={{ flex: 1, height: 1, background: hexA(accentColor, 0.25) }} />
       </div>
-      <div style={{ background: "#fff", borderRadius: 12, overflow: "hidden", border: `2px solid ${hexA(accentColor, 0.2)}` }}>
+      )}
+      <div style={theme
+        ? { background: theme.row, borderRadius: 12, overflow: "hidden", border: `1px solid ${theme.line2}` }
+        : { background: "#fff", borderRadius: 12, overflow: "hidden", border: `2px solid ${hexA(accentColor, 0.2)}` }}>
         {exercises.map((ex, i) => {
           const type = inferExerciseType(ex.name, ex.categorie);
           const k = wKey(ex.name, yw);
@@ -2339,6 +2658,16 @@ function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExer
           const isCompleted = completedExercises.has(eKey(ex.name, yw, dayId));
           return (
             <div key={i}>
+              {theme ? (
+              <div
+                style={{ minHeight: 44, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 12, padding: "6px 12px", cursor: "pointer" }}
+                onClick={() => onToggle(ex.name)}
+              >
+                <ExCircle theme={theme} color={accentColor} num={i + 1} completed={isCompleted} accent={accentColor} onLongPress={toggleCompletion ? () => toggleCompletion(ex.name, yw, dayId) : undefined} />
+                <SnelExName theme={theme} name={ex.name} color={accentColor} type={type} note={ex.weight_hint} />
+                <SnelSetPill theme={theme} sets={ex.sets} color={accentColor} />
+              </div>
+              ) : (
               <div
                 style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", background: hexA(lightColor, 0.33), cursor: "pointer" }}
                 onClick={() => onToggle(ex.name)}
@@ -2355,11 +2684,12 @@ function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExer
                   {ex.sets}
                 </div>
               </div>
+              )}
               {isExpanded && (() => {
                 const currentReps = getEffectiveReps(ex.name, yw, "M");
                 const currentRepsNum = currentReps === "" || currentReps == null ? null : Number(currentReps);
                 return (
-                <div style={{ background: "#fff8f5", borderTop: "1px solid #f0d0b8", padding: "10px 12px 10px 52px", display: "flex", flexDirection: "column", gap: 8 }} onClick={e => e.stopPropagation()}>
+                <div style={{ background: theme ? theme.row : "#fff8f5", borderTop: theme ? `1px solid ${theme.line}` : "1px solid #f0d0b8", padding: "10px 12px 10px 52px", display: "flex", flexDirection: "column", gap: 8 }} onClick={e => e.stopPropagation()}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <input type="number" disabled={readOnly} step="any" min={0} value={w.M} onChange={e => onWeightChange(ex.name, yw, "M", e.target.value)} placeholder="kg" style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0c8b8", fontFamily: "sans-serif", fontSize: 13, outline: "none", background: "#fff" }} />
                     <span style={{ display: "inline-flex", width: 14, justifyContent: "center", color: "#16a34a", fontSize: 14, fontWeight: 700, visibility: savedIndicators[`${ex.name}__${yw}__M`] ? "visible" : "hidden" }}>✓</span>
@@ -2371,7 +2701,7 @@ function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExer
                         onClick={() => onRepsChange(ex.name, yw, "M", String(Math.max(1, currentRepsNum - 1)))}
                         style={{ width: 26, height: 26, borderRadius: 6, border: "1px solid #e0c8b8", background: "#fff", color: "#888", fontSize: 14, fontWeight: 700, lineHeight: 1, cursor: currentRepsNum == null ? "default" : "pointer", opacity: currentRepsNum == null ? 0.4 : 1 }}
                       >−</button>
-                      <span style={{ minWidth: 18, textAlign: "center", fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: "#1a1a1a", userSelect: "none" }}>
+                      <span style={{ minWidth: 18, textAlign: "center", fontFamily: "sans-serif", fontSize: 13, fontWeight: 700, color: theme ? theme.text : "#1a1a1a", userSelect: "none" }}>
                         {currentRepsNum ?? "–"}
                       </span>
                       <button
@@ -2384,13 +2714,21 @@ function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExer
                   </div>
                   {(hasPrev || personalRecords[ex.name]) && (
                     <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb" }}>
-                      {hasPrev && <>{prevResult?.label} · <span style={{ color: "#1a1a1a" }}>{prevW.M !== "" && prevW.M != null ? `${prevW.M}kg${prevW.repsM !== "" && prevW.repsM != null ? ` × ${prevW.repsM}` : ''}` : "—"}</span></>}<PrText pr={personalRecords[ex.name]} currentWeight={w.M} standalone={!hasPrev} />
+                      {hasPrev && <>{prevResult?.label} · <span style={{ color: theme ? theme.text : "#1a1a1a" }}>{prevW.M !== "" && prevW.M != null ? `${prevW.M}kg${prevW.repsM !== "" && prevW.repsM != null ? ` × ${prevW.repsM}` : ''}` : "—"}</span></>}<PrText theme={theme} pr={personalRecords[ex.name]} currentWeight={w.M} standalone={!hasPrev} />
                     </div>
                   )}
                 </div>
                 );
               })()}
-              {i < exercises.length - 1 && !isExpanded && (
+              {i < exercises.length - 1 && !isExpanded && theme && (
+                // Spec 6: "GEEN RUST →" connector with a short day-colour bar.
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 12px 2px 25px" }}>
+                  <div style={{ width: 2, height: 16, background: accentColor }} />
+                  <span style={{ fontFamily: theme.fontHead, fontWeight: 600, fontSize: 12, lineHeight: "14px", letterSpacing: 1.5, textTransform: "uppercase", color: theme.muted }}>Geen rust</span>
+                  <SnelIcon kind="arrow" color={theme.muted} size={12} strokeWidth={2.4} />
+                </div>
+              )}
+              {i < exercises.length - 1 && !isExpanded && !theme && (
                 <div style={{ display: "flex", alignItems: "center", padding: "0 14px", background: "#fff" }}>
                   <div style={{ width: 28, display: "flex", justifyContent: "center" }}>
                     <div style={{ width: 2, height: 16, background: hexA(accentColor, 0.38), borderRadius: 1 }} />
@@ -2408,7 +2746,7 @@ function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExer
   );
 }
 
-function ExCircle({ num, completed, accent, optional, onLongPress }) {
+function ExCircle({ num, completed, accent, optional, onLongPress, theme, color }) {
   const timer = useRef(null);
   const longPressed = useRef(false);
   const startPos = useRef({ x: 0, y: 0 });
@@ -2434,14 +2772,41 @@ function ExCircle({ num, completed, accent, optional, onLongPress }) {
     if (Math.abs(t.clientX - startPos.current.x) > 10 || Math.abs(t.clientY - startPos.current.y) > 10) cancelPress();
   };
 
+  // Shared by both looks: the same element carries the same long press.
+  const pressHandlers = {
+    onMouseDown: startPress,
+    onMouseUp: cancelPress,
+    onTouchStart: startPress,
+    onTouchEnd: cancelPress,
+    onTouchMove: handleTouchMove,
+    onClick: (e) => { if (longPressed.current) { longPressed.current = false; e.stopPropagation(); } },
+  };
+
+  if (theme) {
+    // Spec "Number square" / "Done": skewed 26×26, filled in the block
+    // colour; done = dark square, 1.5 px border, check in the block colour.
+    return (
+      <div
+        {...pressHandlers}
+        aria-label={completed ? "gedaan" : undefined}
+        style={{
+          width: 26, height: 26, flex: "none", boxSizing: "border-box", borderRadius: 8,
+          background: completed ? theme.bg : (optional ? "transparent" : color),
+          border: completed ? `1.5px solid ${color}` : (optional ? `1px dashed ${color}` : "none"),
+          color: optional ? color : theme.bg,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 16, lineHeight: 1,
+          transform: "skewX(-8deg)", cursor: "pointer", userSelect: "none",
+        }}
+      >
+        {completed ? <SnelIcon kind="check" color={color} size={15} strokeWidth={3.4} /> : num}
+      </div>
+    );
+  }
+
   return (
     <div
-      onMouseDown={startPress}
-      onMouseUp={cancelPress}
-      onTouchStart={startPress}
-      onTouchEnd={cancelPress}
-      onTouchMove={handleTouchMove}
-      onClick={(e) => { if (longPressed.current) { longPressed.current = false; e.stopPropagation(); } }}
+      {...pressHandlers}
       style={{
         width: 26, height: 26, borderRadius: "50%",
         background: completed ? "#16a34a" : (optional ? "transparent" : accent),
@@ -2460,7 +2825,48 @@ function ExCircle({ num, completed, accent, optional, onLongPress }) {
 const STREK_ICONS = { trap: "🪜", sta_op: "🧍", avond: "🌙", vacuum: "💨" };
 const VRIJ_ICONS  = { gezin: "👨‍👩‍👧", optioneel: "✨" };
 
-function StretchenCard({ goals, day }) {
+// Rest-day / Power Hour / Boksen cards in the new look: not designed yet
+// (spec "Not designed yet"), same tokens, line icons instead of emoji.
+const SNEL_GOAL_ICONS = { trap: "stairs", sta_op: "stand", avond: "moon", vacuum: "wind", gezin: "people", optioneel: "sparkle" };
+
+function snelCardStyle(theme, extra) {
+  return { background: theme.card, border: `1px solid ${theme.cardBorder}`, borderRadius: 16, marginBottom: 14, fontFamily: theme.fontBody, color: theme.text, ...extra };
+}
+
+function snelCardTitle(theme, color) {
+  return { fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 22, lineHeight: "26px", textTransform: "uppercase", letterSpacing: 0.4, color };
+}
+
+function StretchenCard({ goals, day, theme }) {
+  if (theme) {
+    return (
+      <div style={snelCardStyle(theme, { padding: 14 })}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+          <SnelIcon kind="car" color={theme.text2} size={30} strokeWidth={2} />
+          <div>
+            <div style={snelCardTitle(theme, theme.text)}>Anti-zit dag</div>
+            <div style={{ fontSize: 13, color: theme.muted, marginTop: 2 }}>Blijf in beweging — geen training, wel actief</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {goals.length === 0 && (
+            <div style={{ fontSize: 14, color: theme.muted, textAlign: "center", padding: "12px 0" }}>Geen doelen gevonden</div>
+          )}
+          {goals.map((g, i) => (
+            <div key={i} style={{ minHeight: 44, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 12, background: theme.row, borderRadius: 12, padding: "8px 12px" }}>
+              <SnelIcon kind={SNEL_GOAL_ICONS[g.type] || "goal"} color={theme.text2} />
+              <div style={{ flex: 1, fontSize: 15, lineHeight: 1.35, color: theme.text }}>{g.beschrijving}</div>
+              {g.duur_minuten && (
+                <span style={{ padding: "3px 10px", borderRadius: 999, border: `1px solid ${theme.phaseFuture}`, color: theme.text2, fontFamily: theme.fontHead, fontWeight: 700, fontSize: 15, lineHeight: "18px", whiteSpace: "nowrap", flexShrink: 0 }}>
+                  {g.duur_minuten} min
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
   return (
     <div style={{ background: "#fff", borderRadius: 14, padding: "20px", boxShadow: "0 1px 4px #0001", marginBottom: 12 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
@@ -2490,9 +2896,26 @@ function StretchenCard({ goals, day }) {
   );
 }
 
-function VrijeDagCard({ goals, day }) {
+function VrijeDagCard({ goals, day, theme }) {
   const main   = goals.find(g => g.type === "gezin");
   const optie  = goals.find(g => g.type === "optioneel");
+  if (theme) {
+    return (
+      <div style={snelCardStyle(theme, { padding: "24px 18px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" })}>
+        <SnelIcon kind="umbrella" color={theme.text2} size={40} strokeWidth={1.8} />
+        <div style={{ ...snelCardTitle(theme, theme.text), marginTop: 12, marginBottom: 8 }}>Vrije dag</div>
+        <div style={{ fontSize: 15, color: theme.text2, lineHeight: 1.5, marginBottom: optie ? 16 : 0 }}>
+          {main?.beschrijving || "Tijd met het gezin staat voorop vandaag."}
+        </div>
+        {optie && (
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, border: `1px solid ${theme.phaseFuture}`, borderRadius: 12, padding: "7px 14px", fontSize: 13, lineHeight: 1.35, color: theme.text2, textAlign: "left" }}>
+            <SnelIcon kind="sparkle" color={theme.text2} size={14} strokeWidth={2.2} />
+            <span>{optie.beschrijving}{optie.duur_minuten && <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}> · {optie.duur_minuten} min</span>}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
     <div style={{ background: "#fff", borderRadius: 14, padding: "28px 20px", textAlign: "center", boxShadow: "0 1px 4px #0001", marginBottom: 12 }}>
       <div style={{ fontSize: 48, marginBottom: 12 }}>{day.emoji}</div>
@@ -2519,7 +2942,19 @@ function VrijeDagCard({ goals, day }) {
 // `value`. Used on PowerHourCard/BoksenCard, the only place a saved score
 // is shown outside the entry prompt itself (no dashboard, no chart —
 // point 10 is explicit that this is the only display surface).
-function StarRow({ value = 0 }) {
+function StarRow({ value = 0, theme }) {
+  if (theme) {
+    // Score-popup rule: filled accent / empty dim outline.
+    return (
+      <div style={{ display: "flex", gap: 3 }}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <svg key={n} aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill={n <= value ? theme.accent : "none"} stroke={n <= value ? theme.accent : theme.dim} strokeWidth="2" strokeLinejoin="round">
+            <path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z" />
+          </svg>
+        ))}
+      </div>
+    );
+  }
   return (
     <div style={{ display: "flex", gap: 2 }}>
       {[1, 2, 3, 4, 5].map((n) => (
@@ -2532,7 +2967,33 @@ function StarRow({ value = 0 }) {
 // Score entry point shared by PowerHourCard/BoksenCard — a two-row star
 // summary (empty when no score exists yet, the visible affordance) plus a
 // button that opens the same ScorePromptModal the tile long-press does.
-function ScoreSummary({ score, onOpenPrompt }) {
+function ScoreSummary({ score, onOpenPrompt, theme }) {
+  if (theme) {
+    const label = { fontSize: 13, color: theme.muted, minWidth: 90, textAlign: "right" };
+    return (
+      <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${theme.line}`, width: "100%" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "center", marginBottom: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={label}>Training</span>
+            <StarRow theme={theme} value={score?.training} />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={label}>Energie</span>
+            <StarRow theme={theme} value={score?.motivatie} />
+          </div>
+        </div>
+        {onOpenPrompt && (
+          <button
+            type="button"
+            onClick={onOpenPrompt}
+            style={{ minHeight: 44, background: theme.accent, color: theme.onAccent, border: "none", borderRadius: 10, padding: "0 20px", fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 17, textTransform: "uppercase", letterSpacing: 0.5, cursor: "pointer" }}
+          >
+            {score ? "Score aanpassen" : "Geef een score"}
+          </button>
+        )}
+      </div>
+    );
+  }
   return (
     <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #fed7aa" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "center", marginBottom: 12 }}>
@@ -2557,7 +3018,21 @@ function ScoreSummary({ score, onOpenPrompt }) {
   );
 }
 
-function PowerHourCard({ day, score, onOpenPrompt }) {
+function PowerHourCard({ day, score, onOpenPrompt, theme }) {
+  if (theme) {
+    return (
+      <div style={snelCardStyle(theme, { padding: "24px 18px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" })}>
+        <SnelIcon kind="stopwatch" color={theme.accent} size={40} strokeWidth={1.9} />
+        <div style={{ ...snelCardTitle(theme, theme.accent), marginTop: 12, marginBottom: 8 }}>Power Hour</div>
+        <div style={{ fontSize: 15, color: theme.text2, lineHeight: 1.5, marginBottom: 12 }}>Externe sportzaal — buiten dit trainingsschema.</div>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${theme.accent}`, borderRadius: 999, padding: "4px 12px", color: theme.accent, fontFamily: theme.fontHead, fontWeight: 700, fontSize: 15 }}>
+          <SnelIcon kind="stopwatch" color={theme.accent} size={14} strokeWidth={2.4} />
+          <span>HIIT</span>
+        </div>
+        <ScoreSummary theme={theme} score={score} onOpenPrompt={onOpenPrompt} />
+      </div>
+    );
+  }
   return (
     <div style={{ background: "#fff7ed", border: "2px solid #fed7aa", borderRadius: 14, padding: "28px 20px", textAlign: "center", boxShadow: "0 1px 4px #0001", marginBottom: 12 }}>
       <div style={{ fontSize: 48, marginBottom: 12 }}>{day.emoji}</div>
@@ -2573,7 +3048,21 @@ function PowerHourCard({ day, score, onOpenPrompt }) {
   );
 }
 
-function BoksenCard({ day, score, onOpenPrompt }) {
+function BoksenCard({ day, score, onOpenPrompt, theme }) {
+  if (theme) {
+    return (
+      <div style={snelCardStyle(theme, { padding: "24px 18px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" })}>
+        <SnelIcon kind="bolt" color={theme.accent} size={40} strokeWidth={1.9} />
+        <div style={{ ...snelCardTitle(theme, theme.accent), marginTop: 12, marginBottom: 8 }}>Boksen</div>
+        <div style={{ fontSize: 15, color: theme.text2, lineHeight: 1.5, marginBottom: 12 }}>Boksen in Beverwijk</div>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${theme.accent}`, borderRadius: 999, padding: "4px 12px", color: theme.accent, fontFamily: theme.fontHead, fontWeight: 700, fontSize: 15 }}>
+          <SnelIcon kind="bolt" color={theme.accent} size={14} strokeWidth={2.4} />
+          <span>Boksen &amp; Zaktraining</span>
+        </div>
+        <ScoreSummary theme={theme} score={score} onOpenPrompt={onOpenPrompt} />
+      </div>
+    );
+  }
   return (
     <div style={{ background: "#fff7ed", border: "2px solid #fed7aa", borderRadius: 14, padding: "28px 20px", textAlign: "center", boxShadow: "0 1px 4px #0001", marginBottom: 12 }}>
       <div style={{ fontSize: 48, marginBottom: 12 }}>{day.emoji}</div>
@@ -2819,7 +3308,7 @@ function DayButton({ day, isSelected, isCompleted, colors, onSelect, onLongPress
   );
 }
 
-function SwipeableRow({ onSwipeRight, onSwipeLeft, children }) {
+function SwipeableRow({ onSwipeRight, onSwipeLeft, children, theme }) {
   const startX = useRef(null);
   const startY = useRef(null);
   const swiped = useRef(false);
@@ -2866,7 +3355,7 @@ function SwipeableRow({ onSwipeRight, onSwipeLeft, children }) {
   return (
     <div style={{ position: "relative", overflow: "hidden" }}>
       {onSwipeLeft && offsetX < 0 && (
-        <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, display: "flex", alignItems: "center", paddingRight: 16, color: "#dc2626", fontSize: 13, fontWeight: 700, fontFamily: "sans-serif" }}>
+        <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, display: "flex", alignItems: "center", paddingRight: 16, color: theme ? theme.peak.text : "#dc2626", fontSize: 13, fontWeight: 700, fontFamily: theme ? theme.fontBody : "sans-serif" }}>
           ↩ Terug
         </div>
       )}
@@ -3056,8 +3545,36 @@ function YearSheet({ years, currentYear, viewYear, onSelect, onClose }) {
   );
 }
 
-function BottomSheet({ currentExercise, exercises, onSelect, onClose }) {
+function BottomSheet({ currentExercise, exercises, onSelect, onClose, theme }) {
   const [hovered, setHovered] = useState(null);
+  if (theme) {
+    // Swap sheet in the new look (not designed yet). Same overlay, same
+    // handlers; dark sheet, accent arrow.
+    return (
+      <>
+        <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "#000a", zIndex: 100 }} />
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: theme.card, borderTop: `1px solid ${theme.cardBorder}`, borderRadius: "20px 20px 0 0", padding: "12px 16px 48px", zIndex: 101, maxHeight: "70vh", overflowY: "auto", fontFamily: theme.fontBody, color: theme.text }}>
+          <div style={{ width: 40, height: 4, borderRadius: 2, background: theme.line2, margin: "0 auto 14px" }} />
+          <div style={{ textAlign: "center", marginBottom: 8, paddingBottom: 14, borderBottom: `1px solid ${theme.line}` }}>
+            <div style={{ fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 13, letterSpacing: 1.5, textTransform: "uppercase", color: theme.accent, marginBottom: 4 }}>Wissel voor</div>
+            <div style={{ fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 24, lineHeight: "28px", textTransform: "uppercase" }}>{currentExercise}</div>
+          </div>
+          {exercises.map((name) => (
+            <div
+              key={name}
+              onClick={() => onSelect(name)}
+              onMouseEnter={() => setHovered(name)}
+              onMouseLeave={() => setHovered(null)}
+              style={{ minHeight: 48, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 8px", borderBottom: `1px solid ${theme.line}`, fontSize: 16, fontWeight: 600, fontStyle: "italic", cursor: "pointer", borderRadius: 8, background: hovered === name ? theme.row : "transparent", transition: "background 0.15s" }}
+            >
+              <span>{name}</span>
+              <SnelIcon kind="arrow" color={theme.accent} size={18} strokeWidth={2.4} />
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  }
   return (
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "#0005", zIndex: 100 }} />

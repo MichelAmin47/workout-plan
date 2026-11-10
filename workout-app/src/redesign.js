@@ -105,3 +105,30 @@ function lightenForDark(hex) {
   const to = (x) => Math.round(x * 255).toString(16).padStart(2, "0");
   return `#${to(ch(h + 1 / 3))}${to(ch(h))}${to(ch(h - 1 / 3))}`.toUpperCase();
 }
+
+// Set pill text in the new look (display only; DB values untouched):
+// "4x10-12" -> "4×10-12" (mockup), and for mobility "1x60sec" -> "1×60s"
+// (spec: "Mobility uses 1×60s").
+export function formatSnelSets(sets, { mobility = false } = {}) {
+  if (sets == null) return sets;
+  let s = String(sets).replace(/(\d)\s*x\s*(\d)/gi, "$1×$2");
+  if (mobility) s = s.replace(/(\d)\s*sec\b/gi, "$1s");
+  return s;
+}
+
+// Rest-timer pill label in the new look: "1 min" / "90 sec" (mockup).
+export function formatSnelTimer(seconds) {
+  if (seconds % 60 === 0) return `${seconds / 60} min`;
+  return `${seconds} sec`;
+}
+
+// Tag colours for a weight_hint / note segment in the new look. Same
+// classification regex as the old hintColors(): weight hints get the
+// "+gewicht piek" peak colours, "dropset" the filled Dropset tag,
+// anything else ("deload", "60-70%", "per kant") the mockup's neutral
+// outline.
+export function snelHintTag(theme, segment) {
+  if (/gewicht|^\+\d/i.test(segment)) return { bg: theme.peak.bg, fg: theme.peak.text, border: theme.peak.bg };
+  if (/^dropset$/i.test(segment)) return { bg: theme.text2, fg: theme.bg, border: theme.text2 };
+  return { bg: "transparent", fg: theme.text2, border: theme.phaseFuture };
+}
