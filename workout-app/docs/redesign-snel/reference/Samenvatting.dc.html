@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<title>Workout samenvatting</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;1,700&amp;family=Barlow:ital,wght@0,400;0,500;0,600;1,600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#FF6B3D}a:hover{color:#FF9470}
+</style>
+</helmet>
+<div style="width: 390px; height: 1640px; box-sizing: border-box; background: #07090C; color: #EEF1F5; font-family: 'Barlow', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+
+<div aria-hidden="true" style="height: 64px; padding: 16px 20px 0; opacity: 0.35; font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-style: italic; font-size: 32px; text-transform: uppercase">Week 7 / 7</div>
+
+<section aria-label="Samenvatting" style="flex: 1; background: #0E1116; border-radius: 24px 24px 0 0; border-top: 1px solid #2A313C; padding: 10px 16px 24px; display: flex; flex-direction: column; gap: 16px">
+<div aria-hidden="true" style="width: 40px; height: 4px; border-radius: 2px; background: #3A4350; align-self: center"></div>
+
+<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 0 4px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-style: italic; font-size: 14px; letter-spacing: 2px; text-transform: uppercase; color: {{accent}}">Samenvatting</span>
+<h1 style="margin: 0; font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-style: italic; font-size: 40px; line-height: 0.95; text-transform: uppercase">Schouders</h1>
+<span style="font-size: 14px; color: #8B95A3">wo 21 okt · week 43 · piek gewicht</span>
+</div>
+<button type="button" aria-label="Sluiten" style="width: 44px; height: 44px; flex: none; border: none; border-radius: 22px; background: #1E242D; display: flex; align-items: center; justify-content: center">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#C2CAD4" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+</button>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+<div style="background: #161B22; border: 1px solid #232A34; border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 2px">
+<span style="font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-style: italic; font-size: 34px; line-height: 1">5</span>
+<span style="font-size: 12px; color: #8B95A3; text-transform: uppercase; letter-spacing: 1px; font-weight: 600">oefeningen</span>
+</div>
+<div style="background: #161B22; border: 1px solid #232A34; border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 2px">
+<span style="font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-style: italic; font-size: 34px; line-height: 1; color: {{accent}}">4</span>
+<span style="font-size: 12px; color: #8B95A3; text-transform: uppercase; letter-spacing: 1px; font-weight: 600">PR's</span>
+</div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+<sc-for list="{{beoordelingen}}" as="b" hint-placeholder-count="2">
+<div style="background: #161B22; border: 1px solid #232A34; border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+<span style="font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; color: #8B95A3">{{b.titel}}</span>
+<div role="img" aria-label="{{b.aria}}" style="display: flex; gap: 3px">
+<sc-for list="{{b.balk}}" as="s" hint-placeholder-count="5">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="{{s.vul}}" stroke="{{s.rand}}" stroke-width="1.8" stroke-linejoin="round"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z"></path></svg>
+</sc-for>
+</div>
+<p style="margin: 0; font-size: 14px; line-height: 1.4">{{b.tekst}}</p>
+</div>
+</sc-for>
+</div>
+
+<sc-for list="{{groepen}}" as="g" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="padding: 0 4px; font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-style: italic; font-size: 14px; letter-spacing: 1.5px; text-transform: uppercase; color: #8B95A3">{{g.titel}}</span>
+<div style="background: #161B22; border: 1px solid #232A34; border-radius: 14px; overflow: hidden">
+<sc-for list="{{g.oefeningen}}" as="o" hint-placeholder-count="1">
+<div style="padding: 12px 14px; border-top: 1px solid {{o.scheiding}}; display: flex; gap: 10px; align-items: center">
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px">
+<span style="font-size: 16px; font-weight: 600; font-style: italic">{{o.naam}}</span>
+<sc-for list="{{o.prs}}" as="p" hint-placeholder-count="1">
+<span style="padding: 1px 6px; border-radius: 5px; background: {{accent}}; color: #0E1116; font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-style: italic; font-size: 12px; letter-spacing: 0.5px; text-transform: uppercase">{{p}}</span>
+</sc-for>
+</div>
+<div style="display: flex; align-items: baseline; gap: 8px">
+<span style="font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-style: italic; font-size: 24px; line-height: 1">{{o.set}}</span>
+<span style="font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-style: italic; font-size: 15px; color: #C6F432">{{o.delta}}</span>
+</div>
+<span style="font-size: 12px; color: #8B95A3; line-height: 1.35">{{o.vorige}}</span>
+</div>
+<svg role="img" aria-label="{{o.grafiekAria}}" width="96" height="44" viewBox="0 0 96 44" fill="none" style="flex: none">
+<polyline points="{{o.gewicht}}" stroke="{{accent}}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>
+<polyline points="{{o.orm}}" stroke="#3DDCFF" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>
+<circle cx="{{o.gx}}" cy="{{o.gy}}" r="3.5" fill="{{accent}}"></circle>
+<circle cx="{{o.ox}}" cy="{{o.oy}}" r="3.5" fill="#3DDCFF"></circle>
+</svg>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-for>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="padding: 0 4px; font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-style: italic; font-size: 14px; letter-spacing: 1.5px; text-transform: uppercase; color: #8B95A3">Mobility, KB &amp; core</span>
+<div style="background: #161B22; border: 1px solid #232A34; border-radius: 14px; padding: 4px 14px">
+<sc-for list="{{extras}}" as="x" hint-placeholder-count="3">
+<div style="padding: 12px 0; border-top: 1px solid {{x.scheiding}}; display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: center; justify-content: space-between">
+<div style="display: flex; align-items: center; gap: 8px">
+<span style="font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-style: italic; font-size: 18px; text-transform: uppercase; letter-spacing: 0.5px">{{x.titel}}</span>
+<sc-if value="{{x.optioneel}}" hint-placeholder-val="{{false}}">
+<span style="padding: 1px 6px; border-radius: 5px; border: 1px dashed {{accent}}; color: {{accent}}; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px">Optioneel</span>
+</sc-if>
+</div>
+<span style="font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 17px; color: {{x.telKleur}}">{{x.tel}}</span>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 6px">
+<sc-for list="{{x.items}}" as="i" hint-placeholder-count="2">
+<span style="display: flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 999px; border: 1px {{i.stijl}} {{i.rand}}; background: {{i.bg}}; color: {{i.fg}}; font-size: 13px; font-weight: 600">
+<sc-if value="{{i.gedaan}}" hint-placeholder-val="{{false}}">
+<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="{{i.vink}}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L19 7"></path></svg>
+</sc-if>{{i.naam}}</span>
+</sc-for>
+</div>
+</div>
+</sc-for>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 0 4px">
+<div style="display: flex; gap: 16px; font-size: 13px; color: #C2CAD4">
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 14px; height: 3px; border-radius: 2px; background: {{accent}}"></span>gewicht</span>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 14px; height: 3px; border-radius: 2px; background: #3DDCFF"></span>1RM</span>
+</div>
+<p style="margin: 0; font-size: 12px; line-height: 1.45; color: #8B95A3">1RM is een schatting (Epley); rond 15 reps en hoger is hij indicatief. Beide lijnen tonen de verandering ten opzichte van hun eerste punt. De stip is vandaag.</p>
+</div>
+
+</section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#FF6B3D","options":["#FF6B3D","#C6F432","#3DDCFF"]},"$preview":{"width":390,"height":1640}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#FF6B3D';
+    const balk = (n) => [1, 2, 3, 4, 5].map((i) => ({ vul: i <= n ? accent : 'none', rand: i <= n ? accent : '#5E6876' }));
+    const beoordelingen = [
+      { titel: 'Training', aria: '4 van 5', balk: balk(4), tekst: 'Goeie workout! Tank was niet helemaal leeg aan het eind' },
+      { titel: 'Energie', aria: '4 van 5', balk: balk(4), tekst: 'Voelde goed. Geen vermoeidheid als belemmering' }
+    ];
+    const lijn = (pts) => pts.map((p) => p.join(',')).join(' ');
+    const oef = (naam, prs, set, delta, vorige, g, o) => {
+      const gl = g[g.length - 1];
+      const ol = o[o.length - 1];
+      return {
+        naam, prs, set, delta, vorige,
+        grafiekAria: 'Verloop gewicht en 1RM van ' + naam,
+        gewicht: lijn(g), orm: lijn(o),
+        gx: gl[0], gy: gl[1], ox: ol[0], oy: ol[1]
+      };
+    };
+    const metScheiding = (lijst) => lijst.map((x, i) => ({ ...x, scheiding: i === 0 ? 'transparent' : '#232A34' }));
+    const groepen = [
+      { titel: 'Superset 1', oefeningen: metScheiding([
+        oef('Dumbbell Lateral Raise', ['PR 1RM'], '16 kg × 10', '+2 kg', 'Vorige keer 14 kg × 12 · 1RM ≈ 21,3 kg (+1,7)',
+          [[4, 32], [50, 32], [70, 32], [84, 20], [90, 12]], [[70, 32], [84, 22], [90, 16]])
+      ]) },
+      { titel: 'Superset 2', oefeningen: metScheiding([
+        oef('Machine Shoulder Press', ['PR kg', 'PR 1RM'], '27 kg × 15', '+4 kg', 'Vorige keer 23 kg × 15 · 1RM ≈ 40,5 kg (+6,0)',
+          [[4, 36], [30, 28], [60, 20], [90, 12]], [[4, 36], [30, 28], [60, 20], [90, 12]]),
+        oef('Dumbbell Upright Row', ['PR kg', 'PR 1RM'], '20 kg × 12', '+2 kg', 'Vorige keer 18 kg × 12 · 1RM ≈ 28,0 kg (+2,8)',
+          [[4, 34], [24, 22], [46, 34], [90, 12]], [[46, 34], [90, 12]])
+      ]) },
+      { titel: 'Losse oefeningen', oefeningen: metScheiding([
+        oef('Face Pull (cable)', [], '15,8 kg × 15', '+2,3 kg', 'Vorige keer 13,5 kg × 15 · 1RM ≈ 23,7 kg (+3,4)',
+          [[4, 18], [24, 18], [44, 12], [64, 34], [90, 22]], [[4, 18], [44, 12], [64, 34], [90, 22]]),
+        oef('Dumbbell Seated Shoulder Press', ['PR kg', 'PR 1RM'], '24 kg × 12', '+4 kg', 'Vorige keer 20 kg × 12 · 1RM ≈ 33,6 kg (+5,6)',
+          [[4, 36], [30, 26], [62, 26], [90, 12]], [[64, 32], [90, 22]])
+      ]) }
+    ];
+    // Mobility altijd teal, KB oranje, core in de dagkleur (hier Schouders)
+    const kleurMob = '#2DD4BF';
+    const kleurKb = accent;
+    const kleurCore = '#E9A04A';
+    const gedaan = (naam, k) => ({ naam, gedaan: true, vink: k, bg: 'color-mix(in srgb, ' + k + ' 20%, #161B22)', fg: '#EEF1F5', rand: 'color-mix(in srgb, ' + k + ' 20%, #161B22)', stijl: 'solid' });
+    const open = (naam) => ({ naam, gedaan: false, vink: 'none', bg: 'transparent', fg: '#8B95A3', rand: '#3A4350', stijl: 'solid' });
+    const openOpt = (naam, k) => ({ naam, gedaan: false, vink: 'none', bg: 'transparent', fg: '#8B95A3', rand: k, stijl: 'dashed' });
+    const extras = metScheiding([
+      { titel: 'Mobility', optioneel: false, tel: '3/3', telKleur: kleurMob, items: [gedaan('Wall Slides', kleurMob), gedaan('Arm Circles', kleurMob), gedaan('Standing Trunk Rotation', kleurMob)] },
+      { titel: 'Kettlebell', optioneel: true, tel: '0/1', telKleur: '#8B95A3', items: [openOpt('KB Windmill', kleurKb)] },
+      { titel: 'Core finisher', optioneel: false, tel: '1/2', telKleur: kleurCore, items: [gedaan('Plank Shoulder Tap', kleurCore), open('Bicycle Crunch')] }
+    ]);
+    return { accent, beoordelingen, groepen, extras };
+  }
+}
+</script>
+</body>
+</html>

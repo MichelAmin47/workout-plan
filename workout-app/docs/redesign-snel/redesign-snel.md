@@ -1,0 +1,183 @@
+# Workout app — "Snel" redesign spec
+
+Status: all blocks approved by Michel on 9 November 2026. This is the single
+source of truth for the redesign. The three HTML files in `reference/` are the
+approved mockups (made in a design canvas, not runnable React). Copy exact
+values from them when this spec is silent; when this spec and a mockup differ,
+this spec wins.
+
+**Scope: look only.** Data, queries, logic, gestures and behaviour stay exactly
+as they are. If something below seems to require a behaviour change, stop and
+ask. Exceptions are listed explicitly (they are all removals).
+
+## Rollout: feature flag
+
+- The new look sits behind a per-device flag (`localStorage`, key
+  `ui.redesign`, values `"snel"` / absent). Old look = default until the final
+  PR flips it.
+- Toggle: tap the week title in the header 5 times within 3 seconds. Show a
+  short toast ("Nieuwe stijl aan" / "Nieuwe stijl uit"). No other UI for it.
+- Old and new styles live side by side until the cleanup PR. Prefer a style
+  token object per theme over scattered conditionals.
+
+## Design tokens
+
+| Token | Value | Use |
+|---|---|---|
+| `bg` | `#0E1116` | Page background |
+| `card` | `#161B22` | Cards (border `#232A34`, radius 16) |
+| `row` | `#1A1F27` | Exercise rows inside cards (radius 12) |
+| `line` | `#232A34` / `#2A313C` | Borders, dividers |
+| `text` | `#EEF1F5` | Primary text |
+| `text2` | `#C2CAD4` | Secondary text |
+| `muted` | `#8B95A3` | Labels, meta |
+| `dim` | `#5E6876` | Rest-day icons, empty stars |
+| `accent` | `#FF6B3D` | Navigation (header, week tabs, day strip), kettlebell block, summary sheet, score popup |
+| `mobility` | `#2DD4BF` | Mobility block, always |
+| `oneRm` | `#3DDCFF` | 1RM series in charts; deload weeks in the phase bar |
+| `gain` | `#C6F432` | Weight increase ("+2 kg") |
+| `success` | `#4ADE80` | Saved checkmark in the log panel; new PR text |
+| `peak` | bg `#3D1519`, text `#FF7B86` | "+gewicht piek" tag |
+
+**Day colour.** Supersets, losse oefeningen, core, and optional losse
+oefeningen use the day colour of the selected training day: `schema_days.kleur`
+lightened for the dark background. Mapping (derive from `kleur`; do not
+hardcode by name if a lighten function gives the same result within a few
+points):
+
+| Spiergroep | `schema_days.kleur` | On dark |
+|---|---|---|
+| Rug & Biceps | `#7c3aed` | `#A78BFA` |
+| Borst & Triceps | `#457b9d` | `#7FB6DA` |
+| Schouders | `#b45309` | `#E9A04A` |
+| Benen & Billen | `#e63946` | `#F2636E` |
+
+**Fonts** (Google Fonts): Barlow Condensed (600, 700, 700 italic) for headings,
+numbers, pills and labels; Barlow (400, 500, 600, 600 italic) for body text.
+Everything slants: headings, numbers, exercise names and the skewed number
+squares (`skewX(-8deg)`). Set pills are NOT italic.
+
+**Icons:** line icons (stroke SVG) replace every emoji.
+
+## Shared components
+
+- **Exercise row:** min-height 44 px, `box-sizing: border-box`, padding 6 px
+  12 px, 6 px between rows, 12 px card padding. Little space above/below the
+  name. Name: Barlow 600 italic 16 px.
+- **Number square:** 26 × 26, radius 7–8, filled in the block colour, dark
+  number (Barlow Condensed 700 italic), skewed.
+- **Done:** the square becomes dark (`bg`) with a 1.5 px border and a checkmark
+  in the block colour. Name is NOT dimmed. Applies to every block.
+- **Set pill:** outlined in the block colour, text in the block colour, Barlow
+  Condensed 700 15 px, not italic. Mobility uses "1×60s" (× sign, "s").
+- **Tags:** BB = filled `#EEF1F5` with dark text; DB = filled `#3B82F6` with
+  white text; Dropset = filled `#C2CAD4` with dark text; "+gewicht piek" =
+  `peak`; Optioneel = dashed outline in the block colour.
+- **Rest-timer pill (block header, right):** filled `#EEF1F5`, dark text and
+  stopwatch icon, Barlow Condensed 700 italic 15 px, radius 8. Not in the
+  block colour.
+- **Section title:** Barlow Condensed 700 italic 20 px, uppercase, letter
+  spacing 0.4 px, nowrap, with a block-colour line icon in front.
+
+## Training day (top to bottom)
+
+1. **Header.** No orange bar: dark background. Top row: "2026 · WEEK 44–53 ⌄"
+   (muted, opens the existing year/block sheet) left, phase label right as a
+   skewed filled pill (accent; cyan when the current week is a deload). Big
+   title "WEEK 3 / 10" (x / y, "/ 10" muted), Barlow Condensed 700 italic
+   44 px. Under it the **phase bar**: weeks grouped per phase from
+   `schema_weeks.phase`. Every week has the same width, deload weeks
+   included: each group's width grows with its week count (no fixed width
+   for deload groups). Only the current group shows its phase name above it,
+   coloured (a block like 37–43 has a different phase every week, and all
+   names don't fit at phone width). Done weeks dimmed accent, current week
+   taller with a white outline, future weeks outlined only, deload weeks
+   cyan. Replaces the old phase badge.
+2. **Week tabs.** Same behaviour as now: all weeks with training data,
+   horizontal scroll, current week centred on open. Calendar week labels
+   ("Week 46"). Small and calm: Barlow 500 15 px, `muted` on `card`, no
+   border, height 36; selected = accent fill, dark bold text.
+3. **Day strip.** Seven dark tiles. Today: small accent dot on top. Selected:
+   accent border and accent day name. Done: accent checkmark. Training day not
+   done: dumbbell icon. Anti-zit: car icon. Vrije dag: beach-umbrella icon
+   (rest icons `dim`). No per-muscle-group colours. Under the selected tile:
+   the summary tab (30 × 18, radius `0 0 9px 9px`, accent fill, dark chevron,
+   44 × 32 hit area) — same visibility rules and behaviour as now.
+4. **Day title:** none (removed in review; the tile already names the day).
+5. **Mobility.** Teal everywhere (icon, squares, pills, done). Timer pill kept.
+6. **Supersets.** Label "SUPERSET 1" as plain italic text in the day colour (no
+   pill, no line). Each superset in a dark inner frame (`row` bg, `#2A313C`
+   border). "GEEN RUST →" connector between partners with a short day-colour
+   bar.
+7. **Losse oefeningen.** Day colour. Optional exercise: dashed frame, dashed
+   number square and dashed pill, all in the day colour; tags "OPTIONEEL" then
+   "+gewicht piek" under the name.
+8. **Kettlebell.** Always accent orange. HIIT info on one compact line inside
+   an accent-outlined box: "HIIT per oefening" left, "40s werk / 20s rust"
+   right (numbers 18 px). The 40s | 20s split pill on the row stays.
+9. **Core finisher.** Day colour, same rows. No special handling for
+   exercises without weight.
+10. **Footer line** ("Core dagelijks herhalen · Rust…"): removed.
+11. **Progressie hint card** (green "Verhoog het gewicht elke week…"): removed.
+12. **Progressie.** Collapsible card, accent icon, chevron accent when open.
+    Open: dark native `<select>` (accent triangle) with the exercise; stats row
+    "MAX GEWICHT 45 kg +25 kg" (accent / `gain`) and right "1RM 57 kg"
+    (`oneRm`); chart with orange weight line + dots, cyan 1RM dots, subtle grid,
+    dashed line on the current week, x-axis labels every 6th week; legend
+    "gewicht" / "1RM". Data and logic unchanged. The word "geschat" is dropped
+    from labels.
+
+### Inline log panel (unchanged behaviour)
+
+Opens under the tapped exercise, as now. Tinted strip (day colour 8 % over
+`row`), indented to the name. Row: kg input (empty, placeholder "kg", day-colour
+border, 44 px high, Barlow Condensed 700 italic 22 px) — a fixed 28 px slot for
+the existing save-success checkmark (`success`, keeps its space when hidden) —
+reps stepper (− n +, dark box, 44 px). Line under it: "Laatste keer — Week 45 ·
+**45kg × 8** · PR **45kg**" (12 px, values `text`); the PR value turns
+`success` green when a new PR is set. No Opslaan button.
+
+## Summary sheet (stays accent orange, no day colour)
+
+- Header: grab handle, "SAMENVATTING" small accent, day name big condensed
+  italic, date line "wo 21 okt · week 43 · piek gewicht" (phase from the
+  schedule, as now), round close button.
+- Two stat tiles, in the current order: exercises, then PR's (accent number).
+  No "extra's" tile.
+- Ratings: two cards (Training, Energie), five stars (filled accent, empty =
+  `dim` outline), the note under it. No number.
+- Exercises per group: grey group labels; name italic with accent PR labels;
+  "16 kg × 10" big; increase "+2 kg" in `gain`, italic; "Vorige keer…" muted;
+  sparkline orange (weight) + cyan (1RM).
+- Mobility, KB & core: done pills keep a tinted fill + checkmark, colour per
+  row: mobility teal, KB accent, core day colour. Count in the same colour once
+  something is done. Names not italic.
+- Legend + 1RM explanation text: unchanged.
+
+## Score popup (long-press on a day)
+
+Look only; questions, per-star meaning lines and behaviour come from the code.
+Dimmed background, dark card (`card`, radius 20). Day name big condensed
+italic. Each question in Barlow 600, five 36 px stars in 48 px tap targets
+(filled accent / `dim` outline), meaning line in italic under the stars.
+Opslaan: grey and disabled until both scores are set, then accent with dark
+text, condensed italic uppercase.
+
+## Not designed yet — apply the same rules, flag in the PR
+
+Rest-day content, Power Hour / Boksen cards, archive mode (grey header, year
+sheet), swap sheet. Use the tokens and components above, keep behaviour, and
+list them in the PR description with screenshots so Michel can review.
+
+## PR plan
+
+1. Flag + tokens + fonts + header with phase bar + week tabs + day strip (incl.
+   summary tab). Adds this spec and `reference/` to the repo.
+2. Training-day blocks 5–12 (rows, day colours, done state, tags, timer pills,
+   kettlebell, progressie).
+3. Inline log panel.
+4. Summary sheet + score popup.
+5. Flag on by default. After a week without issues: remove old styles and the
+   flag. Also in this PR: loading screen ("Schema laden…") in the dark style.
+   Until then it stays light, so with the flag on there is a short light flash
+   before the dark header appears.

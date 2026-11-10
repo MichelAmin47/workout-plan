@@ -43,6 +43,7 @@ src/
   main.jsx                ← React root; wraps <App /> in StrictMode, mounts to #root
   App.jsx                 ← one-liner wrapper: `return <FitnessSchema />`
   supabase.js             ← Supabase client (createClient with env vars)
+  redesign.js             ← "Snel" redesign: feature flag helpers + design tokens (see "Redesign Snel" below)
   index.css               ← minimal reset only (body margin: 0, #root min-height: 100svh)
   App.css                 ← unused (default Vite scaffold leftover, safe to ignore)
   assets/
@@ -53,7 +54,8 @@ public/
   icons.svg               ← unused
   boxing-bell.mp3         ← bell sound played natively by TimerPlugin on Android
 .env                      ← not committed; holds VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
-vite.config.js            ← minimal: only @vitejs/plugin-react, no aliases or custom config
+vite.config.js            ← @vitejs/plugin-react + vite-plugin-pwa (incl. the runtime cache for the redesign fonts); no aliases
+docs/redesign-snel/       ← redesign spec (redesign-snel.md, source of truth for the 5-PR series) + reference/ mockups (design-canvas HTML, read values only)
 eslint.config.js          ← standard Vite scaffold ESLint config (react-hooks, react-refresh)
 package.json              ← scripts: dev / build / preview / lint; @capacitor/core + @capacitor/haptics only (cli/android tooling lives in the root package.json)
 sql/                      ← migration.sql, migration_week31-36.sql — workout schema/exercise migrations (reference only, not auto-applied)
@@ -86,6 +88,7 @@ screenshots/              ← reference screenshots from past feature work
 - recharts (latest) — progress chart
 - @capacitor/core, @capacitor/haptics@8.0.2 — `Haptics.impact()` for long-press feedback (this app's runtime deps only; `@capacitor/cli` + `@capacitor/android` live in the root `package.json` for native tooling)
 - vite-plugin-pwa@1.3.0 — service worker for offline app-shell caching
+- @fontsource/barlow, @fontsource/barlow-condensed (5.x) — self-hosted redesign fonts, only fetched when the "Snel" flag is on
 - No routing, no state management, no CSS framework
 
 ## Environment variables
@@ -185,6 +188,18 @@ Each week object also carries:
 - `4` (Schouders) — yellow `#ca8a04`
 
 Optional exercise accent color is always orange `#f37121` (same as the app header/brand color), regardless of the current day.
+
+## Redesign "Snel" (feature flag)
+
+A dark visual redesign, rolled out in 5 PRs behind a per-device flag. Spec and approved mockups: `docs/redesign-snel/` (the spec wins over a mockup). Look only — no data, query, state or gesture changes.
+
+- **Flag:** `localStorage["ui.redesign"]` = `"snel"` (new look) or absent (old look, the default until PR 5). `readRedesignFlag()`/`writeRedesignFlag()` in `src/redesign.js`; storage errors read as off. Toggle: tap the week title (`<h1>`, in both looks) 5 times within 3 s (`handleTitleTap`, sliding window of tap timestamps in a ref) → toast "Nieuwe stijl aan"/"Nieuwe stijl uit" (`Toast`, 1.8 s). No other UI.
+- **Tokens:** `src/redesign.js` — `SNEL` (every spec token plus the mockup-only phase-bar/tile values and `fontHead`/`fontBody`) and `SNEL_ARCHIVE` (same, grey `#94A3B8` accent for the read-only archive; not designed yet). `themeFor(snel, readOnly)` returns one of them or `null`; `FitnessSchema` computes `theme` once per render. `dayColorOnDark(kleur)` maps `schema_days.kleur` to its approved on-dark colour (explicit map — no single lighten function matched all four pairs within a few points; HSL lighten is the fallback for an unknown kleur). Unused until PR 2.
+- **Branching pattern:** every redesigned render site is `theme ? <new> : <old, unchanged>` (or a style object chosen by `theme`). Handlers are shared, never duplicated — e.g. `WeekDayTile` builds `tileHandlers`/`summaryTabHandlers` once and spreads them into both looks. With the flag on the root div only changes `background`; `color`/`fontFamily` stay, so not-yet-redesigned cards render as before on the dark page.
+- **Fonts:** Barlow Condensed (600, 700, 700 italic) + Barlow (400, 500, 600, 600 italic), self-hosted via `@fontsource/*` latin files imported in `src/main.jsx`. Only `@font-face` rules ship in the CSS bundle; a woff2 is fetched only when text uses the family, i.e. only with the flag on. Not precached (would download for every device); a Workbox `runtimeCaching` CacheFirst rule (`redesign-fonts`) in `vite.config.js` caches them on first use for offline. Because they can arrive after the week tabs were centred (wider tabs), the centring effect re-runs on `document.fonts.ready` when the flag is on.
+- **Done in PR 1:** `SnelHeader` (eyebrow → year sheet, skewed phase pill — cyan when `week.phase === "Deload"`, "WEEK x / y" title, archive "Naar <jaar>"/"Nog geen schema" line), `PhaseBar`, week tabs, day strip (`WeekDayTile` with `theme`, `DayTileIcon` line icons), offline banner.
+- **`PhaseBar`:** the displayed block's weeks (`schema.weeks` filtered on `schemaId`, `yw` order) grouped per consecutive identical `phase`. Before the selected week = done (dimmed), selected = 10 px with a white outline, after = outline only; `Deload` groups are cyan. Every week bar has the same width, deload included: a group is `flex: N 1 <3·(N−1)>px` (N = its week count; the basis is exactly its own 3 px inter-week gaps, so a plain `N 1 0` would make bars in bigger groups a few px narrower). Only the current group shows its name — block 37–43 has a different phase every week and seven names don't fit at phone width (decision 2026-11-10); a name in the right half of the bar aligns to its group's right edge so it never runs off the bar.
+- **Not designed yet (same tokens applied, flagged in PRs):** archive mode, power_hour/boksen tile icons (stopwatch/lightning bolt), offline banner. The "Schema laden…" loading screen stays light until PR 5.
 
 ## Section render order
 
