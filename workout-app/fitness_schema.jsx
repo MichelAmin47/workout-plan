@@ -4,6 +4,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { Haptics, ImpactStyle } from "@capacitor/haptics";
 import { registerPlugin } from "@capacitor/core";
 import { currentIsoWeek, isoWeekDate } from "./src/isoWeek.js";
+import { readRedesignFlag, writeRedesignFlag, themeFor } from "./src/redesign.js";
 const BatteryOptimization = registerPlugin("BatteryOptimization");
 const NativeTimer = registerPlugin("NativeTimer");
 
@@ -601,6 +602,24 @@ export default function FitnessSchema() {
   const bbLongPressed = useRef(false);
   const bbStartPos = useRef({ x: 0, y: 0 });
   const weekButtonRefs = useRef([]);
+  // "Snel" redesign flag (src/redesign.js). Toggled by tapping the week
+  // title 5 times within 3 seconds; the only UI for it is the toast.
+  const [snel, setSnel] = useState(readRedesignFlag);
+  const [toast, setToast] = useState(null);
+  const titleTaps = useRef([]);
+  const toastTimer = useRef(null);
+  const handleTitleTap = () => {
+    const now = Date.now();
+    titleTaps.current = [...titleTaps.current.filter(t => now - t < 3000), now];
+    if (titleTaps.current.length < 5) return;
+    titleTaps.current = [];
+    const next = !snel;
+    writeRedesignFlag(next);
+    setSnel(next);
+    clearTimeout(toastTimer.current);
+    setToast(next ? "Nieuwe stijl aan" : "Nieuwe stijl uit");
+    toastTimer.current = setTimeout(() => setToast(null), 1800);
+  };
 
   const onTimerStop = () => {
     setActiveTimer(null);
@@ -760,8 +779,13 @@ export default function FitnessSchema() {
   }, []);
 
   useEffect(() => {
-    weekButtonRefs.current[selectedWeek]?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
-  }, [selectedWeek]);
+    const centre = () => weekButtonRefs.current[selectedWeek]?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    centre();
+    // Redesign: the Barlow fonts can finish loading after this first
+    // centring and widen every tab, which slides the current week off
+    // centre — centre again once they're in.
+    if (snel) document.fonts?.ready.then(centre);
+  }, [selectedWeek, snel]);
 
   const handlePullStart = (e) => {
     if (window.scrollY === 0 && !refreshing && e.touches?.length) {
@@ -813,6 +837,7 @@ export default function FitnessSchema() {
   // still 2026) is the archive: grey header, every write path a no-op.
   const readOnly = viewYear !== today.isoYear;
   const brandColor = readOnly ? "#64748b" : "#f37121";
+  const theme = themeFor(snel, readOnly);
   const todayDayIdx = today.weekday - 1;
   const week = schema.weeks[selectedWeek];
   const schemaYears = [...new Set(schema.weeks.map(w => w.jaar))].sort((a, b) => b - a);
@@ -1130,7 +1155,7 @@ export default function FitnessSchema() {
       onTouchStart={handlePullStart}
       onTouchMove={handlePullMove}
       onTouchEnd={handlePullEnd}
-      style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#f8f7f4", color: "#1a1a1a", userSelect: "none", WebkitUserSelect: "none", paddingBottom: activeTimer ? 100 : 0, overscrollBehaviorY: "contain" }}
+      style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: theme ? theme.bg : "#f8f7f4", color: "#1a1a1a", userSelect: "none", WebkitUserSelect: "none", paddingBottom: activeTimer ? 100 : 0, overscrollBehaviorY: "contain" }}
     >
       {/* Pull-to-refresh indicator */}
       {(() => {
@@ -1170,6 +1195,19 @@ export default function FitnessSchema() {
 
       {/* Header — orange for the current ISO year, grey for the read-only
           archive. The eyebrow opens the year sheet. */}
+      {theme ? (
+        <SnelHeader
+          theme={theme}
+          week={week}
+          blockWeeks={schema.weeks.filter(w => w.schemaId === week.schemaId)}
+          readOnly={readOnly}
+          currentYearHasSchema={currentYearHasSchema}
+          currentYear={today.isoYear}
+          onOpenYearSheet={() => setYearSheetOpen(true)}
+          onGoToCurrentYear={() => switchYear(today.isoYear)}
+          onTitleTap={handleTitleTap}
+        />
+      ) : (
       <div style={{ background: brandColor, color: "#fff", padding: "14px 20px 20px", textAlign: "center", transition: "background 0.2s" }}>
         {week.startWeek != null && week.eindWeek != null && (
           <button
@@ -1188,7 +1226,7 @@ export default function FitnessSchema() {
             </svg>
           </button>
         )}
-        <h1 style={{ margin: 0, fontSize: 26, fontWeight: 700, letterSpacing: -0.5 }}>
+        <h1 onClick={handleTitleTap} style={{ margin: 0, fontSize: 26, fontWeight: 700, letterSpacing: -0.5 }}>
           {week.startWeek != null && week.eindWeek != null ? `Week ${week.week - week.startWeek + 1} van ${week.eindWeek - week.startWeek + 1}` : "Trainingsschema"}
         </h1>
         <div style={{ marginTop: 10, display: "flex", justifyContent: "center", alignItems: "center", gap: 8 }}>
@@ -1211,9 +1249,18 @@ export default function FitnessSchema() {
           )
         )}
       </div>
+      )}
 
       {/* Offline indicator */}
-      {schemaOffline && (
+      {schemaOffline && theme && (
+        <div style={{ background: theme.card, borderBottom: `1px solid ${theme.line}`, padding: "6px 16px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontFamily: theme.fontBody, fontWeight: 500, fontSize: 12, color: theme.muted }}>
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 2l20 20M8.5 16.4a5 5 0 0 1 7 0M5 12.9a10 10 0 0 1 5.2-2.8M19 12.9a10 10 0 0 0-2.3-1.7M2 9.3a15 15 0 0 1 4.2-2.7M22 9.3A15 15 0 0 0 11 5.1M12 20h.01" />
+          </svg>
+          <span>Offline — schema uit cache</span>
+        </div>
+      )}
+      {schemaOffline && !theme && (
         <div style={{ background: "#f1f5f9", borderBottom: "1px solid #e2e8f0", padding: "6px 16px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontFamily: "sans-serif", fontSize: 12, color: "#64748b" }}>
           <span>📵</span>
           <span>Offline — schema uit cache</span>
@@ -1221,14 +1268,31 @@ export default function FitnessSchema() {
       )}
 
       {/* Week selector */}
-      <div style={{ background: "#fff", borderBottom: "1px solid #eee", padding: "14px 16px", overflowX: "auto" }}>
+      <div style={theme
+        ? { padding: "14px 16px 0", overflowX: "auto", scrollbarWidth: "none" }
+        : { background: "#fff", borderBottom: "1px solid #eee", padding: "14px 16px", overflowX: "auto" }}>
         <div style={{ display: "flex", gap: 8, justifyContent: "center", minWidth: "fit-content", margin: "0 auto" }}>
           {schema.weeks.map((w, i) => w.jaar === viewYear && (
             <button
               key={i}
               ref={el => weekButtonRefs.current[i] = el}
               onClick={() => { closeAndSave(); setSummaryOpen(false); setSelectedWeek(i); }}
-              style={{
+              aria-current={theme && selectedWeek === i ? "true" : undefined}
+              style={theme ? {
+                flex: "none",
+                height: 36,
+                padding: "0 14px",
+                borderRadius: 9,
+                border: "none",
+                cursor: "pointer",
+                fontFamily: theme.fontBody,
+                fontSize: 15,
+                fontWeight: selectedWeek === i ? 600 : 500,
+                background: selectedWeek === i ? theme.accent : theme.card,
+                color: selectedWeek === i ? theme.onAccent : theme.muted,
+                transition: "all 0.15s",
+                whiteSpace: "nowrap",
+              } : {
                 padding: "8px 16px",
                 borderRadius: 8,
                 border: "none",
@@ -1249,10 +1313,13 @@ export default function FitnessSchema() {
       </div>
 
       {/* Day selector */}
-      <div style={{ padding: "12px 12px 0", display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 5, maxWidth: 600, margin: "0 auto" }}>
+      <div style={theme
+        ? { padding: "14px 12px 0", display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 4, maxWidth: 600, margin: "0 auto" }
+        : { padding: "12px 12px 0", display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 5, maxWidth: 600, margin: "0 auto" }}>
         {week.days.map((d, i) => (
           <WeekDayTile
             key={`${schemaGen}-${i}`}
+            theme={theme}
             day={d}
             isSelected={selectedDay === i}
             isToday={!readOnly && todayDayIdx === i}
@@ -1970,6 +2037,120 @@ export default function FitnessSchema() {
           onClose={() => setScorePrompt(null)}
         />
       )}
+
+      {toast && <Toast text={toast} />}
+    </div>
+  );
+}
+
+function Toast({ text }) {
+  return (
+    <div role="status" style={{ position: "fixed", left: 0, right: 0, bottom: 120, display: "flex", justifyContent: "center", zIndex: 400, pointerEvents: "none" }}>
+      <div style={{ background: "#1a1f27", color: "#eef1f5", border: "1px solid #2a313c", borderRadius: 999, padding: "10px 18px", fontFamily: "sans-serif", fontSize: 14, fontWeight: 600, boxShadow: "0 6px 24px rgba(0,0,0,0.35)" }}>
+        {text}
+      </div>
+    </div>
+  );
+}
+
+// "Snel" header (redesign spec item 1). Same handlers as the old header:
+// the eyebrow opens the year sheet, the title takes the 5-tap flag toggle,
+// the archive keeps its "Naar <jaar>" button / "Nog geen schema" line.
+function SnelHeader({ theme, week, blockWeeks, readOnly, currentYearHasSchema, currentYear, onOpenYearSheet, onGoToCurrentYear, onTitleTap }) {
+  const hasRange = week.startWeek != null && week.eindWeek != null;
+  const isDeload = week.phase === "Deload";
+  return (
+    <header style={{ padding: "20px 20px 18px", display: "flex", flexDirection: "column", gap: 12, borderBottom: `1px solid ${theme.headerLine}`, color: theme.text, fontFamily: theme.fontBody }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        {hasRange ? (
+          <button
+            onClick={onOpenYearSheet}
+            aria-label="Kies jaar"
+            style={{ minHeight: 32, padding: 0, border: "none", background: "transparent", color: theme.muted, display: "flex", alignItems: "center", gap: 6, fontFamily: theme.fontHead, fontWeight: 600, fontSize: 13, letterSpacing: 2, textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap" }}
+          >
+            {readOnly ? `Archief ${week.jaar}` : week.jaar} · Week {week.startWeek}–{week.eindWeek}
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+          </button>
+        ) : <span />}
+        <div style={{ padding: "4px 10px", borderRadius: 8, background: isDeload ? theme.deload : theme.accent, color: theme.onAccent, fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 14, letterSpacing: 1, textTransform: "uppercase", transform: "skewX(-8deg)", whiteSpace: "nowrap" }}>
+          {week.phase}
+        </div>
+      </div>
+      <h1 onClick={onTitleTap} style={{ margin: 0, fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 44, lineHeight: 0.95, textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "nowrap" }}>
+        {hasRange
+          ? <>Week {week.week - week.startWeek + 1}<span style={{ color: theme.muted }}> / {week.eindWeek - week.startWeek + 1}</span></>
+          : "Trainingsschema"}
+      </h1>
+      <PhaseBar theme={theme} weeks={blockWeeks} selectedYw={week.yw} />
+      {readOnly && (
+        currentYearHasSchema ? (
+          <button
+            onClick={onGoToCurrentYear}
+            style={{ alignSelf: "flex-start", background: theme.card, color: theme.text, border: `1px solid ${theme.line2}`, borderRadius: 9, padding: "7px 14px", fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 15, textTransform: "uppercase", letterSpacing: 0.5, cursor: "pointer" }}
+          >
+            Naar {currentYear} →
+          </button>
+        ) : (
+          <div style={{ fontSize: 13, fontWeight: 500, color: theme.muted }}>
+            Nog geen schema voor {currentYear}
+          </div>
+        )
+      )}
+    </header>
+  );
+}
+
+// Weeks of the displayed block grouped per consecutive schema_weeks.phase.
+// Before the selected week = done (dimmed), the selected week = taller with
+// a white outline, after = outline only; deload weeks cyan. Only the
+// current group carries its name: block 37-43 has a different phase every
+// week, and seven names don't fit at phone width (decision 2026-11-10).
+function PhaseBar({ theme, weeks, selectedYw }) {
+  const sorted = [...weeks].sort((a, b) => a.yw - b.yw);
+  if (sorted.length === 0) return null;
+  const groups = [];
+  for (const w of sorted) {
+    const last = groups[groups.length - 1];
+    if (last && last.phase === w.phase) last.weeks.push(w);
+    else groups.push({ phase: w.phase, weeks: [w] });
+  }
+  const pos = sorted.findIndex(w => w.yw === selectedYw) + 1;
+  let weeksBefore = 0;
+  return (
+    <div role="img" aria-label={`Week ${pos} van ${sorted.length}, fase ${sorted[pos - 1]?.phase ?? ""}`} style={{ display: "flex", gap: 8, paddingTop: 4 }}>
+      {groups.map((g, gi) => {
+        const deload = g.phase === "Deload";
+        const current = g.weeks.some(w => w.yw === selectedYw);
+        const color = deload ? theme.deload : theme.accent;
+        // A name wider than its group overflows inward, never off the bar:
+        // groups in the right half align it to their right edge.
+        const rightHalf = weeksBefore + g.weeks.length / 2 > sorted.length / 2;
+        weeksBefore += g.weeks.length;
+        return (
+          <div key={gi} style={{ flex: deload ? "0 0 54px" : `${g.weeks.length} 1 0`, minWidth: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ height: 13, display: "flex", justifyContent: rightHalf ? "flex-end" : "flex-start" }}>
+              {current && (
+                <span style={{ flex: "none", lineHeight: "13px", fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color, whiteSpace: "nowrap" }}>
+                  {g.phase}
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 10 }}>
+              {g.weeks.map(w => {
+                const state = w.yw < selectedYw ? "done" : w.yw === selectedYw ? "current" : "future";
+                return (
+                  <div key={w.yw} style={{
+                    flex: 1, boxSizing: "border-box", borderRadius: 2,
+                    height: state === "current" ? 10 : 6,
+                    background: state === "done" ? (deload ? theme.phaseDoneDeload : theme.phaseDone) : state === "current" ? color : "transparent",
+                    border: state === "current" ? `1px solid ${theme.text}` : state === "future" ? `1px solid ${deload ? theme.phaseDoneDeload : theme.phaseFuture}` : "none",
+                  }} />
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -2401,7 +2582,22 @@ function BoksenCard({ day, score, onOpenPrompt }) {
   );
 }
 
-function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPress, onOpenSummary }) {
+// Line icons for the redesigned day strip (spec item 3). power_hour and
+// boksen are not designed yet: stopwatch and lightning bolt.
+function DayTileIcon({ kind, color }) {
+  const common = { "aria-hidden": "true", height: 18, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeLinecap: "round", strokeLinejoin: "round" };
+  switch (kind) {
+    case "done": return <svg {...common} width="18" strokeWidth="3"><path d="M5 12l5 5L19 7" /></svg>;
+    case "training": return <svg {...common} width="18" strokeWidth="2.2"><path d="M6 8v8M3 10v4M18 8v8M21 10v4M6 12h12" /></svg>;
+    case "auto": return <svg {...common} width="20" strokeWidth="2"><path d="M5 16H3v-4l2-5h11l4 5h1v4h-2" /><path d="M9 16h6" /><circle cx="7" cy="16.5" r="2" /><circle cx="17" cy="16.5" r="2" /><path d="M6 12h13" /></svg>;
+    case "strand": return <svg {...common} width="18" strokeWidth="2"><path d="M3 11a9 7 0 0 1 18 0z" /><path d="M12 11l-3 9" /><path d="M3 21h18" /></svg>;
+    case "power_hour": return <svg {...common} width="18" strokeWidth="2.2"><circle cx="12" cy="13" r="8" /><path d="M12 13V9M10 2h4" /></svg>;
+    case "boksen": return <svg {...common} width="18" strokeWidth="2.2"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" /></svg>;
+    default: return null;
+  }
+}
+
+function WeekDayTile({ theme, day, isSelected, isToday, isCompleted, onSelect, onLongPress, onOpenSummary }) {
   const timer = useRef(null);
   const longPressed = useRef(false);
   const startPos = useRef({ x: 0, y: 0 });
@@ -2428,11 +2624,77 @@ function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPr
     if (Math.abs(t.clientX - startPos.current.x) > 10 || Math.abs(t.clientY - startPos.current.y) > 10) cancelPress();
   };
 
+  // Shared by both looks (theme = redesign tokens, null = old look) so the
+  // gestures can't drift apart: the tile's long press / select, and the
+  // summary tab's stop-everything handlers.
+  const tileHandlers = {
+    onMouseDown: startPress, onMouseUp: cancelPress,
+    onTouchStart: startPress, onTouchEnd: cancelPress, onTouchMove: handleMove,
+    onClick: () => { if (longPressed.current) { longPressed.current = false; return; } onSelect(); },
+  };
+  const summaryTabHandlers = {
+    role: "button",
+    tabIndex: 0,
+    "aria-label": "Samenvatting van de training",
+    onMouseDown: (e) => e.stopPropagation(),
+    onMouseUp: (e) => e.stopPropagation(),
+    onTouchStart: (e) => e.stopPropagation(),
+    onTouchMove: (e) => e.stopPropagation(),
+    onTouchEnd: (e) => e.stopPropagation(),
+    onClick: (e) => { e.stopPropagation(); onOpenSummary(); },
+    onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onOpenSummary(); } },
+  };
+
+  if (theme) {
+    const tint = isSelected ? theme.accent : null;
+    const icon = isCompleted ? "done"
+      : day.type === "training" ? "training"
+      : day.type === "power_hour" ? "power_hour"
+      : day.type === "boksen" ? "boksen"
+      : day.naam === "Anti-zit" ? "auto" : "strand";
+    const iconColor = icon === "done" ? theme.accent : tint || (isRust ? theme.dim : theme.muted);
+    return (
+      <button
+        {...tileHandlers}
+        aria-pressed={isSelected}
+        style={{
+          position: "relative", minWidth: 0, minHeight: 96, boxSizing: "border-box",
+          padding: "12px 1px 8px", borderRadius: 12,
+          border: `1px solid ${isSelected ? theme.accent : theme.cardBorder}`,
+          background: isSelected ? theme.selectedTile : theme.card,
+          display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+          cursor: "pointer", userSelect: "none", fontFamily: theme.fontBody,
+        }}
+      >
+        {isToday && <span aria-hidden="true" style={{ position: "absolute", top: 4, left: "50%", width: 5, height: 5, marginLeft: -2.5, borderRadius: 3, background: theme.accent }} />}
+        <span style={{ fontFamily: theme.fontHead, fontWeight: 700, fontSize: 15, lineHeight: "18px", textTransform: "uppercase", color: tint || (isRust ? theme.muted : theme.text2) }}>
+          {day.dag_label}
+        </span>
+        <span style={{ height: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <DayTileIcon kind={icon} color={iconColor} />
+        </span>
+        <span style={{ fontSize: 10.5, lineHeight: 1.15, textAlign: "center", fontWeight: 600, letterSpacing: -0.1, whiteSpace: "pre-line", color: (isCompleted || isSelected) ? theme.text : theme.muted }}>
+          {(day.naam || "").replace(" & ", "\n")}
+        </span>
+        {onOpenSummary && (
+          <a
+            {...summaryTabHandlers}
+            style={{ position: "absolute", left: "50%", bottom: -18, width: 44, height: 32, marginLeft: -22, display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1, cursor: "pointer" }}
+          >
+            <span style={{ width: 30, height: 18, borderRadius: "0 0 9px 9px", background: theme.accent, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={theme.onAccent} strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </span>
+          </a>
+        )}
+      </button>
+    );
+  }
+
   return (
     <button
-      onMouseDown={startPress} onMouseUp={cancelPress}
-      onTouchStart={startPress} onTouchEnd={cancelPress} onTouchMove={handleMove}
-      onClick={() => { if (longPressed.current) { longPressed.current = false; return; } onSelect(); }}
+      {...tileHandlers}
       style={{
         display: "flex", flexDirection: "column", alignItems: "center",
         padding: "0 2px 6px", borderRadius: 10,
@@ -2478,16 +2740,7 @@ function WeekDayTile({ day, isSelected, isToday, isCompleted, onSelect, onLongPr
           tile, or starts a pull-to-refresh. */}
       {onOpenSummary && (
         <a
-          role="button"
-          tabIndex={0}
-          aria-label="Samenvatting van de training"
-          onMouseDown={(e) => e.stopPropagation()}
-          onMouseUp={(e) => e.stopPropagation()}
-          onTouchStart={(e) => e.stopPropagation()}
-          onTouchMove={(e) => e.stopPropagation()}
-          onTouchEnd={(e) => e.stopPropagation()}
-          onClick={(e) => { e.stopPropagation(); onOpenSummary(); }}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onOpenSummary(); } }}
+          {...summaryTabHandlers}
           style={{ position: "absolute", left: "50%", bottom: -18, width: 44, height: 32, marginLeft: -22, display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1, cursor: "pointer" }}
         >
           <div style={{ width: 30, height: 18, borderRadius: "0 0 9px 9px", background: tileColor, display: "flex", alignItems: "center", justifyContent: "center" }}>
