@@ -1,6 +1,6 @@
 # Workout app — "Snel" redesign spec
 
-Status: all blocks approved by Michel on 9 November 2026. This is the single
+Status: all blocks approved by Michel on 9 November 2026. PR 1 merged 10 November 2026 (PR #23). PR 2 merged 11 November 2026 (PR #24). PR 3 in review. This is the single
 source of truth for the redesign. The three HTML files in `reference/` are the
 approved mockups (made in a design canvas, not runnable React). Copy exact
 values from them when this spec is silent; when this spec and a mockup differ,
@@ -137,6 +137,30 @@ reps stepper (− n +, dark box, 44 px). Line under it: "Laatste keer — Week 4
 **45kg × 8** · PR **45kg**" (12 px, values `text`); the PR value turns
 `success` green when a new PR is set. No Opslaan button.
 
+### Timer bar (look only; behaviour, phases and buttons as now)
+
+Replaces the full-width coloured bar at the bottom. A floating dark bar:
+margin 0 10 px, 14 px above the bottom edge, padding 10 × 12, radius 18,
+background `bg` (`#0E1116`), 1 px border in the block colour at 55 %
+(`color-mix(in srgb, <block colour> 55%, #0E1116)`), shadow
+`0 -8px 24px rgba(0,0,0,.45)`.
+- Left: countdown ring 64 px (track `#3A4350`, 5 px; progress in the block
+  colour, round caps, starting at 12 o'clock), time centred in Barlow Condensed
+  700 italic 20 px.
+- Middle: state line (Barlow Condensed 600, 12 px, letter spacing 1.5 px, block
+  colour): "RUST", "WERK", or "GEPAUZEERD" (muted). Under it the block name
+  with its line icon, Barlow Condensed 700 italic 17 px uppercase, ellipsis if
+  too long. Uses the same label the current bar shows (e.g. "Supersets",
+  the KB exercise).
+- Right: the existing buttons as 42 × 44 icon buttons (radius 12, `#232A34`,
+  white line icons): pause/play, restart, stop. When the current bar shows the
+  lock (HIIT / input block), the lock button takes the middle slot: filled in
+  the block colour with a dark icon when input is blocked, normal button when
+  not.
+- Paused: ring progress `muted`, play icon instead of pause.
+- Block colour = the colour of the block whose timer runs (mobility teal, day
+  colour, kettlebell accent).
+
 ## Summary sheet (stays accent orange, no day colour)
 
 - Header: grab handle, "SAMENVATTING" small accent, day name big condensed
@@ -169,19 +193,46 @@ Rest-day content, Power Hour / Boksen cards, archive mode (grey header, year
 sheet), swap sheet. Use the tokens and components above, keep behaviour, and
 list them in the PR description with screenshots so Michel can review.
 
+## Testing rules (all PRs)
+
+- Tests run against the live Supabase project from the personal "workout-plan"
+  environment (only `nhcgepdrbrvfukxpbhmi.supabase.co` allowed). The database
+  has open RLS policies, so the test harness must abort and count every
+  non-GET request to Supabase; the expected count is 0.
+- No long-press, typing into inputs, swipes that select or other writes in
+  tests. Michel tests those on the phone.
+- Screenshots go on a private claude.ai Artifact page linked from the PR, never
+  into git.
+- After the redesign: remove the environment or fix the open RLS policies.
+
 ## PR plan
 
 1. Flag + tokens + fonts + header with phase bar + week tabs + day strip (incl.
    summary tab). Adds this spec and `reference/` to the repo. **Merged**
    (MichelAmin47/workout-plan#23, 10 Nov 2026).
 2. Training-day blocks 5–12 (rows, day colours, done state, tags, timer pills,
-   kettlebell, progressie). In review.
-3. Inline log panel.
+   kettlebell, progressie). **Merged** (MichelAmin47/workout-plan#24, 11 Nov
+   2026).
+3. Inline log panel, plus contrast pass step 1 and the timer bar (see below).
+   In review.
 4. Summary sheet + score popup.
 5. Flag on by default. After a week without issues: remove old styles and the
    flag. Also in this PR: loading screen ("Schema laden…") in the dark style.
    Until then it stays light, so with the flag on there is a short light flash
    before the dark header appears.
+
+Added 10 Nov 2026, to design first in the canvas, then build (order with
+PR 3/4 to be decided) → both in PR 3:
+- **Contrast pass:** the overall look reads as one large black area. Decided
+  11 Nov 2026 (step 1, more may follow): keep all current background, card and
+  row colours; add a 1 px border to exercise rows in the block colour at 38 %
+  over the row background (`color-mix(in srgb, <block colour> 38%, #1A1F27)`).
+  Applies to standalone rows (mobility, losse oefeningen incl. optional, core,
+  kettlebell) and to the superset inner frame (the rows inside a superset stay
+  borderless). Optional rows keep their dashed border. Mockup:
+  `ContrastD.dc.html`.
+- **Timer block:** approved 11 Nov 2026, mockup `TimerStaten.dc.html`. See
+  "Timer bar" above.
 
 ## Decisions in PR 2 (not covered by the spec above)
 
@@ -228,3 +279,44 @@ Chosen in the build, to review:
   sheet (dark sheet, accent "WISSEL VOOR", accent arrows).
 - **Inline log panel:** until PR 3 it only gets a dark background, a dark
   divider and light value text; inputs and stepper are unchanged.
+
+## Decisions in PR 3 (not covered by the spec above)
+
+Agreed with Michel before the build:
+
+- **Timer bar states map onto the timer as it is (11 Nov 2026).** Every
+  timer, KB included, is one rest countdown; there is no work phase, so
+  "WERK" never shows. The input lock is not HIIT-only: it switches on at
+  every start and every restart, as before. While locked the bar shows only
+  the lock button in the middle slot (filled in the block colour, dark icon)
+  = the existing unlock (🔓); the side slots stay empty, so nothing new
+  becomes tappable. Unlocked: pause/play, restart, stop. There is no way to
+  lock again except restart, so mockup state 4 ("lock as a normal button")
+  does not occur; a KB timer after unlocking looks like state 1.
+- **Timer colour of a timer started with the flag off:** if the flag is
+  turned on while it runs, the bar uses `accent` and no icon.
+
+Chosen in the build, to review:
+
+- **Block colour of the timer** is captured when the timer starts (mobility
+  teal; supersets, losse oefeningen, schema-1 spiergroep and core the day
+  colour; kettlebell and schema-1 barbell accent), so switching day does not
+  recolour a running timer.
+- **Name in the bar:** the same label the old bar shows, i.e. the section
+  name ("Supersets", "Kettlebell (Full Body)"), not the KB exercise.
+- **Done state** (not designed): ring full in `success`, bell icon instead of
+  the time, state line "KLAAR", "Rust voorbij, ga!" under it, border
+  `success` at 55 %; buttons restart and stop (no pause, as before).
+- **Icon buttons** use `#232A34` (spec), not the mockup's `#262D38`.
+- **Active timer pill** (PR 2: filled in the block colour, dark text) stays;
+  it matches the bar's block colour.
+- **Inline log panel colour** = the colour of the row's block: day colour for
+  supersets, losse oefeningen and schema-1 spiergroep; accent for kettlebell
+  and the schema-1 barbell card.
+- **Panel input** stays `type="number"` (no switch to a text field with a
+  decimal keyboard: that would change input behaviour). Only person M is
+  rendered; the Z column was already hidden and unreachable.
+- **PR value** in the "Laatste keer" line is semibold (`text`), bold
+  `success` when the logged weight equals the PR (same rule as before).
+- **Row borders** also on the schema-1 barbell card (a standalone row, not in
+  the spec list), in accent.
