@@ -857,12 +857,24 @@ export default function FitnessSchema() {
   }, []);
 
   useEffect(() => {
-    const centre = () => weekButtonRefs.current[selectedWeek]?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
-    centre();
+    // `current` turns false when this effect is superseded, so a callback
+    // from an earlier render never scrolls. On a cold start the first
+    // render is the loading screen (selectedWeek still 0); since the dark
+    // loading screen (PR 5a) uses Barlow, its fonts.ready callback resolved
+    // only after the real render and scrolled the tabs back to the first
+    // week (Week 23).
+    let current = true;
+    const centre = (behavior) => {
+      if (current) weekButtonRefs.current[selectedWeek]?.scrollIntoView({ behavior, inline: "center", block: "nearest" });
+    };
+    centre("smooth");
     // Redesign: the Barlow fonts can finish loading after this first
     // centring and widen every tab, which slides the current week off
-    // centre — centre again once they're in.
-    if (snel) document.fonts?.ready.then(centre);
+    // centre — centre again once they're in. Instant, so it never competes
+    // with a smooth scroll still in flight (two overlapping smooth scrolls
+    // can end at the wrong tab in Chromium).
+    if (snel) document.fonts?.ready.then(() => centre("auto"));
+    return () => { current = false; };
   }, [selectedWeek, snel]);
 
   const handlePullStart = (e) => {
