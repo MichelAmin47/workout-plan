@@ -1,6 +1,6 @@
 # Workout app — "Snel" redesign spec
 
-Status: all blocks approved by Michel on 9 November 2026. PR 1 merged 10 November 2026 (PR #23). PR 2 merged 11 November 2026 (PR #24). PR 3 merged 11 November 2026 (PR #25), tested on the phone. PR 4 in review. This is the single
+Status: all blocks approved by Michel on 9 November 2026. PR 1 merged 10 November 2026 (PR #23). PR 2 merged 11 November 2026 (PR #24). PR 3 merged 11 November 2026 (PR #25), tested on the phone. PR 4 merged 11 November 2026 (PR #26), tested on the phone. PR 5a in review. This is the single
 source of truth for the redesign. The three HTML files in `reference/` are the
 approved mockups (made in a design canvas, not runnable React). Copy exact
 values from them when this spec is silent; when this spec and a mockup differ,
@@ -12,11 +12,21 @@ ask. Exceptions are listed explicitly (they are all removals).
 
 ## Rollout: feature flag
 
-- The new look sits behind a per-device flag (`localStorage`, key
-  `ui.redesign`, values `"snel"` / absent). Old look = default until the final
-  PR flips it.
+- Per-device flag in `localStorage`, key `ui.redesign`. Since PR 5a the new
+  look is the default:
+
+  | Stored value | Look |
+  |---|---|
+  | `"uit"` | old look (the only value that switches it off) |
+  | `"snel"` | new look |
+  | absent (fresh browser, never toggled) | new look |
+  | any other value | new look (left as it is) |
+  | storage unreadable | new look; the toggle lasts the session only |
+
 - Toggle: tap the week title in the header 5 times within 3 seconds. Show a
   short toast ("Nieuwe stijl aan" / "Nieuwe stijl uit"). No other UI for it.
+  Both directions are stored explicitly (`"snel"` / `"uit"`), so switching
+  off survives a reload and the new default.
 - Old and new styles live side by side until the cleanup PR. Prefer a style
   token object per theme over scattered conditionals.
 
@@ -215,11 +225,15 @@ list them in the PR description with screenshots so Michel can review.
    2026).
 3. Inline log panel, plus contrast pass step 1 and the timer bar (see below).
    **Merged** (MichelAmin47/workout-plan#25, 11 Nov 2026).
-4. Summary sheet + score popup. In review.
-5. Flag on by default. After a week without issues: remove old styles and the
-   flag. Also in this PR: loading screen ("Schema laden…") in the dark style.
-   Until then it stays light, so with the flag on there is a short light flash
-   before the dark header appears.
+4. Summary sheet + score popup. **Merged** (MichelAmin47/workout-plan#26,
+   11 Nov 2026, tested on the phone).
+5. Split in two:
+   - **5a.** Flag on by default (old look still reachable with the 5-tap
+     toggle), loading screen ("Schema laden…") in the dark style, archive
+     legend wording. In review.
+   - **5b.** After about a week without issues: remove the old styles and the
+     flag (incl. the `"uit"` value, the old loading screen and the flag check
+     in `index.html`'s inline script).
 
 Added 10 Nov 2026, to design first in the canvas, then build (order with
 PR 3/4 to be decided) → both in PR 3:
@@ -371,3 +385,36 @@ page): the summary of a training day with no logged exercises (tiles at 0,
 rating cards, finisher pills), the Power Hour / Boksen summary (header and
 rating cards only, as before), and the archive summary. A rest day has no
 summary.
+
+## Decisions in PR 5a (not covered by the spec above)
+
+Agreed with Michel before the build:
+
+- **Flag values:** see the table under "Rollout: feature flag". Only `"uit"`
+  means the old look; absent, `"snel"`, any other value and unreadable
+  storage mean the new look. `readRedesignFlag()` is `getItem !== "uit"`;
+  `writeRedesignFlag()` stores `"snel"` / `"uit"` and no longer removes the
+  key. Devices that never toggled get the new look on their next load.
+- **Before React:** besides the dark "Schema laden…" screen, a small inline
+  script in `index.html` applies the same rule and sets the page background
+  to `#0E1116` (= `SNEL.bg`) before the JS bundle runs, so a cold start has
+  no white frame. An effect in `FitnessSchema` keeps that background in step
+  with the toggle (no inline style when off, as before). The repo serves no
+  Content-Security-Policy (no `vercel.json`, no meta tag, none in the
+  Capacitor config) that would block it.
+- **Loading screen:** the flag is read in the first React render (the
+  `useState` initializer), so the screen is dark from its first frame. It
+  uses plain `SNEL` (no accent, so the archive grey doesn't apply). With the
+  old look it is unchanged.
+- **Archive legend:** the summary's explanation text says "grijs is gewicht"
+  in the new look's archive (token `weightWord`: `"oranje"` in `SNEL`,
+  `"grijs"` in `SNEL_ARCHIVE`). Every other word is unchanged; the old look
+  keeps "oranje" (its archive line stays orange).
+- **"blauw" kept** for the 1RM line in both looks: the new look's cyan
+  `#3DDCFF` still reads as blue.
+
+Found in the build, not changed:
+
+- With `localStorage` completely unreadable the app doesn't start at all, on
+  main too (other storage reads aren't guarded), so the "unreadable means new
+  look" rule only matters for the inline script.

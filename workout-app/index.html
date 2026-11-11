@@ -5,6 +5,17 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>workout-plan</title>
+    <script>
+      // "Snel" redesign: dark page before the JS bundle runs, so there is no
+      // white frame. Same rule as readRedesignFlag() in src/redesign.js: only
+      // ui.redesign = "uit" means the old look; a storage error means new.
+      // #0E1116 = SNEL.bg.
+      (function () {
+        var on = true;
+        try { on = localStorage.getItem("ui.redesign") !== "uit"; } catch (e) { /* default: new look */ }
+        if (on) document.documentElement.style.background = "#0E1116";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
