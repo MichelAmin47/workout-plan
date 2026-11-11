@@ -1,21 +1,31 @@
 // "Snel" redesign — feature flag and design tokens.
 // Spec: docs/redesign-snel/redesign-snel.md (source of truth for PR 1-5).
-// The old look stays the default until the flag-flip PR; every redesigned
-// render site branches on `theme ? <new> : <old, unchanged>`, with `theme`
-// one of the token objects below (or null for the old look).
+// Since PR 5a the new look is the default; the old look stays reachable as
+// a fallback until PR 5b removes it. Every redesigned render site branches
+// on `theme ? <new> : <old, unchanged>`, with `theme` one of the token
+// objects below (or null for the old look).
 
 export const REDESIGN_KEY = "ui.redesign";
 
-// Per device, in localStorage: "snel" = new look, absent = old look. Any
-// storage failure (private mode, blocked site data) reads as off.
+// Per device, in localStorage (PR 5a):
+//   "uit"  = old look: the only value that switches the new look off,
+//            written by the 5-tap toggle;
+//   "snel" = new look, written by the toggle (and by PR 1-4 devices);
+//   absent or any other value = new look (the default).
+// A storage failure (private mode, blocked site data) also reads as the
+// default, the new look. index.html applies the same rule before React
+// runs; keep the two in sync.
+export const REDESIGN_OFF = "uit";
+
 export function readRedesignFlag() {
-  try { return localStorage.getItem(REDESIGN_KEY) === "snel"; } catch { return false; }
+  try { return localStorage.getItem(REDESIGN_KEY) !== REDESIGN_OFF; } catch { return true; }
 }
 
+// Both directions are stored explicitly, so switching off survives the
+// new-look default.
 export function writeRedesignFlag(on) {
   try {
-    if (on) localStorage.setItem(REDESIGN_KEY, "snel");
-    else localStorage.removeItem(REDESIGN_KEY);
+    localStorage.setItem(REDESIGN_KEY, on ? "snel" : REDESIGN_OFF);
   } catch { /* localStorage unavailable — the toggle then lasts this session only */ }
 }
 
@@ -46,12 +56,15 @@ export const SNEL = {
   selectedTile: "#1F1712",
   fontHead: "'Barlow Condensed', sans-serif",
   fontBody: "'Barlow', system-ui, sans-serif",
+  // Colour word for the weight line in the summary legend text ("Grafiekje:
+  // oranje is gewicht, ..."): the line is `accent`, grey in the archive.
+  weightWord: "oranje",
 };
 
 // Archive mode (viewing another year, read-only): same tokens, grey instead
 // of orange. Not designed yet — #94A3B8 rather than the old header's #64748b,
 // which is too dark under dark text on a selected tab. Deload cyan stays.
-export const SNEL_ARCHIVE = { ...SNEL, accent: "#94A3B8", phaseDone: "#4A5260", selectedTile: "#1C2129" };
+export const SNEL_ARCHIVE = { ...SNEL, accent: "#94A3B8", phaseDone: "#4A5260", selectedTile: "#1C2129", weightWord: "grijs" };
 
 export function themeFor(snel, readOnly) {
   if (!snel) return null;

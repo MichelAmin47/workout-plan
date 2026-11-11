@@ -4,7 +4,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { Haptics, ImpactStyle } from "@capacitor/haptics";
 import { registerPlugin } from "@capacitor/core";
 import { currentIsoWeek, isoWeekDate } from "./src/isoWeek.js";
-import { readRedesignFlag, writeRedesignFlag, themeFor, dayColorOnDark, formatSnelSets, formatSnelTimer, snelHintTag, rowBorder, barBorder } from "./src/redesign.js";
+import { readRedesignFlag, writeRedesignFlag, themeFor, SNEL, dayColorOnDark, formatSnelSets, formatSnelTimer, snelHintTag, rowBorder, barBorder } from "./src/redesign.js";
 import PrText from "./src/snel/PrText.jsx";
 import SnelLogPanel from "./src/snel/LogPanel.jsx";
 import SnelScorePopup from "./src/snel/ScorePopup.jsx";
@@ -904,7 +904,22 @@ export default function FitnessSchema() {
 
   useEffect(() => { localStorage.setItem("selectedDay", selectedDay); }, [selectedDay]);
 
-  if (schemaLoading) return (
+  // Page background behind the app (overscroll, the frame before React
+  // renders): index.html sets it to SNEL.bg before the bundle runs when the
+  // new look is on; this keeps it in step with the 5-tap toggle. Off = no
+  // inline style, as before PR 5a.
+  useEffect(() => {
+    document.documentElement.style.background = snel ? SNEL.bg : "";
+  }, [snel]);
+
+  // The flag is read in useState's initializer, so it is already known in
+  // this first render; the archive isn't (no schema yet), but the loading
+  // screen has no accent, so plain SNEL is right for both.
+  if (schemaLoading) return snel ? (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: SNEL.bg, fontFamily: SNEL.fontBody, fontWeight: 500, color: SNEL.muted, fontSize: 15 }}>
+      Schema laden…
+    </div>
+  ) : (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f8f7f4", fontFamily: "sans-serif", color: "#888", fontSize: 16 }}>
       Schema laden…
     </div>
@@ -4202,7 +4217,7 @@ function SnelDaySummary({ theme, dayColor, day, weekNum, phase, datum, score, gr
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 14, height: 3, borderRadius: 2, background: theme.oneRm }} />1RM</span>
               </div>
               <p style={{ margin: 0, fontSize: 12, lineHeight: 1.45, color: theme.muted }}>
-                1RM is een schatting (Epley). Rond 15 reps en hoger is hij indicatief. Grafiekje: oranje is gewicht, blauw is geschat 1RM, beide als verandering t.o.v. hun eerste punt. De stip is vandaag.
+                1RM is een schatting (Epley). Rond 15 reps en hoger is hij indicatief. Grafiekje: {theme.weightWord} is gewicht, blauw is geschat 1RM, beide als verandering t.o.v. hun eerste punt. De stip is vandaag.
               </p>
             </div>
           </>
