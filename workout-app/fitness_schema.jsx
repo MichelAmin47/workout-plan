@@ -7,6 +7,8 @@ import { currentIsoWeek, isoWeekDate } from "./src/isoWeek.js";
 import { readRedesignFlag, writeRedesignFlag, themeFor, dayColorOnDark, formatSnelSets, formatSnelTimer, snelHintTag, rowBorder, barBorder } from "./src/redesign.js";
 import PrText from "./src/snel/PrText.jsx";
 import SnelLogPanel from "./src/snel/LogPanel.jsx";
+import SnelScorePopup from "./src/snel/ScorePopup.jsx";
+import { TRAINING_SCORE_DESCRIPTIONS, ENERGY_SCORE_DESCRIPTIONS } from "./src/scoreDescriptions.js";
 const BatteryOptimization = registerPlugin("BatteryOptimization");
 const NativeTimer = registerPlugin("NativeTimer");
 
@@ -2219,9 +2221,9 @@ export default function FitnessSchema() {
           // Same order, names and colours as the day screen's sections;
           // same completion key as the ExCircle tick (name + week + dag_nummer).
           finisherBlocks = [
-            { title: "Mobility", icon: "🤸", accent: "#0d9488", light: "#ccfbf1", list: day.mobility },
-            { title: "Kettlebell (Full Body)", icon: "🔔", accent: "#c05621", light: "#fed7aa", list: day.kettlebell },
-            { title: "Core Finisher", icon: "🔥", accent: "#7c3aed", light: "#ede9fe", list: day.core },
+            { kind: "mobility", title: "Mobility", icon: "🤸", accent: "#0d9488", light: "#ccfbf1", list: day.mobility },
+            { kind: "kettlebell", title: "Kettlebell (Full Body)", icon: "🔔", accent: "#c05621", light: "#fed7aa", list: day.kettlebell },
+            { kind: "core", title: "Core Finisher", icon: "🔥", accent: "#7c3aed", light: "#ede9fe", list: day.core },
           ]
             .map(({ list, ...b }) => ({
               ...b,
@@ -2242,6 +2244,8 @@ export default function FitnessSchema() {
             groups={groups}
             finisherBlocks={finisherBlocks}
             onClose={() => setSummaryOpen(false)}
+            theme={theme}
+            dayColor={theme ? dayColorOnDark(day.kleur) : null}
           />
         );
       })()}
@@ -2262,6 +2266,7 @@ export default function FitnessSchema() {
           initialScore={dayScores[scorePrompt.datum]}
           onSubmit={(training, motivatie) => saveScore(scorePrompt.datum, training, motivatie)}
           onClose={() => setScorePrompt(null)}
+          theme={theme}
         />
       )}
 
@@ -3106,13 +3111,14 @@ function VrijeDagCard({ goals, day, theme }) {
 // `value`. Used on PowerHourCard/BoksenCard, the only place a saved score
 // is shown outside the entry prompt itself (no dashboard, no chart —
 // point 10 is explicit that this is the only display surface).
-function StarRow({ value = 0, theme }) {
+function StarRow({ value = 0, theme, size = 18 }) {
   if (theme) {
-    // Score-popup rule: filled accent / empty dim outline.
+    // Score-popup rule: filled accent / empty dim outline. size: 18 on the
+    // Power Hour / Boksen cards, 20 on the summary's rating cards (mockup).
     return (
       <div style={{ display: "flex", gap: 3 }}>
         {[1, 2, 3, 4, 5].map((n) => (
-          <svg key={n} aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill={n <= value ? theme.accent : "none"} stroke={n <= value ? theme.accent : theme.dim} strokeWidth="2" strokeLinejoin="round">
+          <svg key={n} aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill={n <= value ? theme.accent : "none"} stroke={n <= value ? theme.accent : theme.dim} strokeWidth="2" strokeLinejoin="round">
             <path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z" />
           </svg>
         ))}
@@ -3539,24 +3545,9 @@ function SwipeableRow({ onSwipeRight, onSwipeLeft, children, theme }) {
   );
 }
 
-// Fixed per-value descriptions shown under each StarPicker row, so the
-// scale means the same thing every time it's used instead of drifting with
-// mood alone. Keyed 1-5 to match the star value directly; consulted only by
-// StarPicker below, kept local to it rather than declared per call site.
-const TRAINING_SCORE_DESCRIPTIONS = {
-  1: "Afgebroken door vermoeidheid",
-  2: "Schema niet helemaal kunnen volgen, was te zwaar",
-  3: "Niet mijn beste werk. Was pittig om af te maken",
-  4: "Goeie workout! Tank was niet helemaal leeg aan het eind",
-  5: "Kruipend naar huis 😈. Love it!",
-};
-const ENERGY_SCORE_DESCRIPTIONS = {
-  1: "Vermoeid, moest mezelf echt moed inpraten",
-  2: "Laag in mijn energie, niet meer recht te trekken",
-  3: "Moe, moest echt energie bijtanken van tevoren",
-  4: "Voelde goed. Geen vermoeidheid als belemmering",
-  5: "Kon niet wachten! Hoog in m'n energie",
-};
+// TRAINING_SCORE_DESCRIPTIONS / ENERGY_SCORE_DESCRIPTIONS: src/scoreDescriptions.js.
+const TRAINING_SCORE_QUESTION = "Hoe ging de training?";
+const ENERGY_SCORE_QUESTION = "Hoe was je energie voor de training?";
 
 // Interactive 1-5 star row for ScorePromptModal — tap a star to set the
 // value. Distinct from the read-only StarRow on PowerHourCard/BoksenCard,
@@ -3608,7 +3599,7 @@ function StarPicker({ label, value, onChange, descriptions }) {
 // No focus trap: this app is touch-primary, no component anywhere manages
 // focus, and adding one here would be new scope beyond what this feature
 // needs.
-function ScorePromptModal({ dayLabel, initialScore, onSubmit, onClose }) {
+function ScorePromptModal({ dayLabel, initialScore, onSubmit, onClose, theme }) {
   const [training, setTraining] = useState(initialScore?.training ?? 0);
   const [motivatie, setMotivatie] = useState(initialScore?.motivatie ?? 0);
 
@@ -3639,6 +3630,26 @@ function ScorePromptModal({ dayLabel, initialScore, onSubmit, onClose }) {
 
   const canSubmit = training > 0 && motivatie > 0;
 
+  if (theme) {
+    return (
+      <SnelScorePopup
+        theme={theme}
+        dayLabel={dayLabel}
+        training={training}
+        motivatie={motivatie}
+        onTraining={setTraining}
+        onMotivatie={setMotivatie}
+        trainingLabel={TRAINING_SCORE_QUESTION}
+        energyLabel={ENERGY_SCORE_QUESTION}
+        trainingDescriptions={TRAINING_SCORE_DESCRIPTIONS}
+        energyDescriptions={ENERGY_SCORE_DESCRIPTIONS}
+        canSubmit={canSubmit}
+        onSubmit={onSubmit}
+        onClose={onClose}
+      />
+    );
+  }
+
   return (
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "#0007", zIndex: 100 }} />
@@ -3646,8 +3657,8 @@ function ScorePromptModal({ dayLabel, initialScore, onSubmit, onClose }) {
         {dayLabel && (
           <div style={{ textAlign: "center", fontFamily: "sans-serif", fontSize: 12, color: "#999", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 16 }}>{dayLabel}</div>
         )}
-        <StarPicker label="Hoe ging de training?" value={training} onChange={setTraining} descriptions={TRAINING_SCORE_DESCRIPTIONS} />
-        <StarPicker label="Hoe was je energie voor de training?" value={motivatie} onChange={setMotivatie} descriptions={ENERGY_SCORE_DESCRIPTIONS} />
+        <StarPicker label={TRAINING_SCORE_QUESTION} value={training} onChange={setTraining} descriptions={TRAINING_SCORE_DESCRIPTIONS} />
+        <StarPicker label={ENERGY_SCORE_QUESTION} value={motivatie} onChange={setMotivatie} descriptions={ENERGY_SCORE_DESCRIPTIONS} />
         <button
           onClick={() => canSubmit && onSubmit(training, motivatie)}
           disabled={!canSubmit}
@@ -3771,8 +3782,17 @@ function BottomSheet({ currentExercise, exercises, onSelect, onClose, theme }) {
 // point in the window, on one shared y-scale with a minimum 10-point span
 // so a small change doesn't look steep. Today is the last point, except on
 // a deload day (deload rows are never drawn).
-function Sparkline({ points }) {
-  const W = 80, H = 28, PAD = 3;
+//
+// With `theme` (redesign): 96x44 as in the mockup, accent kg line, cyan
+// 1RM, stroke 2 and r 3.5 dots. The points and the scale are computed the
+// same way in both looks.
+function Sparkline({ points, theme }) {
+  const W = theme ? 96 : 80, H = theme ? 44 : 28, PAD = theme ? 4 : 3;
+  const kgLine = theme ? theme.accent : "#fdba8c";
+  const kgDot = theme ? theme.accent : "#f37121";
+  const eColor = theme ? theme.oneRm : "#0ea5e9";
+  const stroke = theme ? 2 : 1.5;
+  const dotR = theme ? 3.5 : 2.75;
   if (!points.length) return null;
   const pct = (v, base) => (v / base - 1) * 100;
   const kgPct = points.map(p => pct(p.kg, points[0].kg));
@@ -3797,31 +3817,44 @@ function Sparkline({ points }) {
   return (
     <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label} style={{ flexShrink: 0, display: "block" }}>
       {points.length > 1 && (
-        <polyline points={kgPct.map((v, i) => `${x(i)},${y(v)}`).join(" ")} fill="none" stroke="#fdba8c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <polyline points={kgPct.map((v, i) => `${x(i)},${y(v)}`).join(" ")} fill="none" stroke={kgLine} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" />
       )}
       {runs.map((run, j) => run.length > 1
-        ? <polyline key={j} data-line="e1rm" points={run.map(i => `${x(i)},${y(ePct[i])}`).join(" ")} fill="none" stroke="#0ea5e9" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.8" />
-        : run[0] !== last && <circle key={j} data-line="e1rm" cx={x(run[0])} cy={y(ePct[run[0]])} r="1.5" fill="#0ea5e9" />
+        ? <polyline key={j} data-line="e1rm" points={run.map(i => `${x(i)},${y(ePct[i])}`).join(" ")} fill="none" stroke={eColor} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" strokeOpacity={theme ? 1 : 0.8} />
+        : run[0] !== last && <circle key={j} data-line="e1rm" cx={x(run[0])} cy={y(ePct[run[0]])} r={theme ? 2 : 1.5} fill={eColor} />
       )}
       {/* Today's dots. When both land on the same spot (same % change),
           the blue one becomes a ring around the orange one so both stay
           visible. */}
       {ePct[last] != null && Math.abs(y(ePct[last]) - y(kgPct[last])) < 3 ? (
         <>
-          <circle data-dot="e1rm" cx={x(last)} cy={y(ePct[last])} r="3.5" fill="#0ea5e9" />
-          <circle data-dot="kg" cx={x(last)} cy={y(kgPct[last])} r="2" fill="#f37121" />
+          <circle data-dot="e1rm" cx={x(last)} cy={y(ePct[last])} r={theme ? 5 : 3.5} fill={eColor} />
+          <circle data-dot="kg" cx={x(last)} cy={y(kgPct[last])} r={theme ? 3 : 2} fill={kgDot} />
         </>
       ) : (
         <>
-          <circle data-dot="kg" cx={x(last)} cy={y(kgPct[last])} r="2.75" fill="#f37121" />
-          {ePct[last] != null && <circle data-dot="e1rm" cx={x(last)} cy={y(ePct[last])} r="2.75" fill="#0ea5e9" />}
+          <circle data-dot="kg" cx={x(last)} cy={y(kgPct[last])} r={dotR} fill={kgDot} />
+          {ePct[last] != null && <circle data-dot="e1rm" cx={x(last)} cy={y(ePct[last])} r={dotR} fill={eColor} />}
         </>
       )}
     </svg>
   );
 }
 
-function SummaryScoreCard({ label, value, descriptions }) {
+function SummaryScoreCard({ label, value, descriptions, theme }) {
+  if (theme) {
+    return (
+      <div style={{ background: theme.card, border: `1px solid ${theme.cardBorder}`, borderRadius: 14, padding: 12, display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+        <span style={{ fontFamily: theme.fontHead, fontWeight: 600, fontSize: 13, letterSpacing: 1.5, textTransform: "uppercase", color: theme.muted }}>{label}</span>
+        <div role="img" aria-label={value ? `${value} van 5` : "Nog geen score"}>
+          <StarRow theme={theme} value={value} size={20} />
+        </div>
+        <p style={{ margin: 0, fontSize: 14, lineHeight: 1.4, color: value ? theme.text : theme.dim }}>
+          {value ? descriptions[value] : "Nog geen score"}
+        </p>
+      </div>
+    );
+  }
   return (
     <div style={{ flex: 1, minWidth: 0, background: "#fff8f3", border: "1px solid #f3712133", borderRadius: 10, padding: "10px 12px" }}>
       <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#888", marginBottom: 4 }}>{label}</div>
@@ -3847,7 +3880,7 @@ function SummaryPill({ bg, color, children }) {
 // BottomSheet; the open/close effect is ScorePromptModal's verbatim
 // (scroll-lock, Escape, history entry for the back gesture) so a future
 // native back-button fix covers this overlay the same way.
-function DaySummarySheet({ day, weekNum, phase, datum, score, groups, finisherBlocks, onClose }) {
+function DaySummarySheet({ day, weekNum, phase, datum, score, groups, finisherBlocks, onClose, theme, dayColor }) {
   useEffect(() => {
     document.body.style.overflow = "hidden";
     window.history.pushState({ daySummary: true }, "");
@@ -3869,6 +3902,26 @@ function DaySummarySheet({ day, weekNum, phase, datum, score, groups, finisherBl
   const isTraining = day.type === "training";
   const rows = groups.flatMap(g => g.rows);
   const prCount = rows.filter(r => r.prKg || r.pr1rm).length;
+
+  if (theme) {
+    return (
+      <SnelDaySummary
+        theme={theme}
+        dayColor={dayColor}
+        day={day}
+        weekNum={weekNum}
+        phase={phase}
+        datum={datum}
+        score={score}
+        groups={groups}
+        finisherBlocks={finisherBlocks}
+        isTraining={isTraining}
+        rowCount={rows.length}
+        prCount={prCount}
+        onClose={onClose}
+      />
+    );
+  }
 
   return (
     <>
@@ -3986,6 +4039,171 @@ function DaySummarySheet({ day, weekNum, phase, datum, score, groups, finisherBl
 
             <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#bbb", lineHeight: 1.5 }}>
               1RM is een schatting (Epley). Rond 15 reps en hoger is hij indicatief. Grafiekje: oranje is gewicht, blauw is geschat 1RM, beide als verandering t.o.v. hun eerste punt. De stip is vandaag.
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+// Day summary in the "Snel" look (spec: "Summary sheet", PR 4). Gets the
+// rows, finisher blocks and counts DaySummarySheet already computed; the
+// open/close effect stays in DaySummarySheet. Accent throughout (grey in the
+// archive, as every accent since PR 2); per finisher row mobility teal, KB
+// accent, core the day colour.
+function SnelDaySummary({ theme, dayColor, day, weekNum, phase, datum, score, groups, finisherBlocks, isTraining, rowCount, prCount, onClose }) {
+  const groupLabel = { padding: "0 4px", fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 14, letterSpacing: 1.5, textTransform: "uppercase", color: theme.muted };
+  const box = { background: theme.card, border: `1px solid ${theme.cardBorder}`, borderRadius: 14 };
+  const statTile = (n, label, color) => (
+    <div style={{ ...box, padding: 12, display: "flex", flexDirection: "column", gap: 2 }}>
+      <span style={{ fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 34, lineHeight: 1, color }}>{n}</span>
+      <span style={{ fontSize: 12, color: theme.muted, textTransform: "uppercase", letterSpacing: 1, fontWeight: 600 }}>{label}</span>
+    </div>
+  );
+  const kindColor = { mobility: theme.mobility, kettlebell: theme.accent, core: dayColor || theme.accent };
+  const kindIcon = { mobility: "mobility", kettlebell: "kettlebell", core: "flame" };
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(5,7,10,0.7)", zIndex: 100 }} />
+      <div
+        role="dialog"
+        aria-label={`Samenvatting ${day.naam}`}
+        style={{ position: "fixed", bottom: 0, left: 0, right: 0, maxWidth: 600, margin: "0 auto", background: theme.bg, borderTop: `1px solid ${theme.line2}`, borderRadius: "24px 24px 0 0", padding: "10px 16px calc(24px + env(safe-area-inset-bottom))", zIndex: 101, maxHeight: "85vh", overflowY: "auto", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 16, color: theme.text, fontFamily: theme.fontBody }}
+      >
+        <div aria-hidden="true" style={{ width: 40, height: 4, borderRadius: 2, background: theme.phaseFuture, alignSelf: "center", flex: "none" }} />
+
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: "0 4px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+            <span style={{ fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 14, letterSpacing: 2, textTransform: "uppercase", color: theme.accent }}>Samenvatting</span>
+            <div style={{ fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 40, lineHeight: 0.95, textTransform: "uppercase", overflowWrap: "anywhere" }}>{day.naam}</div>
+            <span style={{ fontSize: 14, color: theme.muted }}>
+              {formatSummaryDate(datum, day.dag_label).toLowerCase()} · week {weekNum}{phase ? ` · ${phase.toLowerCase()}` : ""}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Sluiten"
+            style={{ width: 44, height: 44, flex: "none", border: "none", borderRadius: 22, background: theme.headerLine, padding: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", WebkitAppearance: "none", appearance: "none" }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={theme.text2} strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+
+        {isTraining && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+            {statTile(rowCount, "oefeningen", theme.text)}
+            {statTile(prCount, "PR's", prCount > 0 ? theme.accent : theme.muted)}
+          </div>
+        )}
+
+        {/* Scores (score_motivatie holds the energy score) */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+          <SummaryScoreCard theme={theme} label="Training" value={score?.training} descriptions={TRAINING_SCORE_DESCRIPTIONS} />
+          <SummaryScoreCard theme={theme} label="Energie" value={score?.motivatie} descriptions={ENERGY_SCORE_DESCRIPTIONS} />
+        </div>
+
+        {isTraining && (
+          <>
+            {groups.map((g) => (
+              <div key={g.title} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <span style={groupLabel}>{g.title}</span>
+                <div style={{ ...box, overflow: "hidden" }}>
+                  {g.rows.map((r, i) => (
+                    <div key={r.name} style={{ padding: "12px 14px", borderTop: i > 0 ? `1px solid ${theme.line}` : "none", display: "flex", gap: 10, alignItems: "center" }}>
+                      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+                        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 16, fontWeight: 600, fontStyle: "italic", overflowWrap: "anywhere" }}>{r.name}</span>
+                          {[r.prKg && "PR kg", r.pr1rm && "PR 1RM"].filter(Boolean).map((t) => (
+                            <span key={t} style={{ padding: "1px 6px", borderRadius: 5, background: theme.accent, color: theme.onAccent, fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 12, letterSpacing: 0.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{t}</span>
+                          ))}
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: 8 }}>
+                          <span style={{ fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 24, lineHeight: 1 }}>
+                            {formatNl(r.kg)} kg{r.reps != null ? ` × ${r.reps}` : ""}
+                          </span>
+                          <span style={{ fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 15, color: r.delta.up ? theme.gain : theme.muted, whiteSpace: "nowrap" }}>
+                            {r.delta.label}
+                          </span>
+                        </div>
+                        {(r.prevKg != null || r.e1rm != null) && (
+                          <div style={{ fontSize: 12, color: theme.muted, lineHeight: 1.35 }}>
+                            {[
+                              r.prevKg != null ? `Vorige keer ${formatNl(r.prevKg)} kg${r.prevReps != null ? ` × ${r.prevReps}` : ""}` : null,
+                              r.e1rm != null ? `1RM ≈ ${formatNl(r.e1rm, 1)} kg${r.e1rmDelta ? ` (${r.e1rmDelta})` : ""}` : null,
+                            ].filter(Boolean).map((part, k) => (
+                              <span key={k}>{k > 0 && " · "}<span style={{ whiteSpace: "nowrap" }}>{part}</span></span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <Sparkline points={r.spark} theme={theme} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            {/* Every mobility/KB/core exercise with its tick. Not done is
+                muted, never red — skipping a finisher isn't a failure. */}
+            {finisherBlocks.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <span style={groupLabel}>Mobility, KB &amp; Core</span>
+                <div style={{ ...box, padding: "4px 14px" }}>
+                  {finisherBlocks.map((b, i) => {
+                    const c = kindColor[b.kind];
+                    const doneCount = b.items.filter(it => it.done).length;
+                    return (
+                      <div key={b.title} data-block={b.title} style={{ padding: "12px 0", borderTop: i > 0 ? `1px solid ${theme.line}` : "none", display: "flex", flexDirection: "column", gap: 8 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
+                            <SnelIcon kind={kindIcon[b.kind]} color={c} size={18} />
+                            <span style={{ fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 18, textTransform: "uppercase", letterSpacing: 0.5 }}>{b.title}</span>
+                            {b.items.some(it => it.optional) && (
+                              <span style={{ padding: "1px 6px", borderRadius: 5, border: `1px dashed ${c}`, color: c, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Optioneel</span>
+                            )}
+                          </div>
+                          <span style={{ fontFamily: theme.fontHead, fontWeight: 700, fontSize: 17, color: doneCount > 0 ? c : theme.muted, flex: "none" }}>
+                            {doneCount}/{b.items.length}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {b.items.map(it => {
+                            const tint = `color-mix(in srgb, ${c} 20%, ${theme.card})`;
+                            return (
+                              <span
+                                key={it.name}
+                                data-done={it.done}
+                                style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 999, border: `1px ${it.optional ? "dashed" : "solid"} ${it.optional ? c : (it.done ? tint : theme.phaseFuture)}`, background: it.done ? tint : "transparent", color: it.done ? theme.text : theme.muted, fontSize: 13, fontWeight: 600, overflowWrap: "anywhere" }}
+                              >
+                                {it.done && (
+                                  <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ flex: "none" }}><path d="M5 12l5 5L19 7" /></svg>
+                                )}
+                                {it.name}
+                                <span style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>{it.done ? ", gedaan" : ", niet gedaan"}</span>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "0 4px" }}>
+              <div aria-hidden="true" style={{ display: "flex", gap: 16, fontSize: 13, color: theme.text2 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 14, height: 3, borderRadius: 2, background: theme.accent }} />gewicht</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 14, height: 3, borderRadius: 2, background: theme.oneRm }} />1RM</span>
+              </div>
+              <p style={{ margin: 0, fontSize: 12, lineHeight: 1.45, color: theme.muted }}>
+                1RM is een schatting (Epley). Rond 15 reps en hoger is hij indicatief. Grafiekje: oranje is gewicht, blauw is geschat 1RM, beide als verandering t.o.v. hun eerste punt. De stip is vandaag.
+              </p>
             </div>
           </>
         )}

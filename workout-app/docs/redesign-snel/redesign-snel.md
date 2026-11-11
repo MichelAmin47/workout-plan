@@ -1,6 +1,6 @@
 # Workout app — "Snel" redesign spec
 
-Status: all blocks approved by Michel on 9 November 2026. PR 1 merged 10 November 2026 (PR #23). PR 2 merged 11 November 2026 (PR #24). PR 3 in review. This is the single
+Status: all blocks approved by Michel on 9 November 2026. PR 1 merged 10 November 2026 (PR #23). PR 2 merged 11 November 2026 (PR #24). PR 3 merged 11 November 2026 (PR #25), tested on the phone. PR 4 in review. This is the single
 source of truth for the redesign. The three HTML files in `reference/` are the
 approved mockups (made in a design canvas, not runnable React). Copy exact
 values from them when this spec is silent; when this spec and a mockup differ,
@@ -214,8 +214,8 @@ list them in the PR description with screenshots so Michel can review.
    kettlebell, progressie). **Merged** (MichelAmin47/workout-plan#24, 11 Nov
    2026).
 3. Inline log panel, plus contrast pass step 1 and the timer bar (see below).
-   In review.
-4. Summary sheet + score popup.
+   **Merged** (MichelAmin47/workout-plan#25, 11 Nov 2026).
+4. Summary sheet + score popup. In review.
 5. Flag on by default. After a week without issues: remove old styles and the
    flag. Also in this PR: loading screen ("Schema laden…") in the dark style.
    Until then it stays light, so with the flag on there is a short light flash
@@ -295,6 +295,8 @@ Agreed with Michel before the build:
   does not occur; a KB timer after unlocking looks like state 1.
 - **Timer colour of a timer started with the flag off:** if the flag is
   turned on while it runs, the bar uses `accent` and no icon.
+- Locked bar name truncation ("KETTLEBEL…") is accepted as is for now
+  (11 Nov 2026).
 
 Chosen in the build, to review:
 
@@ -320,3 +322,52 @@ Chosen in the build, to review:
   `success` when the logged weight equals the PR (same rule as before).
 - **Row borders** also on the schema-1 barbell card (a standalone row, not in
   the spec list), in accent.
+
+## Decisions in PR 4 (not covered by the spec above)
+
+Chosen in the build, to review:
+
+- **Entry points:** the score popup has one render site and three ways in,
+  all restyled together: long-press on a training tile that marks the day
+  done, long-press on a Power Hour / Boksen tile, and the "Geef een score" /
+  "Score aanpassen" button on the Power Hour / Boksen card. The summary sheet
+  has one way in: the summary tab. Neither popup can be opened in the archive
+  (the summary can, read-only as before).
+- **Date line** in lower case as in the mockup ("wo 11 nov · week 46 ·
+  opbouw"): same values as before (day label, date, week, phase from the
+  schedule), only the capitalisation differs.
+- **Stat tiles:** both always shown on a training day, also at 0 (the old
+  look hides the PR pill at 0). The PR number is accent, muted when 0. The
+  count is the same as before: exercises with a PR kg or PR 1RM.
+- **"Nog geen score"** in a rating card without a score: the existing text,
+  now in `dim`.
+- **Increase line:** `gain` only when the change is up (a kg or rep
+  increase); "gelijk", "eerste meting", "deload", "nieuw repbereik" and
+  decreases are muted. Same labels as before.
+- **Sparkline:** 96 × 44 (mockup) instead of 80 × 28, stroke 2, dots r 3.5;
+  orange = accent, 1RM = `oneRm` cyan, no transparency. Points and scale are
+  computed as before.
+- **Legend:** the mockup's swatch row ("gewicht" / "1RM") is added; the
+  explanation text under it is word for word the old one (incl. "oranje" /
+  "blauw").
+- **Mobility, KB & core:** each block title gets its line icon in the row
+  colour (mobility teal, KB accent, core day colour), replacing the emoji.
+  OPTIONEEL is a dashed tag in the row colour (it was always orange); an
+  optional exercise's pill keeps a dashed border in the row colour, done or
+  not.
+- **Score popup:** the meaning line under the stars keeps two lines of
+  reserved height (as the old popup), so the stars never move when a long
+  line wraps. The 😈 in the 5-star training line is text from the code and
+  stays. Stars have an accessible label ("3 sterren") and pressed state.
+- **Archive:** the summary follows the archive grey like every other
+  accent since PR 2 (the old look stays orange there). Note: the legend text
+  still says "oranje" while the archive line is grey.
+- **Code:** `SnelScorePopup` lives in its own module
+  (`src/snel/ScorePopup.jsx`) so a harness can render it with props; the
+  score meaning lines moved unchanged to `src/scoreDescriptions.js`.
+
+Not designed yet, same tokens applied (screenshots on the PR's Artifact
+page): the summary of a training day with no logged exercises (tiles at 0,
+rating cards, finisher pills), the Power Hour / Boksen summary (header and
+rating cards only, as before), and the archive summary. A rest day has no
+summary.
