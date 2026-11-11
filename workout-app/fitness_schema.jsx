@@ -4,7 +4,9 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { Haptics, ImpactStyle } from "@capacitor/haptics";
 import { registerPlugin } from "@capacitor/core";
 import { currentIsoWeek, isoWeekDate } from "./src/isoWeek.js";
-import { readRedesignFlag, writeRedesignFlag, themeFor, dayColorOnDark, formatSnelSets, formatSnelTimer, snelHintTag } from "./src/redesign.js";
+import { readRedesignFlag, writeRedesignFlag, themeFor, dayColorOnDark, formatSnelSets, formatSnelTimer, snelHintTag, rowBorder, barBorder } from "./src/redesign.js";
+import PrText from "./src/snel/PrText.jsx";
+import SnelLogPanel from "./src/snel/LogPanel.jsx";
 const BatteryOptimization = registerPlugin("BatteryOptimization");
 const NativeTimer = registerPlugin("NativeTimer");
 
@@ -288,20 +290,6 @@ function formatSummaryDate(datum, dagLabel) {
   return `${dagLabel} ${d} ${NL_MONTHS[m - 1]}`;
 }
 
-// "· PR 32kg" suffix for the "Laatste keer" line. Green when the weight
-// logged for the viewed week equals the PR (hit or set it this week).
-function PrText({ pr, currentWeight, standalone, theme }) {
-  if (!pr) return null;
-  const isCurrent = currentWeight !== "" && currentWeight != null && Number(currentWeight) === pr.num;
-  return (
-    <>
-      {!standalone && " · "}
-      <span style={{ whiteSpace: "nowrap" }}>
-        PR <span style={{ color: isCurrent ? (theme ? theme.success : "#16a34a") : (theme ? theme.text : "#1a1a1a"), fontWeight: isCurrent ? 700 : 400 }}>{pr.value}kg</span>
-      </span>
-    </>
-  );
-}
 
 function inferExerciseType(name, categorie) {
   if (categorie === "barbell" || /^(Barbell |T-Bar )/.test(name) || name.includes("(barbell)")) return "barbell";
@@ -1181,6 +1169,19 @@ export default function FitnessSchema() {
     setScorePrompt(null);
   };
 
+  const snelTimerLook = (key) => {
+    if (!theme) return null;
+    switch (key) {
+      case "mobility": return { color: theme.mobility, icon: "mobility" };
+      case "spiergroep": return { color: blockColor.day, icon: usesSupersetLayout(week) ? "bolt" : "target" };
+      case "losse": return { color: blockColor.day, icon: "target" };
+      case "core": return { color: blockColor.day, icon: "flame" };
+      case "kettlebell": return { color: blockColor.accent, icon: "kettlebell" };
+      case "barbell": return { color: blockColor.accent, icon: "barbell" };
+      default: return { color: theme.accent, icon: null };
+    }
+  };
+
   const handleTimerClick = (key, label, icon, seconds, accent) => {
     if (activeTimer === key) {
       setActiveTimer(null);
@@ -1193,7 +1194,10 @@ export default function FitnessSchema() {
       }).catch((err) => {
         console.log("[Battery] plugin not available:", err);
       });
-      const section = { key, label, icon, seconds, accent };
+      // `snel`: the redesign timer bar's block colour + icon, captured at
+      // start so switching day doesn't recolour a running timer. null with
+      // the flag off (unused there); SnelTimerBar falls back to the accent.
+      const section = { key, label, icon, seconds, accent, snel: snelTimerLook(key) };
       setActiveTimer(key);
       setActiveSection(section);
       setTimerLocked(true);
@@ -1598,8 +1602,10 @@ export default function FitnessSchema() {
             const prevW = prevResult || { M: null, Z: null };
             const hasPrev = prevW.M !== "" && prevW.M != null || prevW.Z !== "" && prevW.Z != null;
             const barbellCompleted = completedExercises.has(eKey(day.barbell.name, week.yw, day.dag_nummer));
+            const bbReps = effectiveReps(day.barbell.name, week.yw, "M");
+            const bbRepsNumM = bbReps === "" || bbReps == null ? null : Number(bbReps);
             return (
-              <div style={theme ? { borderRadius: 12, overflow: "hidden", background: theme.row } : { borderRadius: 10, overflow: "hidden" }}>
+              <div style={theme ? { borderRadius: 12, overflow: "hidden", background: theme.row, border: `1px solid ${rowBorder(blockColor.accent)}` } : { borderRadius: 10, overflow: "hidden" }}>
                 <div
                   style={theme
                     ? { minHeight: 44, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 12, padding: "6px 12px", cursor: "pointer" }
@@ -1631,7 +1637,25 @@ export default function FitnessSchema() {
                   </div>
                   </>)}
                 </div>
-                {expandedExercise === day.barbell.name && (
+                {expandedExercise === day.barbell.name && theme && (
+                  <SnelLogPanel
+                    theme={theme}
+                    color={blockColor.accent}
+                    weight={w.M}
+                    onWeightChange={(v) => handleWeightChange(day.barbell.name, week.yw, "M", v)}
+                    saved={savedIndicators[`${day.barbell.name}__${week.yw}__M`]}
+                    reps={bbRepsNumM}
+                    onRepsMinus={() => handleRepsChange(day.barbell.name, week.yw, "M", String(Math.max(1, bbRepsNumM - 1)))}
+                    onRepsPlus={() => handleRepsChange(day.barbell.name, week.yw, "M", String(Math.min(50, (bbRepsNumM ?? 0) + 1)))}
+                    readOnly={readOnly}
+                    hasPrev={hasPrev}
+                    prevLabel={prevResult?.label}
+                    prevText={prevW.M !== "" && prevW.M != null ? `${prevW.M}kg${prevW.repsM !== "" && prevW.repsM != null ? ` × ${prevW.repsM}` : ''}` : "—"}
+                    pr={personalRecords[day.barbell.name]}
+                    currentWeight={w.M}
+                  />
+                )}
+                {expandedExercise === day.barbell.name && !theme && (
                   <div
                     style={{ background: theme ? theme.row : "#fff8f5", borderTop: theme ? `1px solid ${theme.line}` : "1px solid #f0d0b8", padding: "10px 12px 10px 16px", display: "flex", flexDirection: "column", gap: 8 }}
                     onClick={(e) => e.stopPropagation()}
@@ -2060,6 +2084,28 @@ export default function FitnessSchema() {
       {activeTimer && activeSection && (() => {
         const progress = activeSection.seconds > 0 ? timeLeft / activeSection.seconds : 0;
         const isDone = timeLeft === 0;
+        // Shared by the old bar and SnelTimerBar — the buttons do exactly
+        // the same thing in both looks.
+        const onUnlock = () => setTimerLocked(false);
+        const onPausePlay = () => { if (running) { pause(); } else { start(timeLeft, activeSection?.label ?? ""); } };
+        const onRestart = () => { restart(activeSection.seconds, activeSection.label); setTimerLocked(true); };
+        const onStop = () => { setActiveTimer(null); setActiveSection(null); setTimerLocked(false); NativeTimer.stop().catch(console.error); };
+        if (theme) return (
+          <SnelTimerBar
+            theme={theme}
+            look={activeSection.snel}
+            label={activeSection.label}
+            timeLeft={timeLeft}
+            progress={progress}
+            isDone={isDone}
+            running={running}
+            locked={timerLocked}
+            onUnlock={onUnlock}
+            onPausePlay={onPausePlay}
+            onRestart={onRestart}
+            onStop={onStop}
+          />
+        );
         return (
           <div style={{
             position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
@@ -2088,7 +2134,7 @@ export default function FitnessSchema() {
                   <div style={{ fontSize: 13, opacity: 0.8 }}>{activeSection.icon} {activeSection.label} rust</div>
                   {isDone && <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.2, marginTop: 2 }}>Rust voorbij, ga! 💪</div>}
                 </div>
-                <button onClick={() => setTimerLocked(false)}
+                <button onClick={onUnlock}
                   style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   🔓
                 </button>
@@ -2114,16 +2160,16 @@ export default function FitnessSchema() {
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               {!isDone && (
-                <button onClick={() => { if (running) { pause(); } else { start(timeLeft, activeSection?.label ?? ""); } }}
+                <button onClick={onPausePlay}
                   style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, lineHeight: 1, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   {running ? "II" : "▶"}
                 </button>
               )}
-              <button onClick={() => { restart(activeSection.seconds, activeSection.label); setTimerLocked(true); }}
+              <button onClick={onRestart}
                 style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, lineHeight: 1, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 ↺
               </button>
-              <button onClick={() => { setActiveTimer(null); setActiveSection(null); setTimerLocked(false); NativeTimer.stop().catch(console.error); }}
+              <button onClick={onStop}
                 style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 20, lineHeight: 1, WebkitAppearance: "none", appearance: "none", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 ✕
               </button>
@@ -2229,6 +2275,79 @@ function Toast({ text }) {
     <div role="status" style={{ position: "fixed", left: 0, right: 0, bottom: 120, display: "flex", justifyContent: "center", zIndex: 400, pointerEvents: "none" }}>
       <div style={{ background: "#1a1f27", color: "#eef1f5", border: "1px solid #2a313c", borderRadius: 999, padding: "10px 18px", fontFamily: "sans-serif", fontSize: 14, fontWeight: 600, boxShadow: "0 6px 24px rgba(0,0,0,0.35)" }}>
         {text}
+      </div>
+    </div>
+  );
+}
+
+// "Snel" timer bar (spec "Timer bar", TimerStaten.dc.html; PR 3). Look only:
+// the buttons get the old bar's handlers, and the states map onto what the
+// timer actually does (decision 11 Nov 2026). Every timer is one rest
+// countdown — there is no work phase, so "WERK" never shows. After every
+// start/restart the input is locked (as before); then the only button is
+// the lock in the middle slot (= the old 🔓, unlock), the side slots stay
+// empty. Unlocked: pause/play, restart, stop. Done (not designed): ring full
+// in `success`, bell, "KLAAR", no pause button (as before).
+// `look` = { color, icon } captured at start; null when the timer was
+// started with the flag off → accent, no icon.
+function SnelTimerBar({ theme, look, label, timeLeft, progress, isDone, running, locked, onUnlock, onPausePlay, onRestart, onStop }) {
+  const blockColour = look?.color || theme.accent;
+  const c = isDone ? theme.success : blockColour;
+  const paused = !running && !isDone;
+  const r = 26;
+  const circ = 2 * Math.PI * r;
+  const ringColor = paused ? theme.muted : c;
+  const iconButton = (kind, ariaLabel, onClick, filled) => (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      onClick={onClick}
+      style={{ width: 42, height: 44, flex: "none", padding: 0, border: "none", borderRadius: 12, background: filled ? c : theme.line, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", WebkitAppearance: "none", appearance: "none" }}
+    >
+      <SnelIcon kind={kind} color={filled ? theme.bg : theme.text} size={20} strokeWidth={2.2} />
+    </button>
+  );
+  const emptySlot = <span aria-hidden="true" style={{ width: 42, height: 44, flex: "none" }} />;
+  return (
+    <div
+      role="region"
+      aria-label="Rusttimer"
+      style={{ position: "fixed", left: 10, right: 10, bottom: 14, maxWidth: 580, margin: "0 auto", boxSizing: "border-box", padding: "10px 12px", borderRadius: 18, background: theme.bg, border: `1px solid ${barBorder(c)}`, boxShadow: "0 -8px 24px rgba(0,0,0,0.45)", display: "flex", alignItems: "center", gap: 12, zIndex: 50, color: theme.text, fontFamily: theme.fontBody }}
+    >
+      <div style={{ position: "relative", width: 64, height: 64, flex: "none" }}>
+        <svg aria-hidden="true" width="64" height="64" viewBox="0 0 64 64" style={{ display: "block" }}>
+          <circle cx="32" cy="32" r={r} fill="none" stroke={theme.phaseFuture} strokeWidth="5" />
+          <circle
+            cx="32" cy="32" r={r} fill="none" stroke={ringColor} strokeWidth="5" strokeLinecap="round"
+            strokeDasharray={circ}
+            strokeDashoffset={isDone ? 0 : circ * (1 - progress)}
+            transform="rotate(-90 32 32)"
+            style={{ transition: "stroke-dashoffset 0.9s linear" }}
+          />
+        </svg>
+        <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 20 }}>
+          {isDone ? <SnelIcon kind="bell" color={c} size={24} /> : formatTime(timeLeft)}
+        </span>
+      </div>
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+        <span style={{ fontFamily: theme.fontHead, fontWeight: 600, fontSize: 12, letterSpacing: 1.5, color: paused ? theme.muted : c }}>
+          {isDone ? "KLAAR" : paused ? "GEPAUZEERD" : "RUST"}
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, fontFamily: theme.fontHead, fontWeight: 700, fontStyle: "italic", fontSize: 17, textTransform: isDone ? "none" : "uppercase", whiteSpace: "nowrap" }}>
+          {!isDone && look?.icon && <SnelIcon kind={look.icon} color={blockColour} size={15} />}
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{isDone ? "Rust voorbij, ga!" : label}</span>
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: 5, flex: "none" }}>
+        {locked ? (
+          <>{emptySlot}{iconButton("lock", "Invoer vrijgeven", onUnlock, true)}{emptySlot}</>
+        ) : (
+          <>
+            {isDone ? emptySlot : iconButton(running ? "pause" : "play", running ? "Pauze" : "Verder", onPausePlay, false)}
+            {iconButton("restart", "Opnieuw", onRestart, false)}
+            {iconButton("stop", "Stop", onStop, false)}
+          </>
+        )}
       </div>
     </div>
   );
@@ -2362,6 +2481,13 @@ function SnelIcon({ kind, color, size = 20, strokeWidth = 2.2 }) {
     case "chevron": return <svg {...common}><path d="m6 9 6 6 6-6" /></svg>;
     case "arrow": return <svg {...common}><path d="M5 12h14M13 6l6 6-6 6" /></svg>;
     case "undo": return <svg {...common}><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 0 12h-3" /></svg>;
+    // Timer bar (PR 3, TimerStaten.dc.html)
+    case "pause": return <svg {...common}><path d="M9 5v14M15 5v14" /></svg>;
+    case "play": return <svg {...common}><path d="M8 5l11 7-11 7z" /></svg>;
+    case "restart": return <svg {...common}><path d="M4 12a8 8 0 1 0 2.3-5.6" /><path d="M4 4v4h4" /></svg>;
+    case "stop": return <svg {...common}><path d="M6 6l12 12M18 6 6 18" /></svg>;
+    case "lock": return <svg {...common}><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>;
+    case "bell": return <svg {...common}><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" /><path d="M10 20a2 2 0 0 0 4 0" /></svg>;
     case "car": return <svg {...common}><path d="M5 16H3v-4l2-5h11l4 5h1v4h-2" /><path d="M9 16h6" /><circle cx="7" cy="16.5" r="2" /><circle cx="17" cy="16.5" r="2" /><path d="M6 12h13" /></svg>;
     case "umbrella": return <svg {...common}><path d="M3 11a9 7 0 0 1 18 0z" /><path d="M12 11l-3 9" /><path d="M3 21h18" /></svg>;
     case "stairs": return <svg {...common}><path d="M3 20h5v-5h5v-5h5V5h3" /></svg>;
@@ -2479,7 +2605,25 @@ function SnelExName({ theme, name, color, optional, swapped, type, note, origina
 function ExRow({ num, name, sets, note, accent, light, optional, expanded, onToggle, weightM, weightZ, onWeightChange, repsM, repsZ, onRepsChange, prevWeightM, prevWeightZ, prevRepsM, prevRepsZ, prevWeekLabel, pr, savedM, savedZ, completed, onLongPress, swapped, originalName, hiitInterval, readOnly, theme, color, mobility }) {
   const isClickable = !!onToggle;
   const hasPrev = (prevWeightM !== "" && prevWeightM != null) || (prevWeightZ !== "" && prevWeightZ != null);
-  const panel = expanded && (
+  const repsNumM = repsM === "" || repsM == null ? null : Number(repsM);
+  const panel = expanded && theme ? (
+    <SnelLogPanel
+      theme={theme}
+      color={color}
+      weight={weightM}
+      onWeightChange={(v) => onWeightChange("M", v)}
+      saved={savedM}
+      reps={repsNumM}
+      onRepsMinus={() => onRepsChange("M", String(Math.max(1, repsNumM - 1)))}
+      onRepsPlus={() => onRepsChange("M", String(Math.min(50, (repsNumM ?? 0) + 1)))}
+      readOnly={readOnly}
+      hasPrev={hasPrev}
+      prevLabel={prevWeekLabel || "Vorige week"}
+      prevText={prevWeightM !== "" && prevWeightM != null ? `${prevWeightM}kg${prevRepsM !== "" && prevRepsM != null ? ` × ${prevRepsM}` : ''}` : "—"}
+      pr={pr}
+      currentWeight={weightM}
+    />
+  ) : expanded && (
         <div
           style={{ background: theme ? theme.row : "#fff8f5", borderTop: theme ? `1px solid ${theme.line}` : "1px solid #f0d0b8", padding: "10px 12px 10px 48px", display: "flex", flexDirection: "column", gap: 8 }}
           onClick={(e) => e.stopPropagation()}
@@ -2532,7 +2676,9 @@ function ExRow({ num, name, sets, note, accent, light, optional, expanded, onTog
   );
   if (theme) {
     return (
-      <div style={{ borderRadius: 12, overflow: "hidden", border: optional ? `1px dashed ${color}` : "none", background: optional ? "transparent" : theme.row }}>
+      // Contrast pass step 1: standalone rows get a 1px block-colour border
+      // (38 % over the row colour); optional rows keep their dashed one.
+      <div style={{ borderRadius: 12, overflow: "hidden", border: optional ? `1px dashed ${color}` : `1px solid ${rowBorder(color)}`, background: optional ? "transparent" : theme.row }}>
         <div
           style={{ minHeight: 44, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 12, padding: "6px 12px", cursor: isClickable ? "pointer" : "default" }}
           onClick={onToggle}
@@ -2645,7 +2791,7 @@ function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExer
       </div>
       )}
       <div style={theme
-        ? { background: theme.row, borderRadius: 12, overflow: "hidden", border: `1px solid ${theme.line2}` }
+        ? { background: theme.row, borderRadius: 12, overflow: "hidden", border: `1px solid ${rowBorder(accentColor)}` }
         : { background: "#fff", borderRadius: 12, overflow: "hidden", border: `2px solid ${hexA(accentColor, 0.2)}` }}>
         {exercises.map((ex, i) => {
           const type = inferExerciseType(ex.name, ex.categorie);
@@ -2688,6 +2834,24 @@ function SupersetBlock({ title, exercises, accentColor, lightColor, expandedExer
               {isExpanded && (() => {
                 const currentReps = getEffectiveReps(ex.name, yw, "M");
                 const currentRepsNum = currentReps === "" || currentReps == null ? null : Number(currentReps);
+                if (theme) return (
+                  <SnelLogPanel
+                    theme={theme}
+                    color={accentColor}
+                    weight={w.M}
+                    onWeightChange={(v) => onWeightChange(ex.name, yw, "M", v)}
+                    saved={savedIndicators[`${ex.name}__${yw}__M`]}
+                    reps={currentRepsNum}
+                    onRepsMinus={() => onRepsChange(ex.name, yw, "M", String(Math.max(1, currentRepsNum - 1)))}
+                    onRepsPlus={() => onRepsChange(ex.name, yw, "M", String(Math.min(50, (currentRepsNum ?? 0) + 1)))}
+                    readOnly={readOnly}
+                    hasPrev={hasPrev}
+                    prevLabel={prevResult?.label}
+                    prevText={prevW.M !== "" && prevW.M != null ? `${prevW.M}kg${prevW.repsM !== "" && prevW.repsM != null ? ` × ${prevW.repsM}` : ''}` : "—"}
+                    pr={personalRecords[ex.name]}
+                    currentWeight={w.M}
+                  />
+                );
                 return (
                 <div style={{ background: theme ? theme.row : "#fff8f5", borderTop: theme ? `1px solid ${theme.line}` : "1px solid #f0d0b8", padding: "10px 12px 10px 52px", display: "flex", flexDirection: "column", gap: 8 }} onClick={e => e.stopPropagation()}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
