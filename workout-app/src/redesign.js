@@ -106,6 +106,17 @@ function lightenForDark(hex) {
   return `#${to(ch(h + 1 / 3))}${to(ch(h))}${to(ch(h - 1 / 3))}`.toUpperCase();
 }
 
+// Contrast pass step 1 (spec, 11 Nov 2026): 1px border on exercise rows /
+// the superset inner frame, the block colour at 38 % over the row colour.
+export function rowBorder(color) {
+  return `color-mix(in srgb, ${color} 38%, ${SNEL.row})`;
+}
+
+// Timer bar border: the block colour at 55 % over the page background.
+export function barBorder(color) {
+  return `color-mix(in srgb, ${color} 55%, ${SNEL.bg})`;
+}
+
 // Set pill text in the new look (display only; DB values untouched):
 // "4x10-12" -> "4×10-12" (mockup), and for mobility "1x60sec" -> "1×60s"
 // (spec: "Mobility uses 1×60s").
