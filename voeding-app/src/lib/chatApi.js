@@ -1,4 +1,5 @@
 import { supabase } from '../supabase.js'
+import { FOTO_VERLOPEN_REGEL, fotoBerichtTekst, fotoStatussen } from './fotoMarker.js'
 
 function cardToText(msg) {
   switch (msg.type) {
@@ -58,9 +59,23 @@ function scopeToCurrentDay(messages) {
 // so consecutive same-role entries get merged, and any leading
 // non-user entries (e.g. the opening check-in card) are dropped.
 export function toApiMessages(messages) {
+  // Over the whole thread, not just today's part: a log card can only close
+  // a photo before it (fotoMarker.js).
+  const fotoStatus = fotoStatussen(messages)
   const mapped = []
   for (const msg of scopeToCurrentDay(messages)) {
-    if (msg.type === 'user' && msg.quickLog) {
+    if (msg.type === 'user' && msg.foto) {
+      // A plate photo: only a text marker ever goes into the history — the
+      // image itself was sent once, with its own request (askCoach's foto),
+      // and is stored nowhere. "📷 foto" = proposal still open, "(gelogd)" =
+      // a photo log card followed it, "(niet aangekomen…)" = the request
+      // failed. coach-chat/foto.ts reads exactly these lines.
+      mapped.push({ role: 'user', content: fotoBerichtTekst(msg.text, fotoStatus.get(msg.id)) })
+    } else if (msg.type === 'foto-verlopen') {
+      // An unconfirmed photo from before this day's boundary — the coach
+      // can't see it any more (Coach.jsx inserts this notice).
+      mapped.push({ role: 'user', content: FOTO_VERLOPEN_REGEL })
+    } else if (msg.type === 'user' && msg.quickLog) {
       // Built from the stored favourite name + date + time, not the bubble
       // text. Same label shape as coach-chat's own quick-log line
       // (supabase/functions/coach-chat/quickLogText.ts): the APP saved it,
@@ -100,9 +115,15 @@ export function toApiMessages(messages) {
 
 // quickLog: { favorietId, tijdstip } for a "snel loggen" tap — coach-chat
 // writes the favourite's row itself before the model is called.
-export async function askCoach(messages, quickLog = null) {
+// foto: { mediaType, data } — the plate photo of the LAST message, sent with
+// this one request only (fotoResize.js output). Never part of `messages`.
+export async function askCoach(messages, quickLog = null, foto = null) {
   const { data, error } = await supabase.functions.invoke('coach-chat', {
-    body: { messages: toApiMessages(messages), ...(quickLog ? { quickLog } : {}) },
+    body: {
+      messages: toApiMessages(messages),
+      ...(quickLog ? { quickLog } : {}),
+      ...(foto ? { foto: { mediaType: foto.mediaType, data: foto.data } } : {}),
+    },
   })
   if (error || !data?.reply) {
     throw error ?? new Error('No reply from coach-chat')

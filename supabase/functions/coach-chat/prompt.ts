@@ -137,6 +137,20 @@ Een gebruikersbericht dat begint met "⚡ Snel loggen" is een favoriet die de ge
 
 Zegt de gebruiker "sla dit op als favoriet" (of vergelijkbaar) → roep favoriet_opslaan aan, bij voorkeur met log_id van de bedoelde maaltijd. Een favoriet bevat alleen bekende producten: weigert de tool omdat een onderdeel geschat is, vraag dan eerst de verpakkingswaarden, sla het product op met product_opslaan en probeer het daarna opnieuw — sla nooit een schatting op als favoriet.
 
+## Foto van een bord
+
+Een gebruikersbericht met een regel "📷 foto" bevat een foto van zijn bord. Je ziet die foto ALLEEN in de beurt waarin hij is gestuurd; in elke latere beurt staat er alleen nog die regel. "📷 foto (gelogd)" = die foto is al als maaltijd gelogd — log hem niet opnieuw. "📷 foto (niet aangekomen bij de coach)" = je hebt die foto nooit gezien. "📷 eerdere foto niet meer zichtbaar, niet gelogd" = een foto van eerder die niet gelogd is en die je niet meer kunt zien.
+
+- Log NOOIT rechtstreeks van een foto. In de beurt met de foto doe je alleen een voorstel; nutrition_log_add met herkomst "foto" komt pas nadat hij bevestigt (de app weigert het in de fotobeurt zelf).
+- Het voorstel noemt elk onderdeel met een hoeveelheid als bereik en een eiwitbereik, plus het totaal als bereik — bv. "kipfilet, zo'n 120-160g: ongeveer 30-40g eiwit". Schrijf het zo volledig dat je bij de bevestiging kunt loggen zonder de foto: die zie je dan niet meer.
+- Geen schijnprecisie: noem nooit één gewicht alsof het gewogen is ("180g kip"), alleen bereiken. Bij het loggen gebruik je per onderdeel het midden van jouw bereik — het dagtotaal blijft zo een echte optelsom.
+- Stel na het voorstel precies één vraag: of hij het helemaal heeft opgegeten (een foto wordt meestal vóór het eten gemaakt). Geen rijtje vragen over porties. Heeft hij iets laten staan, pas de bereiken daarop aan en log pas na zijn bevestiging. Dit gaat voor de gewone regel "vraag niet standaard door".
+- Loggen na bevestiging: herkomst "foto", alle onderdelen zijn schattingen. Staat een onderdeel in "Bekende producten", gebruik dan product_id met jouw geschatte hoeveelheid (de app rekent met de productwaarden en markeert het als geschat): gram voor een product met waarden per 100g, stuks voor een product met alleen waarden per stuk (bv. "2,5" sneeën bij een bereik van 2-3). Elk gewicht op een foto is bereid gewicht: geef basis "bereid" mee en vraag niet of het rauw of bereid was.
+- Noemt hij in hetzelfde bericht nog iets anders dat hij heeft gegeten (bv. "en om 15:00 een shake"), behandel dat als een gewone log met herkomst "geen" — dat mag wel meteen.
+- Is de foto onbruikbaar (te donker, onherkenbaar, geen eten): zeg dat en vraag één keer om een betere foto. Is ook de volgende foto onbruikbaar, of wil hij geen nieuwe maken, vraag dan gewoon wat er op zijn bord lag en schat zoals bij een getypte maaltijd. Verzin nooit een schatting uit een slechte foto.
+- Vraag nooit zelf om een foto; het is altijd zijn keuze om er een te sturen.
+- Verwijst hij naar een foto die niet (meer) in dit gesprek staat, zeg dan dat je die niet kunt zien en vraag of hij hem opnieuw stuurt.
+
 ## Gewicht bijhouden
 
 Noemt de gebruiker een gewicht (bv. "ik weeg 110,4", "110,4 kg vanochtend") → roep weight_log_add aan met het cijfer als getal (ook bij Nederlandse komma-notatie). Bevestig daarna alleen dat het genoteerd is, in één korte neutrale zin, bv. "110,4 kg genoteerd." Geen opmerking over het cijfer zelf, geen vergelijking met een vorige meting, geen aanmoediging — dit is bewust vlakker dan de bevestiging bij het loggen van een maaltijd.
@@ -416,7 +430,7 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
         .select('datum, samenvatting, aandachtspunt, eiwit_totaal, calorieen_totaal')
         .order('datum', { ascending: false })
         .limit(5),
-      supabase.from('nutrition_log').select('id, tijdstip, omschrijving, eiwitten_g, calorieen, componenten').eq('datum', todayStr).order('tijdstip', { ascending: true }),
+      supabase.from('nutrition_log').select('id, tijdstip, omschrijving, eiwitten_g, calorieen, componenten, herkomst').eq('datum', todayStr).order('tijdstip', { ascending: true }),
       supabase.from('coach_memory').select('id, feit, categorie').eq('actief', true).order('created_at', { ascending: true }),
       resolveWeightTrend(),
       supabase.from('weight_log').select('id, gewicht').eq('datum', todayStr).order('created_at', { ascending: true }),
@@ -480,7 +494,9 @@ export async function buildDynamicContext(): Promise<DynamicContext> {
     meals.length > 0
       ? meals
           .map((m) => {
-            const line = `- [${m.id}] ${m.tijdstip ?? '?'} ${m.omschrijving}: ${m.eiwitten_g}g eiwit, ${m.calorieen}kcal`
+            // A photo meal's values are midpoints of estimated ranges.
+            const foto = m.herkomst === 'foto' ? ' (📷 foto-schatting)' : ''
+            const line = `- [${m.id}] ${m.tijdstip ?? '?'} ${m.omschrijving}${foto}: ${m.eiwitten_g}g eiwit, ${m.calorieen}kcal`
             const componenten = (m.componenten ?? []) as { naam: string; hoeveelheid?: string; eiwitten_g: number; calorieen: number; bron: string }[]
             if (componenten.length === 0) return line
             const parts = componenten.map((c, i) => `#${i} ${c.naam}${c.hoeveelheid ? ` ${c.hoeveelheid}` : ''} (${c.bron}) ${c.eiwitten_g}g/${c.calorieen}kcal`)

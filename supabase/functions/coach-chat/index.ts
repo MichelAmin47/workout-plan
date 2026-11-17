@@ -10,8 +10,9 @@
 import { amsterdamNow, isoDateString, resolveActiveDate } from '../_shared/today.ts'
 import { callClaude, extractText, type ClaudeMessage } from '../_shared/anthropic.ts'
 import { PERSONA_PROMPT, buildDynamicContext } from './prompt.ts'
-import { TOOLS, executeTool, formatMealCard, listFavorieten, logFavoriet } from './tools.ts'
+import { buildTools, executeTool, formatMealCard, listFavorieten, logFavoriet } from './tools.ts'
 import { buildQuickLogUserText, replaceQuickLogLine } from './quickLogText.ts'
+import { eiwitClaimDisclaimer, fotoInGesprek, fotoVoorstelOpen, injectFoto, valideerFoto, type HerkomstContext } from './foto.ts'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -59,8 +60,10 @@ const MAX_RETRY_ITERATIONS = 3
 // "hoeveel eiwit zit er in een ei?") would let the retry invent a write
 // nobody asked for — a phantom meal is worse than a visible missing one,
 // since it inflates the total and looks legitimate afterward. B only ever
-// appends a disclaimer, never calls a tool, never writes anything.
-const EIWIT_CLAIM_PATTERN = /\d+\s*g\s*eiwit/i
+// appends a disclaimer, never calls a tool, never writes anything. The
+// check itself lives in foto.ts (eiwitClaimDisclaimer, unit-tested): while
+// a photo proposal is open, protein figures ARE the proposal, so only a
+// claim of having logged counts then (2026-11-17).
 
 // executeTool results may carry client-only payload under "_"-prefixed keys
 // (the log card, a deleted row id — see tools.ts). Those go to the client
@@ -124,6 +127,10 @@ async function runToolLoop(
   maxIterations: number,
   calledToolNames: string[],
   onToolResult: (name: string, result: unknown) => void,
+  // buildTools' result: nutrition_log_add has a required herkomst field only
+  // when a photo is in this conversation (tools.ts, foto.ts).
+  tools: unknown[],
+  herkomstCtx: HerkomstContext,
   // Returns a result to use INSTEAD of executing the tool, or null to run
   // it normally. Only used by a quick-log request (see below).
   blockTool: (name: string) => unknown | null = () => null,
@@ -133,7 +140,7 @@ async function runToolLoop(
       model: 'claude-sonnet-5-5',
       system: systemPrompt,
       messages: workingMessages,
-      tools: TOOLS,
+      tools,
       // Thinking and tool_use share this budget. At 1024 the model
       // sometimes spent it all thinking (stop_reason=max_tokens, out=1024)
       // before finishing a nutrition_log_add call, so the tool never ran
@@ -156,7 +163,7 @@ async function runToolLoop(
       for (const block of data.content ?? []) {
         if (block.type === 'tool_use' && block.id && block.name) {
           calledToolNames.push(block.name)
-          const toolResult = blockTool(block.name) ?? (await executeTool(block.name, block.input ?? {}, todayStr, workingMessages))
+          const toolResult = blockTool(block.name) ?? (await executeTool(block.name, block.input ?? {}, todayStr, workingMessages, herkomstCtx))
           onToolResult(block.name, toolResult)
           toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(withoutClientKeys(toolResult)) })
         }
@@ -214,7 +221,28 @@ Deno.serve(async (req: Request) => {
     // close_day_summary, so logging and closing always agree on which day
     // is being acted on. See _shared/today.ts for the full reasoning.
     const todayStr = isoDateString(resolveActiveDate(amsterdamNow()))
-    const workingMessages = [...messages] as ClaudeMessage[]
+
+    // Plate photo (2026-11-17, see foto.ts): sent once, as body.foto next to
+    // the string-only messages, in the request for the message it belongs
+    // to. Validated before anything is written or any model is called; only
+    // for this request the last user message becomes [image, text]. The
+    // client never sends image data in messages, and nothing stores it.
+    const fotoTurn = body?.foto !== undefined && body?.foto !== null
+    let workingMessages = [...messages] as ClaudeMessage[]
+    if (fotoTurn) {
+      const validatie = valideerFoto(body.foto, workingMessages, body?.quickLog)
+      if (!validatie.ok) {
+        console.warn('coach-chat: photo request rejected, nothing written', validatie.error)
+        return jsonResponse({ error: validatie.error }, 400)
+      }
+      workingMessages = injectFoto(workingMessages, validatie.foto)
+    }
+    const herkomstCtx: HerkomstContext = { fotoInGesprek: fotoInGesprek(workingMessages), fotoTurn }
+    const tools = buildTools({ fotoInGesprek: herkomstCtx.fotoInGesprek })
+    // An unlogged photo proposal in this conversation (or this very
+    // request's photo). Cleared below as soon as a photo meal is logged in
+    // this request. Only used for sub-mechanism B.
+    let voorstelOpen = fotoTurn || fotoVoorstelOpen(workingMessages)
 
     // Quick log ("snel loggen"): the client sends a favourite id + eating
     // time, never components. The row is written HERE, from the favourite
@@ -294,6 +322,9 @@ Deno.serve(async (req: Request) => {
       ) {
         lastNutritionTotals = toolResult as { eiwitTotaal: number; calorieTotaal: number }
       }
+      if (name === 'nutrition_log_add' && toolResult && typeof toolResult === 'object' && (toolResult as { herkomst?: unknown }).herkomst === 'foto') {
+        voorstelOpen = false
+      }
       if (toolResult && typeof toolResult === 'object' && !('error' in toolResult)) {
         const r = toolResult as { _kaart?: unknown; _deletedLogId?: unknown }
         if (r._kaart) logCards.push(r._kaart)
@@ -334,7 +365,7 @@ Deno.serve(async (req: Request) => {
 
     let turnResult: TurnResult
     try {
-      turnResult = await runToolLoop(apiKey, systemPrompt, workingMessages, todayStr, MAX_TOOL_ITERATIONS, calledToolNames, onToolResult, blockTool)
+      turnResult = await runToolLoop(apiKey, systemPrompt, workingMessages, todayStr, MAX_TOOL_ITERATIONS, calledToolNames, onToolResult, tools, herkomstCtx, blockTool)
     } catch {
       return quickLogFallback() ?? jsonResponse({ error: 'Coach is momenteel niet bereikbaar.' }, 502)
     }
@@ -394,7 +425,7 @@ Deno.serve(async (req: Request) => {
       const retryCalledTools: string[] = []
       let retryResult: TurnResult
       try {
-        retryResult = await runToolLoop(apiKey, systemPrompt, workingMessages, todayStr, MAX_RETRY_ITERATIONS, retryCalledTools, onToolResult)
+        retryResult = await runToolLoop(apiKey, systemPrompt, workingMessages, todayStr, MAX_RETRY_ITERATIONS, retryCalledTools, onToolResult, tools, herkomstCtx)
       } catch {
         retryResult = { finalReplyText: null, lastAssistantContent: null, exitReason: 'no_text', lastStopReason: null, iterations: 0 }
       }
@@ -422,8 +453,20 @@ Deno.serve(async (req: Request) => {
     // A favourite confirmation ("goed voor 12,6g eiwit") states a protein
     // figure without logging anything — that is not the 13 August shape.
     const favorietTurn = calledToolNames.includes('favoriet_opslaan')
-    if (!nutritionToolCalledThisRequest && !favorietTurn && EIWIT_CLAIM_PATTERN.test(finalReplyText)) {
-      console.error('coach-chat: reply states a protein figure but no nutrition_log_add/_update ran this turn', { todayStr })
+    if (
+      eiwitClaimDisclaimer({
+        reply: finalReplyText,
+        nutritionToolCalled: nutritionToolCalledThisRequest,
+        favorietTurn,
+        fotoVoorstelOpen: voorstelOpen,
+      })
+    ) {
+      console.error(
+        voorstelOpen
+          ? 'coach-chat: photo proposal open, reply claims a log but no nutrition_log_add/_update ran this turn'
+          : 'coach-chat: reply states a protein figure but no nutrition_log_add/_update ran this turn',
+        { todayStr },
+      )
       finalReplyText = `${finalReplyText}\n\n(Let op: in dit bericht heb ik niets nieuws gelogd — eerder gelogde maaltijden blijven gewoon staan. Wilde je dit als nieuwe maaltijd loggen? Zeg het even.)`
     }
 

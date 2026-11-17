@@ -8,6 +8,9 @@
 //
 // status: undefined (current), 'vervangen' (a later card for the same row
 // supersedes this one) or 'verwijderd' (the row was deleted).
+//
+// herkomst 'foto': estimated from a plate photo — every row is 'geschat' and
+// its amount starts with "~" (both set server-side), and the card says so.
 
 function formatEiwit(n) {
   return `${String(Math.round(Number(n) * 10) / 10).replace('.', ',')}g`
@@ -19,7 +22,7 @@ function formatKcal(n) {
 
 const STATUS_LABELS = { vervangen: 'vervangen', verwijderd: 'verwijderd' }
 
-export default function LogCard({ titel, tijdstip, rows, totaal, actie, status }) {
+export default function LogCard({ titel, tijdstip, rows, totaal, actie, status, herkomst }) {
   const statusLabel = STATUS_LABELS[status]
   return (
     <div className={`log-card${statusLabel ? ' log-card-inactive' : ''}`}>
@@ -30,6 +33,7 @@ export default function LogCard({ titel, tijdstip, rows, totaal, actie, status }
           {tijdstip ? ` · ${tijdstip}` : ''}
         </div>
       </div>
+      {herkomst === 'foto' && <div className="log-card-foto">📷 schatting van foto</div>}
       {rows.length > 0 && (
         <div className="log-card-rows">
           <div className="log-card-colhead">
