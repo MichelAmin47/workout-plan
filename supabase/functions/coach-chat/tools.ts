@@ -1,32 +1,7 @@
 import { supabase } from '../_shared/supabaseClient.ts'
 import { closeDayWithSummary } from '../_shared/summary.ts'
-
-interface ConversationMessage {
-  role: 'user' | 'assistant'
-  content: unknown
-}
-
-// Flattens the working message list into plain "Mies: ... / Coach: ..."
-// turns for the summary model, skipping tool_use/tool_result plumbing. The
-// user's turns are labelled with his name (was "Gebruiker", 2026-11-06): the
-// day-close model copied that label into every summary as "de gebruiker".
-function buildTranscript(messages: ConversationMessage[]): string {
-  const lines: string[] = []
-  for (const msg of messages) {
-    if (typeof msg.content === 'string') {
-      lines.push(`${msg.role === 'user' ? 'Mies' : 'Coach'}: ${msg.content}`)
-    } else if (Array.isArray(msg.content)) {
-      const text = msg.content
-        .filter((block: { type: string }) => block.type === 'text')
-        .map((block: { text: string }) => block.text)
-        .join(' ')
-      if (text.trim()) {
-        lines.push(`${msg.role === 'user' ? 'Mies' : 'Coach'}: ${text.trim()}`)
-      }
-    }
-  }
-  return lines.join('\n')
-}
+import { buildTranscript, type ConversationMessage } from './transcript.ts'
+import { alsFotoSchatting, beoordeelHerkomst, type HerkomstContext } from './foto.ts'
 
 // The day-close model and morning-checkin read these facts later, out of
 // this conversation's context — a third-person fact about the user has to
@@ -279,6 +254,34 @@ export const TOOLS = [
   },
 ]
 
+// herkomst exists on nutrition_log_add only when a photo is in this
+// conversation (foto.ts fotoInGesprek) — and then it is required. Without a
+// photo the exact TOOLS array above is sent, so a day without photos has the
+// same request body as before 2026-11-17. "Required" is not enforced by the
+// API (the schema is not strict); addLog enforces it (beoordeelHerkomst).
+const HERKOMST_PROPERTY = {
+  type: 'string',
+  enum: ['foto', 'geen'],
+  description:
+    'Verplicht zolang er een foto in dit gesprek staat. "foto" = je logt een fotovoorstel dat de gebruiker heeft bevestigd (nooit in dezelfde beurt als de foto zelf); "geen" = elke andere maaltijd, ook een die hij in hetzelfde bericht als de foto noemt (bv. een shake).',
+}
+
+export function buildTools(opts: { fotoInGesprek: boolean }): unknown[] {
+  if (!opts.fotoInGesprek) return TOOLS
+  return TOOLS.map((tool) => {
+    if (tool.name !== 'nutrition_log_add') return tool
+    const schema = tool.input_schema as { properties: Record<string, unknown>; required: string[] }
+    return {
+      ...tool,
+      input_schema: {
+        ...schema,
+        properties: { ...schema.properties, herkomst: HERKOMST_PROPERTY },
+        required: [...schema.required, 'herkomst'],
+      },
+    }
+  })
+}
+
 interface MealCardInput {
   titel: string
   tag: string
@@ -321,7 +324,7 @@ export function formatMealCard(input: MealCardInput) {
 // remembered value that the model then applies wrongly is exactly the 30-09
 // failure (kipfilet fact existed, estimate still came out high).
 
-interface Product {
+export interface Product {
   id: string
   naam: string
   gewicht_basis: 'nvt' | 'rauw' | 'bereid'
@@ -346,7 +349,9 @@ interface Component {
 }
 
 const PRODUCT_COLUMNS = 'id, naam, gewicht_basis, eiwit_per_100g, kcal_per_100g, stuk_naam, stuk_gewicht_g, eiwit_per_stuk, kcal_per_stuk'
-const LOG_COLUMNS = 'id, omschrijving, tijdstip, eiwitten_g, calorieen, componenten'
+// herkomst (2026-11-17, migration 20261117_nutrition_log_herkomst.sql) — this
+// select needs that column, so the migration goes live before this code.
+const LOG_COLUMNS = 'id, omschrijving, tijdstip, eiwitten_g, calorieen, componenten, herkomst'
 
 // Plural of a product's piece unit for the card's hoeveelheid text. Falls
 // back to the singular word ("2 × reep" would read worse than "2 reep" is
@@ -366,6 +371,11 @@ const STUK_MEERVOUD: Record<string, string> = {
   portie: 'porties',
   schep: 'scheppen',
   boterham: 'boterhammen',
+  limo: "limo's",
+  shake: 'shakes',
+  burger: 'burgers',
+  wrap: 'wraps',
+  schnitzel: 'schnitzels',
 }
 
 function nl(n: number): string {
@@ -396,14 +406,25 @@ async function loadProduct(id: string): Promise<Product | null> {
   } as Product
 }
 
-type Resolved = { ok: true; component: Component } | { ok: false; error: string }
+export type Resolved = { ok: true; component: Component } | { ok: false; error: string }
 
 const NIETS_OPGESLAGEN = ' Er is niets opgeslagen.'
 
 // Turns one raw component from the model into a stored component. Errors
 // are phrased for the model (it reads them as the tool result) and always
 // say nothing was written.
-async function resolveComponent(raw: Record<string, unknown>): Promise<Resolved> {
+//
+// fotoSchatting: the component belongs to a photo meal (herkomst 'foto') —
+// computed exactly as any other component, then marked as an estimate
+// (foto.ts alsFotoSchatting). Every other caller passes nothing, so its
+// result is unchanged.
+async function resolveComponent(raw: Record<string, unknown>, opts: { fotoSchatting?: boolean } = {}): Promise<Resolved> {
+  const resolved = await resolveComponentBasis(raw)
+  if (!resolved.ok || !opts.fotoSchatting) return resolved
+  return { ok: true, component: alsFotoSchatting(resolved.component) }
+}
+
+async function resolveComponentBasis(raw: Record<string, unknown>): Promise<Resolved> {
   const gram = toNumber(raw.gram)
   const stuks = toNumber(raw.stuks)
   const basisRaw = raw.basis === 'rauw' || raw.basis === 'bereid' ? raw.basis : null
@@ -414,62 +435,7 @@ async function resolveComponent(raw: Record<string, unknown>): Promise<Resolved>
   if (typeof raw.product_id === 'string' && raw.product_id) {
     const p = await loadProduct(raw.product_id)
     if (!p) return { ok: false, error: `Onbekend of inactief product_id ${raw.product_id} — gebruik een id uit "Bekende producten", of log dit onderdeel als geschat.` + NIETS_OPGESLAGEN }
-    if ((gram === null) === (stuks === null)) {
-      return { ok: false, error: `Geef bij product "${p.naam}" precies één van gram of stuks.` + NIETS_OPGESLAGEN }
-    }
-
-    let basis: 'rauw' | 'bereid' | null = basisRaw
-    if (gram !== null && p.gewicht_basis !== 'nvt') {
-      if (!basis) {
-        return {
-          ok: false,
-          error: `De waarden van "${p.naam}" gelden per 100g ${p.gewicht_basis}. Het is niet duidelijk of die ${nl(gram)}g rauw of bereid gewogen is: vraag dit één keer aan de gebruiker en geef dan basis mee.` + NIETS_OPGESLAGEN,
-        }
-      }
-      if (basis !== p.gewicht_basis) {
-        return {
-          ok: false,
-          error: `"${p.naam}" heeft waarden per 100g ${p.gewicht_basis}, maar dit gewicht is ${basis}. Gebruik een product met basis ${basis} uit "Bekende producten", of log dit onderdeel als geschat met basis ${basis}.` + NIETS_OPGESLAGEN,
-        }
-      }
-    }
-    if (gram === null && basis === null && p.gewicht_basis !== 'nvt') basis = p.gewicht_basis
-
-    let eiwit: number
-    let kcal: number
-    let hoeveelheid: string
-    if (gram !== null) {
-      if (p.eiwit_per_100g !== null && p.kcal_per_100g !== null) {
-        eiwit = (gram * p.eiwit_per_100g) / 100
-        kcal = (gram * p.kcal_per_100g) / 100
-      } else if (p.stuk_gewicht_g && p.eiwit_per_stuk !== null && p.kcal_per_stuk !== null) {
-        eiwit = (gram / p.stuk_gewicht_g) * p.eiwit_per_stuk
-        kcal = (gram / p.stuk_gewicht_g) * p.kcal_per_stuk
-      } else {
-        return { ok: false, error: `"${p.naam}" heeft alleen waarden per ${p.stuk_naam ?? 'stuk'} zonder gewicht — geef stuks in plaats van gram.` + NIETS_OPGESLAGEN }
-      }
-      hoeveelheid = `${nl(gram)}g${basis ? ` ${basis}` : ''}`
-    } else {
-      const n = stuks as number
-      const eenheid = n === 1 ? (p.stuk_naam ?? 'stuk') : (STUK_MEERVOUD[p.stuk_naam ?? 'stuk'] ?? p.stuk_naam ?? 'stuks')
-      if (p.eiwit_per_stuk !== null && p.kcal_per_stuk !== null) {
-        eiwit = n * p.eiwit_per_stuk
-        kcal = n * p.kcal_per_stuk
-        hoeveelheid = `${nl(n)} ${eenheid}`
-      } else if (p.stuk_gewicht_g && p.eiwit_per_100g !== null && p.kcal_per_100g !== null) {
-        const g = n * p.stuk_gewicht_g
-        eiwit = (g * p.eiwit_per_100g) / 100
-        kcal = (g * p.kcal_per_100g) / 100
-        hoeveelheid = `${nl(n)} ${eenheid} (${nl(g)}g)`
-      } else {
-        return { ok: false, error: `"${p.naam}" heeft geen waarde per stuk — geef gram in plaats van stuks.` + NIETS_OPGESLAGEN }
-      }
-    }
-
-    return {
-      ok: true,
-      component: { naam: p.naam, hoeveelheid, gram, stuks, basis, eiwitten_g: eiwit, calorieen: kcal, bron: 'product', product_id: p.id },
-    }
+    return productComponent(p, gram, stuks, basisRaw)
   }
 
   const naam = typeof raw.naam === 'string' ? raw.naam.trim() : ''
@@ -487,6 +453,67 @@ async function resolveComponent(raw: Record<string, unknown>): Promise<Resolved>
   }
 }
 
+// The product half of resolveComponent, after the product is loaded — pure,
+// so it is unit-tested directly (tools.test.ts), per-100g and per-piece.
+export function productComponent(p: Product, gram: number | null, stuks: number | null, basisRaw: 'rauw' | 'bereid' | null): Resolved {
+  if ((gram === null) === (stuks === null)) {
+    return { ok: false, error: `Geef bij product "${p.naam}" precies één van gram of stuks.` + NIETS_OPGESLAGEN }
+  }
+
+  let basis: 'rauw' | 'bereid' | null = basisRaw
+  if (gram !== null && p.gewicht_basis !== 'nvt') {
+    if (!basis) {
+      return {
+        ok: false,
+        error: `De waarden van "${p.naam}" gelden per 100g ${p.gewicht_basis}. Het is niet duidelijk of die ${nl(gram)}g rauw of bereid gewogen is: vraag dit één keer aan de gebruiker en geef dan basis mee.` + NIETS_OPGESLAGEN,
+      }
+    }
+    if (basis !== p.gewicht_basis) {
+      return {
+        ok: false,
+        error: `"${p.naam}" heeft waarden per 100g ${p.gewicht_basis}, maar dit gewicht is ${basis}. Gebruik een product met basis ${basis} uit "Bekende producten", of log dit onderdeel als geschat met basis ${basis}.` + NIETS_OPGESLAGEN,
+      }
+    }
+  }
+  if (gram === null && basis === null && p.gewicht_basis !== 'nvt') basis = p.gewicht_basis
+
+  let eiwit: number
+  let kcal: number
+  let hoeveelheid: string
+  if (gram !== null) {
+    if (p.eiwit_per_100g !== null && p.kcal_per_100g !== null) {
+      eiwit = (gram * p.eiwit_per_100g) / 100
+      kcal = (gram * p.kcal_per_100g) / 100
+    } else if (p.stuk_gewicht_g && p.eiwit_per_stuk !== null && p.kcal_per_stuk !== null) {
+      eiwit = (gram / p.stuk_gewicht_g) * p.eiwit_per_stuk
+      kcal = (gram / p.stuk_gewicht_g) * p.kcal_per_stuk
+    } else {
+      return { ok: false, error: `"${p.naam}" heeft alleen waarden per ${p.stuk_naam ?? 'stuk'} zonder gewicht — geef stuks in plaats van gram.` + NIETS_OPGESLAGEN }
+    }
+    hoeveelheid = `${nl(gram)}g${basis ? ` ${basis}` : ''}`
+  } else {
+    const n = stuks as number
+    const eenheid = n === 1 ? (p.stuk_naam ?? 'stuk') : (STUK_MEERVOUD[p.stuk_naam ?? 'stuk'] ?? p.stuk_naam ?? 'stuks')
+    if (p.eiwit_per_stuk !== null && p.kcal_per_stuk !== null) {
+      eiwit = n * p.eiwit_per_stuk
+      kcal = n * p.kcal_per_stuk
+      hoeveelheid = `${nl(n)} ${eenheid}`
+    } else if (p.stuk_gewicht_g && p.eiwit_per_100g !== null && p.kcal_per_100g !== null) {
+      const g = n * p.stuk_gewicht_g
+      eiwit = (g * p.eiwit_per_100g) / 100
+      kcal = (g * p.kcal_per_100g) / 100
+      hoeveelheid = `${nl(n)} ${eenheid} (${nl(g)}g)`
+    } else {
+      return { ok: false, error: `"${p.naam}" heeft geen waarde per stuk — geef gram in plaats van stuks.` + NIETS_OPGESLAGEN }
+    }
+  }
+
+  return {
+    ok: true,
+    component: { naam: p.naam, hoeveelheid, gram, stuks, basis, eiwitten_g: eiwit, calorieen: kcal, bron: 'product', product_id: p.id },
+  }
+}
+
 interface LogRow {
   id: string
   omschrijving: string
@@ -494,6 +521,7 @@ interface LogRow {
   eiwitten_g: number | string | null
   calorieen: number | string | null
   componenten: Component[] | null
+  herkomst: 'foto' | null
 }
 
 // The log card, built ONLY from the row as the database returned it after
@@ -514,6 +542,7 @@ function buildKaart(row: LogRow, actie: 'gelogd' | 'aangepast') {
     })),
     totaal: { eiwit: Number(row.eiwitten_g) || 0, kcal: Number(row.calorieen) || 0 },
     actie,
+    herkomst: row.herkomst ?? null,
   }
 }
 
@@ -523,6 +552,7 @@ function buildKaart(row: LogRow, actie: 'gelogd' | 'aangepast') {
 function rowForModel(row: LogRow) {
   return {
     eiwitten_g: Number(row.eiwitten_g) || 0,
+    herkomst: row.herkomst ?? null,
     componenten: (row.componenten ?? []).map((c, index) => ({
       index,
       naam: c.naam,
@@ -558,14 +588,25 @@ async function computeDayTotals(todayStr: string): Promise<{ eiwitTotaal: number
 // The whole nutrition_log_add write: shared by the model's tool call and a
 // quick-log tap (logFavoriet below), so both go through exactly the same
 // resolveComponent → insert → trigger → buildKaart path.
-async function addLog(input: Record<string, unknown>, todayStr: string): Promise<Record<string, unknown>> {
+//
+// herkomst: the model's call passes its HerkomstContext and herkomst is
+// decided by foto.ts beoordeelHerkomst (a missing choice in a photo
+// conversation is an error, never a silent NULL). A quick log passes
+// 'snel-loggen': always NULL, whatever the conversation holds.
+async function addLog(input: Record<string, unknown>, todayStr: string, herkomstCtx: HerkomstContext | 'snel-loggen'): Promise<Record<string, unknown>> {
   const rawComponents = Array.isArray(input.componenten) ? (input.componenten as Record<string, unknown>[]) : []
   if (rawComponents.length === 0) {
     return { error: 'componenten is verplicht: minstens één onderdeel.' + NIETS_OPGESLAGEN }
   }
+  let herkomst: 'foto' | null = null
+  if (herkomstCtx !== 'snel-loggen') {
+    const besluit = beoordeelHerkomst(input.herkomst, herkomstCtx)
+    if (!besluit.ok) return { error: besluit.error }
+    herkomst = besluit.herkomst
+  }
   const componenten: Component[] = []
   for (const raw of rawComponents) {
-    const resolved = await resolveComponent(raw ?? {})
+    const resolved = await resolveComponent(raw ?? {}, { fotoSchatting: herkomst === 'foto' })
     if (!resolved.ok) return { error: resolved.error }
     componenten.push(resolved.component)
   }
@@ -574,7 +615,7 @@ async function addLog(input: Record<string, unknown>, todayStr: string): Promise
   // ignored.
   const { data, error } = await supabase
     .from('nutrition_log')
-    .insert({ datum: todayStr, tijdstip: input.tijdstip, omschrijving: input.omschrijving, componenten })
+    .insert({ datum: todayStr, tijdstip: input.tijdstip, omschrijving: input.omschrijving, componenten, herkomst })
     .select(LOG_COLUMNS)
     .single()
   if (error) return { error: error.message }
@@ -667,7 +708,7 @@ export async function logFavoriet(favorietId: unknown, tijdstip: unknown, todayS
   if (!fav) return { ok: false, error: `onbekende of inactieve favoriet ${favorietId}` }
 
   const input = { omschrijving: fav.naam, tijdstip, componenten: fav.componenten }
-  const result = await addLog(input, todayStr)
+  const result = await addLog(input, todayStr, 'snel-loggen')
   if ('error' in result) return { ok: false, error: String(result.error) }
 
   // Guarded on the count just read: a concurrent tap would make this a
@@ -739,10 +780,11 @@ export async function executeTool(
   input: Record<string, unknown>,
   todayStr: string,
   conversationMessages: ConversationMessage[],
+  herkomstCtx: HerkomstContext,
 ): Promise<unknown> {
   switch (name) {
     case 'nutrition_log_add':
-      return addLog(input, todayStr)
+      return addLog(input, todayStr, herkomstCtx)
     case 'favoriet_opslaan':
       return saveFavoriet(input)
     case 'nutrition_log_update': {
@@ -776,6 +818,10 @@ export async function executeTool(
           }
         }
         const componenten = [...existing.componenten]
+        // A component of a photo meal stays an estimate when it is changed
+        // or added (foto.ts alsFotoSchatting) — the amount still came from
+        // the photo. Non-photo rows: unchanged (nothing is passed).
+        const fotoSchatting = existing.herkomst === 'foto'
         const checkIndex = (v: unknown): number | string => {
           const i = Number(v)
           if (!Number.isInteger(i) || i < 0 || i >= componenten.length) {
@@ -789,10 +835,15 @@ export async function executeTool(
           if (typeof i === 'string') return { error: i }
           const current = componenten[i]
           const valuesGiven = wijziging.eiwitten_g !== undefined || wijziging.calorieen !== undefined
+          // A product component is bron 'product', or — only in a photo
+          // meal (2026-11-17) — bron 'geschat' with its product_id kept. No
+          // stored component had that shape before (checked live: 0), so
+          // for every older row this condition is the same as before.
+          const isProductComponent = current.bron === 'product' || (current.bron === 'geschat' && Boolean(current.product_id))
           const productPath =
             !valuesGiven &&
             (typeof wijziging.product_id === 'string' ||
-              (current.bron === 'product' &&
+              (isProductComponent &&
                 (wijziging.gram !== undefined || wijziging.stuks !== undefined || wijziging.basis !== undefined || wijziging.herbereken === true)))
           let raw: Record<string, unknown>
           if (productPath) {
@@ -821,11 +872,11 @@ export async function executeTool(
               bron: wijziging.bron ?? (current.bron === 'product' ? 'gebruiker' : current.bron),
             }
           }
-          const resolved = await resolveComponent(raw)
+          const resolved = await resolveComponent(raw, { fotoSchatting: fotoSchatting && productPath })
           if (!resolved.ok) return { error: resolved.error }
           componenten[i] = resolved.component
         } else if (toevoegen) {
-          const resolved = await resolveComponent(toevoegen)
+          const resolved = await resolveComponent(toevoegen, { fotoSchatting })
           if (!resolved.ok) return { error: resolved.error }
           componenten.push(resolved.component)
         } else if (verwijderen !== undefined && verwijderen !== null) {

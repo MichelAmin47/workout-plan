@@ -12,6 +12,7 @@ import TypingIndicator from './TypingIndicator.jsx'
 import SendIcon from './SendIcon.jsx'
 import EyeIcon from './EyeIcon.jsx'
 import BoltIcon from './BoltIcon.jsx'
+import CameraIcon from './CameraIcon.jsx'
 import QuickLogSheet from './QuickLogSheet.jsx'
 import { buildOpeningMessages, quickReplyOptions, makeMessageId } from '../data/seedMessages.js'
 import { askCoach, fetchFavorieten } from '../lib/chatApi.js'
@@ -20,11 +21,24 @@ import { fetchProteinProgress } from '../lib/dayProgress.js'
 import { todayDateString, loadStoredThread, saveThread, clearThread } from '../lib/threadStorage.js'
 import { shouldShowCheckin, hasShownCheckinToday, markCheckinShown, fetchMorningCheckin } from '../lib/morningCheckin.js'
 import { syncSteps, fetchTodaySteps } from '../lib/stepSync.js'
+import { heeftOpenFoto } from '../lib/fotoMarker.js'
+import { verkleinFoto } from '../lib/fotoResize.js'
 
 const FALLBACK_ERROR_TEXT = 'Sorry, ik kan even niet reageren — probeer het zo nog eens.'
 // Same intent as the block 4b opening variant, phrased for arriving
 // mid-conversation (via a notification tap) rather than as a greeting.
 const NOTIFICATION_TAP_QUESTION = 'Is er nog iets dat je vandaag hebt gegeten dat ik nog niet weet, zodat ik de dag kan samenvatten? 🌿'
+const FOTO_HINT = 'Schuin van boven, met een vork of hand in beeld als maatstaf.'
+const FOTO_OPEN_FOUT = 'Deze foto kan ik niet openen — maak hem opnieuw of kies een JPEG.'
+
+// A photo whose proposal was never logged, in the part of the thread that
+// stops being sent (rollover, a day closed elsewhere, "Start nieuwe dag"):
+// the photo and the coach's proposal leave the history together, so the app
+// says so — on screen, and to the coach as a user line (chatApi.js) —
+// instead of a later "ja, log die" being answered from nothing.
+function fotoVerlopenNotice(previousMessages) {
+  return heeftOpenFoto(previousMessages) ? [{ id: makeMessageId(), type: 'foto-verlopen' }] : []
+}
 
 // Several cards for the same row within ONE turn (logged, then corrected
 // before the reply): only the last is current; earlier ones are marked
@@ -76,7 +90,7 @@ async function buildRolloverTransition(previousMessages, previousDate, today) {
   // just-appended messages using a now-outdated activeDate. Drop it rather
   // than carry it forward as dead history.
   const carryOver = previousMessages.filter((m) => m.type !== 'day-close-button')
-  return { messages: [...carryOver, marker, ...opening], summaryId }
+  return { messages: [...carryOver, marker, ...fotoVerlopenNotice(previousMessages), ...opening], summaryId }
 }
 
 // Block 5: wraps buildOpeningMessages with the morning check-in card
@@ -152,6 +166,13 @@ export default function Coach() {
   const [quickLogOpen, setQuickLogOpen] = useState(false)
   const [favorieten, setFavorieten] = useState(null)
   const [favorietenError, setFavorietenError] = useState(false)
+  // Plate photo waiting to be sent: { mediaType, data, previewUrl } from
+  // fotoResize.js. Component state only — never written to the stored
+  // thread (that keeps only `foto: true` on the message). One at a time.
+  const [pendingFoto, setPendingFoto] = useState(null)
+  const [fotoBezig, setFotoBezig] = useState(false)
+  const [fotoFout, setFotoFout] = useState(null)
+  const fotoInputRef = useRef(null)
   const scrollRef = useRef(null)
   const inputRef = useRef(null)
   // Not rendered, so a ref is enough — read at save time, written whenever a
@@ -306,7 +327,7 @@ export default function Coach() {
         summaryIdAtStartRef.current = await fetchSummaryId(today)
         const opening = await buildDailyOpening(summaryIdAtStartRef.current !== null, progress, today)
         if (cancelled) return
-        setMessages(opening)
+        setMessages([...fotoVerlopenNotice(stored.messages), ...opening])
         setThreadDate(today)
       } else {
         summaryIdAtStartRef.current = stored.summaryIdAtStart ?? null
@@ -434,6 +455,7 @@ export default function Coach() {
   // in coach-chat/tools.ts — so this only ever does client-side reads +
   // state changes, never a write.
   async function handleStartNewDay(activeDate) {
+    const verlopen = fotoVerlopenNotice(messagesRef.current)
     clearThread()
     // Use the date the server actually closed, not a locally-recomputed
     // one — this is exactly the flow the "closed after midnight, filed
@@ -447,17 +469,48 @@ export default function Coach() {
     setJustClosedSummary(
       summary ? { eyebrow: 'Dag afgesloten', text: summary.samenvatting, note: summary.aandachtspunt } : null,
     )
-    setMessages(buildOpeningMessages(summary != null, progress))
+    setMessages([...verlopen, ...buildOpeningMessages(summary != null, progress)])
     setThreadDate(today)
   }
 
   async function sendMessage(text) {
     const trimmed = text.trim()
-    if (!trimmed) return
+    const foto = pendingFoto
+    if (!trimmed && !foto) return
 
-    const userMessage = { id: makeMessageId(), type: 'user', text: trimmed, time: nowTime() }
+    // A photo message stores only `foto: true` — the image goes with this
+    // one request (askCoach's foto) and is dropped from memory right after.
+    const userMessage = { id: makeMessageId(), type: 'user', text: trimmed, time: nowTime(), ...(foto ? { foto: true } : {}) }
     setInputValue('')
-    await runCoachTurn(userMessage)
+    if (foto) {
+      URL.revokeObjectURL(foto.previewUrl)
+      setPendingFoto(null)
+      setFotoFout(null)
+    }
+    await runCoachTurn(userMessage, null, foto)
+  }
+
+  async function handleFotoGekozen(e) {
+    const file = e.target.files?.[0]
+    // Reset so picking the same file again still fires onChange.
+    e.target.value = ''
+    if (!file) return
+    setFotoFout(null)
+    setFotoBezig(true)
+    try {
+      const resized = await verkleinFoto(file)
+      setPendingFoto(resized)
+    } catch (err) {
+      console.warn('[foto] could not prepare photo', err)
+      setFotoFout(FOTO_OPEN_FOUT)
+    } finally {
+      setFotoBezig(false)
+    }
+  }
+
+  function removePendingFoto() {
+    if (pendingFoto) URL.revokeObjectURL(pendingFoto.previewUrl)
+    setPendingFoto(null)
   }
 
   // One tap on a favourite: shown as a compact bolt bubble, sent to
@@ -478,7 +531,7 @@ export default function Coach() {
     refreshFavorieten()
   }
 
-  async function runCoachTurn(userMessage, quickLog = null) {
+  async function runCoachTurn(userMessage, quickLog = null, foto = null) {
     const threadWithUserMessage = [...messages, userMessage]
     setMessages(threadWithUserMessage)
     setIsTyping(true)
@@ -492,8 +545,11 @@ export default function Coach() {
     // A quick log that wrote nothing is marked, so later turns don't tell
     // the coach it was logged (see chatApi.js toApiMessages).
     let quickLogFailed = false
+    // Same for a photo the coach never received: its history line then says
+    // so, and it can never count as a photo in this conversation.
+    let fotoFailed = false
     try {
-      const result = await askCoach(threadWithUserMessage, quickLog)
+      const result = await askCoach(threadWithUserMessage, quickLog, foto)
       replyText = result.reply
       daySummaryWritten = result.daySummaryWritten
       closedActiveDate = result.activeDate
@@ -515,6 +571,7 @@ export default function Coach() {
       console.error('coach-chat call failed', err)
       replyText = FALLBACK_ERROR_TEXT
       quickLogFailed = quickLog !== null
+      fotoFailed = foto !== null
     }
 
     setIsTyping(false)
@@ -540,6 +597,7 @@ export default function Coach() {
     setMessages((prev) => [
       ...prev.map((m) => {
         if (quickLogFailed && m.id === userMessage.id) return { ...m, quickLog: { ...m.quickLog, status: 'mislukt' } }
+        if (fotoFailed && m.id === userMessage.id) return { ...m, foto: 'mislukt' }
         if (m.type !== 'log-card' || m.status === 'verwijderd') return m
         if (removedLogIds.has(m.logId)) return { ...m, status: 'verwijderd' }
         if (updatedLogIds.has(m.logId)) return { ...m, status: 'vervangen' }
@@ -555,6 +613,9 @@ export default function Coach() {
         rows: card.rows,
         totaal: card.totaal,
         actie: card.actie,
+        // 'foto' marks a photo estimate on the card, and closes that photo's
+        // proposal in the history (fotoMarker.js). null on older servers.
+        herkomst: card.herkomst ?? null,
         ...(card.status ? { status: card.status } : {}),
       })),
       { id: makeMessageId(), type: 'coach', text: replyText, time: nowTime() },
@@ -665,6 +726,7 @@ export default function Coach() {
                   totaal={msg.totaal}
                   actie={msg.actie}
                   status={msg.status}
+                  herkomst={msg.herkomst}
                 />
               )
             case 'summary-card':
@@ -672,7 +734,13 @@ export default function Coach() {
                 <SummaryCard key={msg.id} eyebrow={msg.eyebrow} text={msg.text} note={msg.note} streak={msg.streak} />
               )
             case 'user':
-              return <UserBubble key={msg.id} text={msg.text} time={msg.time} quickLog={msg.quickLog} />
+              return <UserBubble key={msg.id} text={msg.text} time={msg.time} quickLog={msg.quickLog} foto={msg.foto} />
+            case 'foto-verlopen':
+              return (
+                <div key={msg.id} className="foto-notice">
+                  📷 Je foto van eerder is niet gelogd en de coach kan hem niet meer zien. Wil je hem nog loggen, stuur hem dan opnieuw.
+                </div>
+              )
             case 'coach':
               return <CoachBubble key={msg.id} text={msg.text} time={msg.time} />
             case 'day-close-button':
@@ -700,6 +768,24 @@ export default function Coach() {
         </div>
       )}
 
+      {(pendingFoto || fotoBezig || fotoFout) && (
+        <div className="foto-strip">
+          {pendingFoto && (
+            <div className="foto-preview">
+              <img src={pendingFoto.previewUrl} alt="Foto van je bord" />
+              <button type="button" className="foto-remove" aria-label="Foto verwijderen" onClick={removePendingFoto}>
+                ×
+              </button>
+            </div>
+          )}
+          <div className="foto-strip-text">
+            {fotoBezig && <div className="foto-hint">Foto voorbereiden…</div>}
+            {fotoFout && <div className="foto-error">{fotoFout}</div>}
+            {pendingFoto && <div className="foto-hint">{FOTO_HINT}</div>}
+          </div>
+        </div>
+      )}
+
       <form className="input-bar" onSubmit={handleSubmit}>
         <button
           type="button"
@@ -713,16 +799,36 @@ export default function Coach() {
         >
           <BoltIcon />
         </button>
+        {/* Plain file input, no Camera plugin: Capacitor's WebView handles
+            capture (camera app, or the photo picker as its own fallback). */}
+        <button
+          type="button"
+          className="quick-log-btn foto-btn"
+          aria-label="Foto van je bord"
+          title={FOTO_HINT}
+          disabled={isTyping || fotoBezig || pendingFoto !== null}
+          onClick={() => fotoInputRef.current?.click()}
+        >
+          <CameraIcon />
+        </button>
+        <input
+          ref={fotoInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="foto-input"
+          onChange={handleFotoGekozen}
+        />
         <textarea
           ref={inputRef}
           className="input-field"
           rows={1}
-          placeholder="Typ een bericht…"
+          placeholder={pendingFoto ? 'Iets erbij? (mag leeg)' : 'Typ een bericht…'}
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleInputKeyDown}
         />
-        <button className="send-btn" type="submit" disabled={!inputValue.trim()}>
+        <button className="send-btn" type="submit" disabled={!inputValue.trim() && !pendingFoto}>
           <SendIcon />
         </button>
       </form>

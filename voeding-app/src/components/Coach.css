@@ -922,3 +922,93 @@
   text-align: center;
   margin-top: 16px;
 }
+
+/* ── Foto van je bord ── */
+.foto-input {
+  display: none;
+}
+.foto-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px 0;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  min-width: 0;
+}
+/* The input bar's own top border would double up under the strip. */
+.foto-strip + .input-bar {
+  border-top: none;
+}
+.foto-preview {
+  position: relative;
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+}
+.foto-preview img {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  display: block;
+}
+.foto-remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 15px;
+  line-height: 22px;
+  padding: 0;
+  cursor: pointer;
+  appearance: none;
+}
+.foto-strip-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.foto-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+.foto-error {
+  font-size: 12px;
+  color: #C0392B;
+  line-height: 1.4;
+}
+.foto-chip {
+  font-size: 12px;
+  opacity: 0.85;
+  margin-bottom: 2px;
+}
+.foto-chip-mislukt {
+  opacity: 0.7;
+}
+.foto-notice {
+  align-self: center;
+  max-width: 88%;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 12px;
+  text-align: center;
+}
+.log-card-foto {
+  padding: 8px 16px 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}

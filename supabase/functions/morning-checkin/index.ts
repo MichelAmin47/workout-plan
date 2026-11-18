@@ -515,6 +515,30 @@ export function diagnoseAntwoordOptieLabels(raw: unknown): AntwoordOptieLabelDia
   })
 }
 
+type GisterenMeal = { omschrijving: string; tijdstip: string | null; eiwitten_g: number; herkomst?: string | null }
+
+// Same rendering shape as _shared/summary.ts's own mealsText, minus
+// calorieën — this card may ask ABOUT yesterday's meals (point b of the
+// priority ladder below), never judge them, so calories (which invite
+// judgment, protein doesn't) are deliberately excluded from what the
+// model even sees here. A photo meal (herkomst 'foto', 2026-11-17) is
+// labelled: its protein value is the midpoint of an estimated range, and
+// FOTO_REGEL below says how to talk about it. Exported for its unit test
+// (fotoRegel.test.ts).
+export function formatGisterenMeals(gisterenMeals: GisterenMeal[]): string {
+  return gisterenMeals.length > 0
+    ? gisterenMeals.map((m) => `- ${m.tijdstip ?? '?'} ${m.omschrijving}${m.herkomst === 'foto' ? ' (schatting van foto)' : ''}: ${m.eiwitten_g}g eiwit`).join('\n')
+    : 'Geen maaltijden gelogd.'
+}
+
+// coach-chat's prompt gives ranges for a photo meal and never states a food
+// weight as measured; this model does not inherit that prompt and sees the
+// stored midpoint as a plain number, so the rule is repeated here (prompt
+// rule propagation, same as _shared/summary.ts FOTO_REGEL). The second
+// sentence: the card never asks him to take or send a photo.
+export const FOTO_REGEL =
+  '- Een maaltijd met "(schatting van foto)" is geschat van een foto van zijn bord: noem het eiwit daarvan alleen als schatting ("rond de 40g"), nooit als exact getal, en noem nooit een gewicht van het eten — dat is nooit gewogen. Vraag hem nooit om een foto van zijn eten te maken of te sturen.'
+
 // Own short prompt, not the full PERSONA_PROMPT — same reasoning
 // _shared/summary.ts already uses its own narrower prompts for the
 // day-summary rather than the persona block. This task is much smaller
@@ -532,7 +556,7 @@ function buildSystemPrompt(
   aandachtspunt: string | null,
   memoryFacts: { feit: string; categorie: string | null }[],
   vraagVoorMorgen: string | null,
-  gisterenMeals: { omschrijving: string; tijdstip: string | null; eiwitten_g: number }[],
+  gisterenMeals: GisterenMeal[],
   recentTopics: string[],
   excludeStemming: boolean,
   gecaptRegel: string,
@@ -564,16 +588,8 @@ function buildSystemPrompt(
     ? `\n- Achtergrondkennis over de gebruiker (langetermijngeheugen) — gebruik dit om aannames te toetsen en tegenspraken te voorkomen (bijv. welke dagen kantoordag zijn, vaste gewoontes), NIET als een lijst om suggesties uit te putten: noem een van deze feiten alleen als de dag van vandaag daar zelf om vraagt.\n${memoryFacts.map((f) => `  - ${f.feit}`).join('\n')}`
     : ''
 
-  // Same rendering shape as _shared/summary.ts's own mealsText, minus
-  // calorieën — this card may ask ABOUT yesterday's meals (point b of the
-  // priority ladder below), never judge them, so calories (which invite
-  // judgment, protein doesn't) are deliberately excluded from what the
-  // model even sees here.
   const eiwitTotaalGisteren = gisterenMeals.reduce((sum, m) => sum + (Number(m.eiwitten_g) || 0), 0)
-  const gisterenMealsText =
-    gisterenMeals.length > 0
-      ? gisterenMeals.map((m) => `- ${m.tijdstip ?? '?'} ${m.omschrijving}: ${m.eiwitten_g}g eiwit`).join('\n')
-      : 'Geen maaltijden gelogd.'
+  const gisterenMealsText = formatGisterenMeals(gisterenMeals)
 
   return `Je schrijft een korte ochtend check-in kaart voor de voedingscoach-app "Coach" — het eerste wat de gebruiker ziet bij het openen van de app, in plaats van een generieke groet. Velden: vraag (de letterlijke vraag, komt prominent op de kaart), optioneel een korte boodschap, een context-regel (label + tekst, een korte ondersteunende regel), vraag_type/vraag_bron (welke soort vraag, via welke route), vraag_onderwerp en antwoord_opties.
 
@@ -599,6 +615,7 @@ ${
 
 Regels:
 - Focus op eiwitten. Noem GEEN calorieën en GEEN dagtotaal.
+${FOTO_REGEL}
 - Noem NOOIT gewicht, een gewichtstrend of onderhoudsniveau — ook niet als dit in het aandachtspunt, de klaargezette vraag, of de maaltijdgegevens van gisteren hierboven voorkomt. Dit wordt bewust nergens teruggegeven, ook niet hier.
 - Geen schuldgevoel-taal, geen "je zat ver onder/boven je doel" — dit gaat over training en herstel, niet over hoe gisteren scoorde tegenover een doel. Dit geldt ook voor de maaltijdtijden hierboven: die mag je BEVRAGEN (bv. "at je expres zo laat?"), nooit BEOORDELEN — sommige dagen worden achteraf met geschatte tijden ingevoerd, dus de gebruiker moet die aanname in zijn antwoord kunnen corrigeren.
 - Gebruik een dagwoord als "gisteren" of "vandaag" alleen als dat rechtstreeks klopt met de "Gisteren was..."/"Vandaag is..."-feiten hierboven, of met een dagaanduiding die letterlijk in het aandachtspunt zelf staat. Verwijs je naar iets uit het aandachtspunt waarvan de dag niet met zekerheid vaststaat, gebruik dan gewoon geen dagwoord ("na de boksles" in plaats van "gisteren na de boksles") — verzin er nooit een bij.
@@ -1082,7 +1099,7 @@ Deno.serve(async (req: Request) => {
       // Yesterday's logged meals for priority (b) of the question ladder —
       // calorieen deliberately NOT selected (this card may ask about
       // meals, never judge them; see buildSystemPrompt's own comment).
-      supabase.from('nutrition_log').select('omschrijving, tijdstip, eiwitten_g').eq('datum', yesterdayDateStr).order('tijdstip', { ascending: true }),
+      supabase.from('nutrition_log').select('omschrijving, tijdstip, eiwitten_g, herkomst').eq('datum', yesterdayDateStr).order('tijdstip', { ascending: true }),
       // Last 3 recorded cards before today, most recent first — feeds both
       // the no-repeat instruction and (from the most recent entry, if it's
       // literally yesterday) the never-two-stemming-days-running check.

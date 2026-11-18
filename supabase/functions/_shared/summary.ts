@@ -54,7 +54,7 @@ function buildRecordSummaryTool(toegestaan: VraagOnderwerp[]) {
         vraag_voor_morgen: {
         type: 'string',
         description:
-          'Optioneel: één concrete vraag die de ochtend check-in kaart morgen aan hem kan stellen, gebaseerd op iets uit het gesprek van vandaag (indien beschikbaar) of anders op de gelogde maaltijden/training van vandaag. Precies één vraag over precies één onderwerp — nooit twee dingen in één vraag samengevoegd met "en" (bv. nooit "heb je goed geslapen EN hoe voelen je schouders aan", kies er dan één). Vooruitkijkend geformuleerd ("zou je morgen kunnen...", "ga je nog...") — nooit verwijtend ("je hebt gisteren maar..."). Noem hierin NOOIT gewicht, een gewichtstrend of onderhoudsniveau, en NOOIT calorieën — ook niet via stappen (reken stappen nooit om naar calorieën, geen stappendoel). Spreek hem rechtstreeks aan met "je" (deze vraag komt letterlijk op zijn kaart — dus hier NIET "Mies"). Vul bij een vraag ook vraag_onderwerp in. Laat dit veld gewoon weg (of leeg) als de dag echt niets opleverde om morgen naar te vragen — verzin dan niets.',
+          'Optioneel: één concrete vraag die de ochtend check-in kaart morgen aan hem kan stellen, gebaseerd op iets uit het gesprek van vandaag (indien beschikbaar) of anders op de gelogde maaltijden/training van vandaag. Precies één vraag over precies één onderwerp — nooit twee dingen in één vraag samengevoegd met "en" (bv. nooit "heb je goed geslapen EN hoe voelen je schouders aan", kies er dan één). Vooruitkijkend geformuleerd ("zou je morgen kunnen...", "ga je nog...") — nooit verwijtend ("je hebt gisteren maar..."). Noem hierin NOOIT gewicht, een gewichtstrend of onderhoudsniveau, en NOOIT calorieën — ook niet via stappen (reken stappen nooit om naar calorieën, geen stappendoel). Spreek hem rechtstreeks aan met "je" (deze vraag komt letterlijk op zijn kaart — dus hier NIET "Mies"). Vul bij een vraag ook vraag_onderwerp in. Vraag hem nooit om een foto van zijn eten te maken of te sturen. Laat dit veld gewoon weg (of leeg) als de dag echt niets opleverde om morgen naar te vragen — verzin dan niets.',
         },
         vraag_onderwerp: {
           type: 'string',
@@ -133,6 +133,15 @@ const TOOL_REGEL = '- Leg het resultaat ALTIJD vast met één aanroep van het re
 const STAPPEN_REGEL =
   '- Reken stappen of wandelen NOOIT om naar calorieën of "verbrande energie", in geen enkel veld — ook niet als het in het gesprek ter sprake kwam. Noem ook geen stappendoel.'
 
+// Photo meals (2026-11-17): coach-chat gives ranges and never a weight as if
+// measured, and stores the midpoint per component. That rule lives in
+// coach-chat's prompt, which this model does not inherit — and this model
+// sees the stored midpoints as plain numbers, plus "📷 foto" lines in the
+// transcript. Its text is carried into the next day's context and the
+// morning card, so the rule is stated here too (prompt rule propagation).
+const FOTO_REGEL =
+  '- Maaltijden gemarkeerd met "(schatting van foto)" zijn geschat van een foto van zijn bord (in het gesprek: een regel "📷 foto"). De eiwitwaarde daarvan is het midden van een geschat bereik: noem die als schatting ("rond de 40g"), nooit als exact getal, en noem nooit een gewicht van het eten ("180g kip") — dat is nooit gewogen.'
+
 function buildRichSystemPrompt(datum: string, workoutSummary: string, mealsText: string, gecaptRegel: string): string {
   return `Je bent een samenvattingsmodel voor de voedingscoach-app "Coach". Je taak: comprimeer één dag naar twee korte velden voor coach_sessions — samenvatting en aandachtspunt. Dit vervangt het bewaren van de losse chatberichten; wat je hier niet vastlegt is morgen weg.
 
@@ -148,6 +157,7 @@ Regels:
 ${AANDACHTSPUNT_ANKER_REGEL}
 ${GEBRUIKER_VERWIJZING_REGEL}
 ${STAPPEN_REGEL}
+${FOTO_REGEL}
 - Zodra Mies in het gesprek heeft aangegeven vol of klaar te zijn voor die dag: sluit af op wat goed ging. Noem GEEN manieren om het eiwitdoel alsnog te halen en geen "je had nog wat kunnen eten" — dat is precies het gedrag dat de coach zelf ook al vermijdt.
 - De caloriewaarden hieronder staan erbij voor nauwkeurigheid, niet om standaard te noemen. Focus zoals gebruikelijk op eiwitten en hoe de dag verliep — noem calorieën alleen als dat al onderdeel was van het gesprek zelf.
 - Noem NOOIT gewicht, een gewichtstrend of onderhoudsniveau in samenvatting of aandachtspunt — ook niet als dit in het gesprek zelf ter sprake kwam (bv. een weegmoment). Dit wordt bewust nergens teruggegeven, ook niet hier.
@@ -173,6 +183,7 @@ Regels:
 ${AANDACHTSPUNT_ANKER_REGEL}
 ${GEBRUIKER_VERWIJZING_REGEL}
 ${STAPPEN_REGEL}
+${FOTO_REGEL}
 - De caloriewaarden hieronder staan erbij voor nauwkeurigheid, niet om standaard te noemen — focus zoals gebruikelijk op eiwitten, niet op calorieën.
 ${gecaptRegel ? `${gecaptRegel}\n` : ''}${TOOL_REGEL}
 
@@ -205,7 +216,7 @@ export async function closeDayWithSummary(
   const venster = capVenster(kaartDatumMorgen)
 
   const [mealsRes, workoutSummary, cardsRes] = await Promise.all([
-    supabase.from('nutrition_log').select('tijdstip, omschrijving, eiwitten_g, calorieen').eq('datum', datum).order('tijdstip', { ascending: true }),
+    supabase.from('nutrition_log').select('tijdstip, omschrijving, eiwitten_g, calorieen, herkomst').eq('datum', datum).order('tijdstip', { ascending: true }),
     resolveWorkoutForDate(datum),
     supabase.from('coach_checkin_card').select('datum, vraag_onderwerp').gte('datum', venster.van).lte('datum', venster.totEnMet),
   ])
@@ -223,7 +234,7 @@ export async function closeDayWithSummary(
   const meals = sortMealsByActiveDayOrder(mealsRes.data ?? [])
   const mealsText =
     meals.length > 0
-      ? meals.map((m) => `- ${m.tijdstip ?? '?'} ${m.omschrijving}: ${m.eiwitten_g}g eiwit, ${m.calorieen}kcal`).join('\n')
+      ? meals.map((m) => `- ${m.tijdstip ?? '?'} ${m.omschrijving}${m.herkomst === 'foto' ? ' (schatting van foto)' : ''}: ${m.eiwitten_g}g eiwit, ${m.calorieen}kcal`).join('\n')
       : 'Geen maaltijden gelogd.'
 
   // Plain SUM over the actual rows — never estimated by Opus, same
