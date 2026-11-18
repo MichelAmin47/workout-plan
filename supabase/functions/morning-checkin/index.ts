@@ -515,16 +515,6 @@ export function diagnoseAntwoordOptieLabels(raw: unknown): AntwoordOptieLabelDia
   })
 }
 
-// Own short prompt, not the full PERSONA_PROMPT — same reasoning
-// _shared/summary.ts already uses its own narrower prompts for the
-// day-summary rather than the persona block. This task is much smaller
-// than a full conversation: a few facts in, three-to-four fields out.
-//
-// excludeStemming must be the exact same boolean passed to
-// buildRenderCheckinTool for this same request — it drives both the tool
-// schema (which options exist at all) and this prompt text (why one is
-// missing); passing them out of sync would tell the model something the
-// schema itself contradicts.
 type GisterenMeal = { omschrijving: string; tijdstip: string | null; eiwitten_g: number; herkomst?: string | null }
 
 // Same rendering shape as _shared/summary.ts's own mealsText, minus
@@ -549,6 +539,16 @@ export function formatGisterenMeals(gisterenMeals: GisterenMeal[]): string {
 export const FOTO_REGEL =
   '- Een maaltijd met "(schatting van foto)" is geschat van een foto van zijn bord: noem het eiwit daarvan alleen als schatting ("rond de 40g"), nooit als exact getal, en noem nooit een gewicht van het eten — dat is nooit gewogen. Vraag hem nooit om een foto van zijn eten te maken of te sturen.'
 
+// Own short prompt, not the full PERSONA_PROMPT — same reasoning
+// _shared/summary.ts already uses its own narrower prompts for the
+// day-summary rather than the persona block. This task is much smaller
+// than a full conversation: a few facts in, three-to-four fields out.
+//
+// excludeStemming must be the exact same boolean passed to
+// buildRenderCheckinTool for this same request — it drives both the tool
+// schema (which options exist at all) and this prompt text (why one is
+// missing); passing them out of sync would tell the model something the
+// schema itself contradicts.
 function buildSystemPrompt(
   yesterday: DayFact,
   today: DayFact,
