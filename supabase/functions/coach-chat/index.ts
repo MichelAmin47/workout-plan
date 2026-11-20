@@ -13,6 +13,7 @@ import { PERSONA_PROMPT, buildDynamicContext } from './prompt.ts'
 import { buildTools, executeTool, formatMealCard, listFavorieten, logFavoriet } from './tools.ts'
 import { buildQuickLogUserText, replaceQuickLogLine } from './quickLogText.ts'
 import { eiwitClaimDisclaimer, fotoInGesprek, fotoVoorstelOpen, injectFoto, valideerFoto, type HerkomstContext } from './foto.ts'
+import { toolErrorLogLine } from './toolErrorLog.ts'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -164,6 +165,9 @@ async function runToolLoop(
         if (block.type === 'tool_use' && block.id && block.name) {
           calledToolNames.push(block.name)
           const toolResult = blockTool(block.name) ?? (await executeTool(block.name, block.input ?? {}, todayStr, workingMessages, herkomstCtx))
+          // Log only — the tool result below goes to the model unchanged.
+          const errLine = toolErrorLogLine(block.name, i, toolResult, block.input)
+          if (errLine) console.warn(errLine)
           onToolResult(block.name, toolResult)
           toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(withoutClientKeys(toolResult)) })
         }
